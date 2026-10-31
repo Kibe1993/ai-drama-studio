@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { isBusyStatus, STATUS_LABELS, type ProjectStatus } from "@/lib/domain/projectCatalog";
+import { ProductionPanel } from "@/components/production/ProductionPanel";
 import { ProjectForm } from "@/components/projects/ProjectForm";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/hooks/api";
@@ -109,9 +110,7 @@ export default function ProjectPage() {
               </li>
             ))}
           </ol>
-          <p className="mt-4 text-sm text-[#a39b8f]">
-            Guided production is the only mode in this release. Story generation has not started, so this project stays a saved brief.
-          </p>
+          <ProductionPanel projectId={project.id} status={project.status} />
 
           {confirmDelete ? (
             <div className="mt-6 flex flex-wrap items-center gap-3 border border-[#6b3a32] px-4 py-3">

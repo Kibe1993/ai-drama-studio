@@ -1,6 +1,6 @@
 # Background jobs
 
-Status: Phase 0 design. Redis, BullMQ, and `workers/` are not installed.
+Status: Phase 2. BullMQ and `workers/studio.ts` are installed. Jobs are recorded in MongoDB. The worker exits if `REDIS_URL` is missing. Tests use an in-memory queue, not Redis.
 
 ## Two stores
 

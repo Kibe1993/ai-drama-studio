@@ -1,4 +1,3 @@
-import "server-only";
 import mongoose from "mongoose";
 import { connectDB } from "@/lib/db/connect";
 import { projectModel, type ProjectShape } from "@/lib/models/project";

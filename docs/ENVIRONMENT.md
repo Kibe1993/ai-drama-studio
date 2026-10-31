@@ -1,6 +1,6 @@
 # Environment
 
-Status: Phase 1 reads `MONGODB_URI`, the Clerk keys, and `ADMIN_USER_IDS` when it is set. `APP_URL`, provider, Redis, and storage variables are not read yet. Do not commit values.
+Status: Phase 2 reads `MONGODB_URI`, the Clerk keys, `ADMIN_USER_IDS` when it is set, and `REDIS_URL` for the queue. Provider and storage variables are not read yet. Do not commit values.
 
 Copy `.env.example` to `.env.local`.
 
@@ -31,6 +31,6 @@ Copy `.env.example` to `.env.local`.
 | `S3_REGION` | Phase 6 | Required by the AWS SDK even for some compatible stores |
 | `S3_ACCESS_KEY_ID` | Phase 6 | Server and worker only |
 | `S3_SECRET_ACCESS_KEY` | Phase 6 | Server and worker only |
-| `REDIS_URL` | Phase 2 | The Next.js process that enqueues, and the worker |
+| `REDIS_URL` | Phase 2 worker and enqueue | Required to process jobs outside the tests. Without it, a job is saved and marked waiting for the queue |
 
 `ProviderConfiguration` does not replace these secrets. An empty key disables that provider. The UI shows it as unavailable.

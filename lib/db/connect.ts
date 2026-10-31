@@ -1,4 +1,3 @@
-import "server-only";
 import mongoose from "mongoose";
 
 const DATABASE_NAME = "DramaStudio";

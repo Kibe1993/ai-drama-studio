@@ -21,6 +21,14 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). Sign in, then create a drama from the dashboard.
 
+To move a project through the mocked production stages, set `REDIS_URL` and run the worker in a second terminal:
+
+```bash
+npm run worker
+```
+
+The worker calls stand-in engines. It does not call Gemini or a video model. Without Redis, the app still saves the job and shows that the queue is waiting.
+
 ```bash
 npm test
 npm run typecheck

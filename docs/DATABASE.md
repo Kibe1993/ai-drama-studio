@@ -1,6 +1,6 @@
 # Database
 
-Status: Phase 1 implements `users` and `projects` on the `DramaStudio` database. The other collections below are still design-only.
+Status: Phase 2 implements `users`, `projects`, `productionRuns`, and `generationJobs` on the `DramaStudio` database. Story, character, scene, and media collections are still design-only. Scene identity on a job is `sceneNumber` until scene documents exist.
 
 MongoDB stores metadata and references. Image, audio, and video bytes go to object storage. `storageKey` is the pointer. A `url`, when present, is a derived delivery URL and may expire.
 

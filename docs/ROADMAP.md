@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: Phase 1 is implemented. Phases 2–10 have not started.
+Status: Phases 1 and 2 are implemented. Phases 3–10 have not started. The Phase 2 engines are mocks.
 
 Each phase ends with a report: what was built, files, decisions, test results, and what the next phase needs. The next phase does not start in the same step.
 
@@ -8,7 +8,7 @@ Each phase ends with a report: what was built, files, decisions, test results, a
 | --- | --- | --- | --- |
 | 0 | This design | Documents describe a standalone app | Complete |
 | 1 | Next.js app, MongoDB connection, core models, Clerk, repositories, services, Zod, project CRUD, dashboard | Implemented. A signed-in user can create, list, edit, duplicate, archive, restore, and delete a project | Clerk keys and `MONGODB_URI` |
-| 2 | `ProductionRun`, pipeline service, BullMQ, Redis, job documents, mocked engines | A run moves story → characters → scenes → media → render on fakes, survives a reload, and rejects illegal transitions | `REDIS_URL` |
+| 2 | `ProductionRun`, pipeline service, BullMQ, Redis, job documents, mocked engines | Implemented. A mocked run moves story → characters → scenes → media → render, survives a reload, and rejects illegal transitions | `REDIS_URL` and `npm run worker` for a live queue |
 | 3 | `LLMProvider`, Gemini adapter, story Zod schema, versions, story editor | A story version is stored from a mocked Gemini response. A live call happens only if `GEMINI_API_KEY` is set, and the report says which happened | Phase 2 jobs |
 | 4 | Character profiles and one image adapter (BFL, FLUX.2 klein 4B) | Reference images are assets that can be selected and passed forward. Without an image key, profiles still save and the adapter reports unavailable | Image provider key for a live test |
 | 5 | Scene breakdown and editor | Scenes are ordered, editable, and individually regeneratable as data | An approved story |

@@ -1,6 +1,6 @@
 # Production pipeline
 
-Status: Phase 0 design. `ProductionPipelineService` is not implemented.
+Status: Phase 2. `createPipelineService` coordinates mocked engines. A worker processes BullMQ jobs when `REDIS_URL` is set. The stage rules below are what the code enforces.
 
 ## Responsibility
 

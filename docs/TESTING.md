@@ -1,6 +1,6 @@
 # Testing
 
-Status: Phase 1. `npm test` runs Vitest for project validation, status transitions, ownership, idempotency, and archive rules. Playwright is planned for Phase 10.
+Status: Phase 2. `npm test` covers project rules and the mocked pipeline: guided completion, a failed scene leaving the other scene, retries, reload, and restart reconciliation. Playwright is planned for Phase 10. The default test script does not connect to Redis.
 
 ## Rules
 

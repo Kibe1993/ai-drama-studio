@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+:root {
+  --background: #12110f;
+  --foreground: #f3efe6;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+}
+
+.font-display {
+  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
+}
+
+.studio-field {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid #3a342c;
+  background: #181612;
+  color: #f3efe6;
+  padding: 0.7rem 0.85rem;
+  outline: none;
+}
+
+.studio-field:focus {
+  border-color: #c4a574;
+}
+
+select.studio-field {
+  appearance: none;
+}

@@ -25,7 +25,9 @@ export const STORY_BIBLE_SECTION_LABELS: Record<StoryBibleSection, string> = {
 
 // A single slow local section must not consume the whole fallback chain, but a
 // 4B model on CPU can legitimately need several minutes for characters or canon.
-export const STORY_BIBLE_SECTION_SEQUENCE_TIMEOUT_MS = 600_000;
+// The budget also covers earlier cloud attempts when Ollama is the last slot, so
+// a 3-cloud worst case still leaves Ollama its full per-attempt timeout.
+export const STORY_BIBLE_SECTION_SEQUENCE_TIMEOUT_MS = 900_000;
 
 export type StoryBibleSectionRun = {
   section: StoryBibleSection;

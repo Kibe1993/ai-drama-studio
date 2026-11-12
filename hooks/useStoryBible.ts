@@ -17,6 +17,25 @@ export function useStoryBible(projectId: string) {
   });
 }
 
+export type StoryBibleJobView = {
+  id: string;
+  status: string;
+  progress: { stage: string; message: string };
+  output: unknown;
+};
+
+export function useStoryBibleJob(projectId: string, jobId: string | null | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ["story-bible-job", projectId, jobId],
+    queryFn: () => api<{ job: StoryBibleJobView }>(`/api/generations/${jobId}`),
+    enabled: Boolean(jobId) && enabled,
+    refetchInterval: (query) => {
+      const status = query.state.data?.job.status;
+      return status === "queued" || status === "processing" ? 2000 : false;
+    },
+  });
+}
+
 export type StoryBibleGenerationRequest = {
   operation: "generate" | "regenerate" | "revise" | "section";
   idea?: string;

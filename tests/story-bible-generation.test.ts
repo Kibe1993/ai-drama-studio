@@ -3,7 +3,7 @@ import { createStoryBibleEngine } from "@/lib/pipeline/storyBibleEngine";
 import { JobError, type JobRecord } from "@/lib/pipeline/types";
 import { StoryProviderManager, type ProviderSlot } from "@/lib/providers/llm/manager";
 import type { ProjectRecord } from "@/lib/repositories/projectRepository";
-import { mergeStoryBibleResult, validateStoryBibleTaskResult, type StoryBibleTaskInput } from "@/lib/providers/llm/storyBibleTask";
+import { mergeStoryBibleResult, requestStoryBible, validateStoryBibleTaskResult, type StoryBibleTaskInput, type StoryBibleTaskTransport } from "@/lib/providers/llm/storyBibleTask";
 import {
   storyBibleSectionsFingerprint,
   type StoryBibleSectionRun,
@@ -444,6 +444,30 @@ describe("sectioned Story Bible generation", () => {
     expect(result.identity).toEqual(content.identity);
     expect(result.characters).toEqual(content.characters);
     expect(result.canon).toEqual(content.canon);
+  });
+
+  it("spells out the exact section keys for providers without schema enforcement", async () => {
+    let prompt = "";
+    const transport: StoryBibleTaskTransport = {
+      label: "Groq",
+      request: async (_system, text) => {
+        prompt = text;
+        return { text: JSON.stringify(content.world) };
+      },
+    };
+    const result = await requestStoryBible(transport, {
+      mode: "section",
+      section: "world",
+      title: project.title,
+      idea: project.originalStoryIdea,
+    });
+
+    expect(result.result).toEqual({ mode: "section", section: "world", value: content.world });
+    expect(prompt).toContain("geographyAndLocations");
+    expect(prompt).toContain("socialStructuresAndCultures");
+    expect(prompt).toContain("historyAndPastEvents");
+    expect(prompt).toContain('"description"');
+    expect(prompt).toContain("do not rename, replace, or omit");
   });
 
   it("rejects a stale generation lock before calling any provider", async () => {

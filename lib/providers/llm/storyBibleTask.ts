@@ -237,6 +237,24 @@ const COMPLETE_CONTENT_SHAPE = JSON.stringify({
   },
 });
 
+// Providers without schema enforcement (Groq uses json_object for the Story
+// Bible) only see the prompt, so the exact section keys must be spelled out or
+// they substitute synonyms such as "locations" for "geographyAndLocations".
+function shapeExample(schema: JsonSchema): unknown {
+  if (schema.type === "object") {
+    const properties = (schema.properties ?? {}) as Record<string, JsonSchema>;
+    return Object.fromEntries(
+      Object.entries(properties).map(([key, value]) => [key, shapeExample(value)])
+    );
+  }
+  if (schema.type === "array") {
+    const items = schema.items as JsonSchema | undefined;
+    return items ? [shapeExample(items)] : [];
+  }
+  if (Array.isArray(schema.enum) && schema.enum.length > 0) return schema.enum[0];
+  return "";
+}
+
 function promptFor(input: StoryBibleTaskInput): { system: string; prompt: string } {
   const common = [
     "Develop a detailed series bible, not a short pitch or generic list.",
@@ -282,8 +300,8 @@ function promptFor(input: StoryBibleTaskInput): { system: string; prompt: string
   ].filter(Boolean);
   const schemaInstruction = input.mode === "revise"
     ? "Return exactly {\"patch\": { ... }}. patch may contain only the changed keys from identity, world, characters, narrative, guidelines, canon and must contain at least one key. Each included value must be a complete valid section."
-    : input.mode === "section"
-    ? `Return only the ${input.section} section as one JSON object. Follow the section guidance above. Do not wrap it in "section" or "value" keys. Arrays of strings must contain plain strings, not objects. Every array item and every required text field must be non-empty.`
+    : input.mode === "section" && input.section
+    ? `Return only the ${input.section} section as one JSON object. Follow the section guidance above. Do not wrap it in "section" or "value" keys. Arrays of strings must contain plain strings, not objects. Every array item and every required text field must be non-empty.\nUse exactly these keys and nesting; do not rename, replace, or omit any of them:\n${JSON.stringify(shapeExample(SECTION_SCHEMAS[input.section]))}`
     : `Return exactly the JSON shape below. Every key shown must be present. Nested values must be JSON objects and arrays, not JSON-encoded strings. Replace every placeholder with real content and never leave a required text value empty. Every array item and every required text field must be non-empty. geographyAndLocations needs at least two entries; characters needs at least two entries.\n${COMPLETE_CONTENT_SHAPE}`;
   return {
     system: common.join(" "),

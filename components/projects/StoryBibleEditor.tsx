@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ApiError } from "@/hooks/api";
 import {
   useApproveStoryBible, useGenerateStoryBible, useRegenerateStoryBible,
-  useRegenerateStoryBibleSection, useReviseStoryBible, useSaveStoryBible, useStoryBible,
+  useRegenerateStoryBibleSection, useReviseStoryBible, useSaveStoryBible, useStoryBible, useStoryBibleJob,
 } from "@/hooks/useStoryBible";
 import type { StoryBibleDraft, StoryBibleSection } from "@/lib/validation/storyBible";
 
@@ -17,6 +17,14 @@ const LABELS: Record<StoryBibleSection, string> = {
 };
 
 function lines(value: string): string[] { return value.split("\n").map((line) => line.trim()).filter(Boolean); }
+
+function completedSections(output: unknown): Set<string> {
+  if (!output || typeof output !== "object") return new Set();
+  const state = (output as { storyBibleSections?: unknown }).storyBibleSections;
+  if (!state || typeof state !== "object") return new Set();
+  const sections = (state as { sections?: unknown }).sections;
+  return new Set(sections && typeof sections === "object" ? Object.keys(sections) : []);
+}
 
 export function StoryBibleEditor({ projectId, readOnly = false, initialIdea = "", initialTitle = "" }: {
   projectId: string; readOnly?: boolean; initialIdea?: string; initialTitle?: string;
@@ -47,6 +55,9 @@ export function StoryBibleEditor({ projectId, readOnly = false, initialIdea = ""
   }, [bible]);
 
   const jobPending = bible?.generationStatus === "queued" || bible?.generationStatus === "processing";
+  const job = useStoryBibleJob(projectId, bible?.generationJobId, jobPending);
+  const readySections = completedSections(job.data?.job.output);
+  const progressMessage = job.data?.job.progress.message;
   const mutationPending = generate.isPending || regenerate.isPending || revise.isPending || regenerateSection.isPending || save.isPending || approve.isPending;
   const original = bible ? { premise: bible.premise, worldRules: bible.worldRules, themes: bible.themes, boundaries: bible.boundaries, canonFacts: bible.canonFacts } : null;
   const saved = Boolean(bible && original && JSON.stringify({ premise: draft.premise, worldRules: draft.worldRules, themes: draft.themes, boundaries: draft.boundaries, canonFacts: draft.canonFacts }) === JSON.stringify(original));
@@ -76,7 +87,15 @@ export function StoryBibleEditor({ projectId, readOnly = false, initialIdea = ""
       </div> : null}
 
       {bible ? <div className="mt-5 grid gap-4">
-        {bible.generationStatus === "queued" || bible.generationStatus === "processing" ? <p role="status" className="text-sm text-[#dfc18a]">{bible.generationStatus === "queued" ? "Story Bible generation queued…" : "Developing Story Bible…"}</p> : null}
+        {jobPending ? <div className="rounded border border-[#39342d] p-4">
+          <p role="status" className="text-sm text-[#dfc18a]">{bible.generationStatus === "queued" ? "Story Bible generation queued…" : progressMessage ?? "Developing Story Bible…"}</p>
+          <ul className="mt-3 grid gap-1 text-sm sm:grid-cols-2">
+            {SECTIONS.map((section) => <li key={section} className={readySections.has(section) ? "text-[#cfc6b8]" : "text-[#8f887e]"}>
+              {LABELS[section]} — {readySections.has(section) ? "ready" : "waiting"}
+            </li>)}
+          </ul>
+          <p className="mt-2 text-xs text-[#a39b8f]">Sections are saved together: the draft appears once all six pass validation.</p>
+        </div> : null}
         {aiError ? <p role="alert" className="text-sm text-[#e7b2a8]">{aiError}</p> : null}
 
         {bible.content ? <div className="grid gap-3">

@@ -1,9 +1,15 @@
 import IORedis from "ioredis";
+import { log } from "@/lib/log";
 
 export function createRedisConnection() {
   const url = process.env.REDIS_URL;
   if (!url) return null;
-  return new IORedis(url, { maxRetriesPerRequest: null });
+  const connection = new IORedis(url, { maxRetriesPerRequest: null, connectTimeout: 15_000 });
+  connection.on("error", (error: Error) => {
+    const code = "code" in error && typeof error.code === "string" ? error.code : "";
+    log.error("redis", "connection", { code, detail: error.message });
+  });
+  return connection;
 }
 
 export const QUEUE_NAMES = [

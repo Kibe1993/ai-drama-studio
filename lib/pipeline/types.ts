@@ -29,11 +29,26 @@ export type StoryResult = {
   title: string;
   synopsis: string;
   approved: boolean;
+  storyId?: string;
 };
 
 export type CharacterResult = {
   names: string[];
+  profiles?: {
+    name: string;
+    role: string;
+    ageRange: string;
+    gender: string;
+    personality: string;
+    physicalDescription: string;
+    clothing: string;
+    distinguishingFeatures: string;
+    background: string;
+  }[];
   approved: boolean;
+  provider?: string;
+  model?: string;
+  fallbackFrom?: string | null;
 };
 
 export type SceneItem = {
@@ -41,11 +56,23 @@ export type SceneItem = {
   title: string;
   videoReady: boolean;
   failed: boolean;
+  location?: string;
+  interiorExterior?: "interior" | "exterior" | "";
+  timeOfDay?: string;
+  charactersPresent?: string[];
+  visualDescription?: string;
+  action?: string;
+  dialogue?: { characterName: string; line: string }[];
+  cameraDirection?: string;
+  estimatedDurationSeconds?: number | null;
 };
 
 export type SceneResult = {
   approved: boolean;
   items: SceneItem[];
+  provider?: string;
+  model?: string;
+  fallbackFrom?: string | null;
 };
 
 export type StageResults = {

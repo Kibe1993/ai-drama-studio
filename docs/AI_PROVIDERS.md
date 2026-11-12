@@ -1,6 +1,6 @@
 # AI providers
 
-Status: Phase 0 design. No provider SDK is installed and no live request has been made. Licensing notes were checked against publisher documentation on 31 October 2026. Re-read the license before enabling a model. This is not legal advice.
+Status: Phase 3. `@google/genai` and `openai` are installed. Groq, OpenRouter, and Mistral use the OpenAI-compatible chat client. The worker calls one free-tier language provider at a time for story generation. Image, video, speech, and storage adapters are still design. Licensing notes were checked against publisher documentation on 31 October 2026. Re-read the license before enabling a model. This is not legal advice.
 
 ## Rule
 
@@ -73,14 +73,29 @@ type AudioProvider = {
 
 Webhooks are optional later. The first integrations poll. A webhook handler must verify a signature before it treats the body as a job update. Unsigned callbacks are ignored.
 
-## Language: Gemini
+## Language
 
-Checked against [structured outputs](https://ai.google.dev/gemini-api/docs/generate-content/structured-output) and [pricing](https://ai.google.dev/gemini-api/docs/pricing) on 31 October 2026.
+Implemented in `lib/providers/llm`. The pipeline calls `LLMProvider.generateStory`. It does not import a vendor SDK. `createStoryProvider()` in `lib/pipeline/live.ts` builds the sequence from `LLM_PROVIDER` and `LLM_FALLBACK_PROVIDERS`.
 
-- Access is the Gemini Developer API. Structured output is a JSON schema on `generateContent`. Google also documents an Interactions API for newer work and says `generateContent` remains supported. Phase 3 will read the current JavaScript SDK and choose one method. This design does not invent a method name.
-- The story service parses the JSON with Zod. A schema mismatch is a failed job, not a stored screenplay.
-- Google's pricing page says the free tier is limited to certain models and that content from that tier may be used to improve Google's products. The paid tier is the production setting. Do not treat "has an API key" as zero cost. The model id is chosen at implementation time from the current model list, not hardcoded in this document.
-- The adapter records token usage when the response includes it.
+Free-only mode is the default. `LLM_FREE_ONLY=false` is required before OpenAI, Anthropic, or DeepSeek can run. While it is on, the allowed story models are Gemini `gemini-3.8-flash` and `gemini-3.6-flash` (both listed as free of charge on the Gemini pricing page), Groq `openai/gpt-oss-20b` on the $0 Free plan, OpenRouter `openrouter/free` or any id ending in `:free`, and Mistral `mistral-small-latest` in Free mode. A model outside that list is not called. Quota, rate-limit, timeout, HTTP 400, malformed JSON, and Zod failures try the next allowed provider. Invalid output is not saved.
+
+Checked on 2 November 2026 against the Gemini pricing page, Groq's Free plan and rate-limit page, OpenRouter's free router, and Mistral's free-mode setup. Free-only defaults when the matching `*_MODEL` variable is empty:
+
+- Gemini: `gemini-3.8-flash`. `gemini-3.6-flash` is also allowed. `gemini-flash-latest` and `gemini-4-argon` are not.
+- Groq: `openai/gpt-oss-20b` at `https://api.groq.com/openai/v1`.
+- OpenRouter: `openrouter/free` at `https://openrouter.ai/api/v1`. A specific free model must end in `:free`. The request does not include a paid model fallback list.
+- Mistral: `mistral-small-latest` at `https://api.mistral.ai/v1`.
+
+`LLM_MODEL` is ignored while free-only mode is on. `LLM_SEQUENCE_TIMEOUT_MS` bounds one BullMQ delivery of the whole sequence. The default is 120 seconds, clamped from 15 to 180 seconds. BullMQ can still retry a retryable sequence failure up to the job's `maxAttempts` of 3.
+
+Each provider needs its own API key. Keys are created in [Google AI Studio](https://aistudio.google.com/), the [Groq console](https://console.groq.com/), [OpenRouter](https://openrouter.ai/), and [Mistral Studio](https://console.mistral.ai/). The worker logs the provider name, whether a key is present, and the model. It does not log key values or make a live call at startup.
+
+- Gemini stays on `generateContent` with a JSON schema. SDK retries are set to one attempt so they do not multiply the sequence or BullMQ.
+- Groq and Mistral use Chat Completions with the same JSON schema Gemini uses. Groq asks for that schema without strict server-side rejection, sets `reasoning_effort` to `low`, and repairs empty strings, string scene numbers, and missing list fields from text the model already wrote. If Groq still returns HTTP 400, the rejected generation is repaired the same way. OpenRouter stays on `json_object` because the free router chooses the model, and the prompt lists every required key. Zod remains the check that decides whether a story can be saved. A response wrapped in a code fence is still parsed. A story with no real scene text is not saved.
+- OpenAI (`gpt-6-luna`), Anthropic (`claude-haiku-5-5`), and DeepSeek (`deepseek-flash`) stay in the registry. They run only when `LLM_FREE_ONLY=false`.
+- Token counts are stored only when the response includes them. Prices are not invented.
+- The story service parses the JSON with Zod. A schema mismatch tries the next allowed provider. A story is saved only after Zod accepts it.
+- Free tiers are limited. Gemini free-tier content may be used to improve Google's products. Groq's published numeric limits are the Developer plan, which bills per token. Mistral Free mode has included monthly usage, and extra usage is pay-as-you-go, which this mode does not request. A quota or billing error tries the next free provider.
 
 The story service asks for title, synopsis, theme, setting, characters, beginning, conflict, rising action, climax, resolution, and a screenplay whose estimated seconds fit `targetDurationSeconds`. A one-minute project rejects a screenplay whose estimated duration is far outside that target.
 

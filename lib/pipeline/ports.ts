@@ -1,6 +1,7 @@
 import type { ProjectRecord } from "@/lib/repositories/projectRepository";
 import type { ProjectStatus } from "@/lib/domain/projectCatalog";
 import type { EngineSet, JobQueue, JobRecord, RunRecord } from "@/lib/pipeline/types";
+import type { StoryRecord } from "@/lib/validation/story";
 
 export type ProjectPort = {
   findOwned(clerkUserId: string, id: string): Promise<ProjectRecord | null>;
@@ -28,10 +29,17 @@ export type JobPort = {
   save(job: JobRecord): Promise<JobRecord>;
 };
 
+export type StoryPort = {
+  findOwned(clerkUserId: string, id: string): Promise<StoryRecord | null>;
+  findForRun(clerkUserId: string, productionRunId: string): Promise<StoryRecord | null>;
+  markApproved(clerkUserId: string, id: string): Promise<StoryRecord | null>;
+};
+
 export type PipelineDeps = {
   projects: ProjectPort;
   runs: RunPort;
   jobs: JobPort;
+  stories: StoryPort;
   queue: JobQueue;
   engines: EngineSet;
 };

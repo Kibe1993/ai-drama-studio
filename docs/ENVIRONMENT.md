@@ -1,8 +1,12 @@
 # Environment
 
-Status: Phase 2 reads `MONGODB_URI`, the Clerk keys, `ADMIN_USER_IDS` when it is set, and `REDIS_URL` for the queue. Provider and storage variables are not read yet. Do not commit values.
+Status: The app reads `MONGODB_URI`, the Clerk keys, `ADMIN_USER_IDS` when it is set, `REDIS_URL`, and the language-provider variables below. Image, video, speech, and storage variables are still not read. Do not commit values. Story generation is free-only unless `LLM_FREE_ONLY=false`. A free tier still has rate limits and a quota.
 
-Copy `.env.example` to `.env.local`.
+Copy `.env.example` to `.env.local`. The worker and the Next.js server read these names. Values stay on the server. They are not printed in logs or shown in the UI.
+
+The local `.env` still lists the older paid fallback names until you edit it. Free-only mode is the default (`LLM_FREE_ONLY` unset or `true`), so OpenAI, Anthropic, and DeepSeek are not called. The free sequence is Gemini `gemini-3.8-flash`, then Groq `openai/gpt-oss-20b`, OpenRouter `openrouter/free`, and Mistral `mistral-small-latest`. Restart the dev server and the worker after changing `.env`. A 400, quota error, or rate limit from one free provider continues to the next free provider. Rejected credentials stop that provider's sequence entry. If every free provider fails, the job says that no free language provider is currently available.
+
+The app keeps one Redis connection for enqueueing. Connection timeouts are logged and do not surface as unhandled Redis errors. The worker still uses its own connection for BullMQ.
 
 | Name | When it is used | Notes |
 | --- | --- | --- |
@@ -11,9 +15,19 @@ Copy `.env.example` to `.env.local`.
 | `CLERK_SECRET_KEY` | Phase 1 | Server only |
 | `ADMIN_USER_IDS` | Phase 1 | Optional comma-separated Clerk ids, in addition to `publicMetadata.role === "admin"` |
 | `APP_URL` | Later, for public links | Not read in Phase 1 |
-| `GEMINI_API_KEY` | Phase 3 | Server and worker only. Absent key disables the adapter |
-| `LLM_PROVIDER` | Phase 3 | Default `gemini` |
-| `LLM_MODEL` | Phase 3 | Chosen from Google's current model list when the SDK is wired |
+| `LLM_FREE_ONLY` | Story generation | Default on. `false` is required before any paid provider can run |
+| `GEMINI_API_KEY` | Story generation | Server and worker only. Create a key in [Google AI Studio](https://aistudio.google.com/). Free tier input and output for `gemini-3.8-flash` and `gemini-3.6-flash` are listed as free of charge. Limits are per project and are not unlimited. Free-tier content may be used to improve Google's products |
+| `GEMINI_MODEL` | Story generation | Free-only default `gemini-3.8-flash`. Also allowed: `gemini-3.6-flash` |
+| `GROQ_API_KEY` | Story generation | Server and worker only. Create a key in the [Groq console](https://console.groq.com/). The Free plan is $0. The published rate-limit table is the Developer plan, which bills per token |
+| `GROQ_MODEL` | Story generation | Free-only default `openai/gpt-oss-20b` |
+| `OPENROUTER_API_KEY` | Story generation | Server and worker only. Create a key at [OpenRouter](https://openrouter.ai/). Only `openrouter/free` or a model id ending in `:free` is allowed |
+| `OPENROUTER_MODEL` | Story generation | Free-only default `openrouter/free`. That router selects a free model and does not fall back to a paid model |
+| `MISTRAL_API_KEY` | Story generation | Server and worker only. Create a key in [Mistral Studio](https://console.mistral.ai/). Free mode includes limited monthly usage and needs no card. Extra usage requires pay-as-you-go, which this mode does not request |
+| `MISTRAL_MODEL` | Story generation | Free-only default `mistral-small-latest`, the model in Mistral's free-mode setup example |
+| `LLM_PROVIDER` | Story generation | First provider. Free-only default `gemini` |
+| `LLM_FALLBACK_PROVIDERS` | Story generation | Free-only example: `groq,openrouter,mistral`. Paid names are skipped while free-only mode is on |
+| `LLM_MODEL` | Story generation | Ignored while free-only mode is on |
+| `LLM_SEQUENCE_TIMEOUT_MS` | Story generation | Wall clock for one delivery of the whole provider sequence. Default `120000`. Values are clamped between `15000` and `180000`. Each provider still stops at 90 seconds or the time remaining, whichever is smaller |
 | `IMAGE_PROVIDER` | Phase 4 | Default `bfl` when a key exists, otherwise disabled |
 | `IMAGE_PROVIDER_API_KEY` | Phase 4 | Server and worker only |
 | `IMAGE_MODEL` | Phase 4 | Default target `flux-2-klein-4b`, confirmed against BFL docs at implementation time. Not a non-commercial FLUX dev model |

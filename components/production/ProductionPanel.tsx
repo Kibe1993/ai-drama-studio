@@ -2,10 +2,51 @@
 
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { StoryReview } from "@/components/production/StoryReview";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/hooks/api";
-import { useProduction, useProductionAction } from "@/hooks/useProduction";
+import { useApproveStory, useProduction, useProductionAction } from "@/hooks/useProduction";
 import type { ProjectStatus } from "@/lib/domain/projectCatalog";
+import type { JobRecord, RunRecord } from "@/lib/pipeline/types";
+import type { StoryRecord } from "@/lib/validation/story";
+
+function storyStatus(run: RunRecord | null, jobs: JobRecord[], story: StoryRecord | null): string | null {
+  const storyJob = [...jobs].reverse().find((job) => job.jobType === "story.generate");
+  if (storyJob && (storyJob.status === "queued" || storyJob.status === "processing")) {
+    return storyJob.progress?.message || "Generating story";
+  }
+  if (storyJob?.status === "failed" || story?.status === "failed") return "Story generation failed";
+  if (story?.status === "approved" || run?.stageResults.story?.approved) return "Story approved";
+  if (story?.status === "awaiting_approval" || (run?.status === "waiting_for_approval" && run.currentStage === "story")) {
+    return "Awaiting story approval";
+  }
+  return null;
+}
+
+function providerLine(story: StoryRecord): string | null {
+  if (!story.provider) return null;
+  const name = providerName(story.provider);
+  const model = story.model ? ` (${story.model})` : "";
+  const fallback = story.fallbackFrom ? ` Fallback from ${providerName(story.fallbackFrom)}.` : "";
+  return `Screenplay from ${name}${model}.${fallback}`;
+}
+
+function providerName(id: string): string {
+  if (id === "openai") return "OpenAI";
+  if (id === "anthropic") return "Anthropic";
+  if (id === "deepseek") return "DeepSeek";
+  if (id === "gemini") return "Gemini";
+  if (id === "groq") return "Groq";
+  if (id === "openrouter") return "OpenRouter";
+  if (id === "mistral") return "Mistral";
+  return id.slice(0, 1).toUpperCase() + id.slice(1);
+}
+
+function storyJobFailed(jobs: JobRecord[]): string | null {
+  const storyJob = [...jobs].reverse().find((job) => job.jobType === "story.generate");
+  if (storyJob?.status !== "failed") return null;
+  return storyJob.error?.message ?? "Story generation failed";
+}
 
 export function ProductionPanel({
   projectId,
@@ -17,7 +58,9 @@ export function ProductionPanel({
   const client = useQueryClient();
   const production = useProduction(projectId);
   const action = useProductionAction(projectId);
+  const approveStory = useApproveStory(projectId);
   const run = production.data?.run ?? null;
+  const story = production.data?.story ?? null;
   useEffect(() => {
     if (!run) return;
     void client.invalidateQueries({ queryKey: ["projects", projectId] });
@@ -26,6 +69,9 @@ export function ProductionPanel({
   const open = jobs.some((job) => job.status === "queued" || job.status === "processing");
   const activeJob = [...jobs].reverse().find((job) => job.status === "queued" || job.status === "processing");
   const failedScenes = run?.stageResults.scenes?.items.filter((scene) => scene.failed) ?? [];
+  const label = storyStatus(run, jobs, story);
+  const storyWaiting = label === "Awaiting story approval" && Boolean(story);
+  const busy = action.isPending || approveStory.isPending;
 
   if (status === "archived") return null;
 
@@ -44,37 +90,70 @@ export function ProductionPanel({
         </p>
       ) : (
         <p className="mt-3 text-[#cfc6b8]">
-          Start a guided run and approve each stage, or let an automatic run continue on its own. Both keep every finished stage.
+          Start a run, then read the screenplay and approve it before characters are created. Later stages can still continue on their own in an automatic run.
         </p>
       )}
-      {run?.stageResults.story ? (
+      {label ? <p className="mt-3 text-sm text-[#c4a574]">{label}</p> : null}
+      {story ? <StoryReview story={story} /> : null}
+      {story && providerLine(story) ? <p className="mt-3 text-sm text-[#a39b8f]">{providerLine(story)}</p> : null}
+      {run?.stageResults.story && !story ? (
         <p className="mt-3 text-sm text-[#cfc6b8]">
           {run.stageResults.story.title}. {run.stageResults.story.synopsis}
         </p>
       ) : null}
       {run?.stageResults.characters ? (
-        <p className="mt-2 text-sm text-[#a39b8f]">{run.stageResults.characters.names.join(", ")}</p>
+        <div className="mt-3 text-sm text-[#a39b8f]">
+          {run.stageResults.characters.profiles && run.stageResults.characters.profiles.length > 0 ? (
+            <ul>
+              {run.stageResults.characters.profiles.map((character) => (
+                <li key={character.name}>
+                  {character.name}
+                  {character.role ? ` · ${character.role}` : ""}
+                  {character.physicalDescription ? ` · ${character.physicalDescription}` : ""}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>{run.stageResults.characters.names.join(", ")}</p>
+          )}
+          {run.stageResults.characters.provider ? (
+            <p className="mt-1">
+              Characters from {providerName(run.stageResults.characters.provider)}
+              {run.stageResults.characters.model ? ` (${run.stageResults.characters.model})` : ""}.
+            </p>
+          ) : null}
+        </div>
       ) : null}
       {run?.stageResults.scenes ? (
-        <ul className="mt-3 text-sm text-[#cfc6b8]">
-          {run.stageResults.scenes.items.map((scene) => (
-            <li key={scene.sceneNumber}>
-              Scene {scene.sceneNumber}: {scene.title}
-              {scene.videoReady ? " · video ready" : ""}
-              {scene.failed ? " · failed" : ""}
-            </li>
-          ))}
-        </ul>
+        <div className="mt-3 text-sm text-[#cfc6b8]">
+          <ul>
+            {run.stageResults.scenes.items.map((scene) => (
+              <li key={scene.sceneNumber}>
+                Scene {scene.sceneNumber}: {scene.title}
+                {scene.location ? ` · ${scene.location}` : ""}
+                {scene.timeOfDay ? ` · ${scene.timeOfDay}` : ""}
+                {scene.videoReady ? " · video ready" : ""}
+                {scene.failed ? " · failed" : ""}
+              </li>
+            ))}
+          </ul>
+          {run.stageResults.scenes.provider ? (
+            <p className="mt-1 text-[#a39b8f]">
+              Scenes from {providerName(run.stageResults.scenes.provider)}
+              {run.stageResults.scenes.model ? ` (${run.stageResults.scenes.model})` : ""}.
+            </p>
+          ) : null}
+        </div>
       ) : null}
       <div className="mt-4 flex flex-wrap gap-2">
         {status === "draft" ? (
           <>
-            <Button disabled={action.isPending} onClick={() => action.mutate({ action: "start", workflowMode: "guided" })}>
+            <Button disabled={busy} onClick={() => action.mutate({ action: "start", workflowMode: "guided" })}>
               Start guided
             </Button>
             <Button
               variant="quiet"
-              disabled={action.isPending}
+              disabled={busy}
               onClick={() => action.mutate({ action: "start", workflowMode: "automatic" })}
             >
               Start automatic
@@ -82,17 +161,22 @@ export function ProductionPanel({
           </>
         ) : null}
         {status === "planning" && run && !open && !run.stageResults.story ? (
-          <Button disabled={action.isPending} onClick={() => action.mutate({ action: "story" })}>
+          <Button disabled={busy} onClick={() => action.mutate({ action: "story" })}>
             Develop story
           </Button>
         ) : null}
-        {run?.status === "waiting_for_approval" && !open ? (
-          <Button disabled={action.isPending} onClick={() => action.mutate({ action: "approve" })}>
+        {storyWaiting && story ? (
+          <Button disabled={busy} onClick={() => approveStory.mutate(story.id)}>
+            {approveStory.isPending ? "Approving story" : "Approve story"}
+          </Button>
+        ) : null}
+        {run?.status === "waiting_for_approval" && !open && !storyWaiting ? (
+          <Button disabled={busy} onClick={() => action.mutate({ action: "approve" })}>
             Approve and continue
           </Button>
         ) : null}
         {status === "failed" ? (
-          <Button disabled={action.isPending} onClick={() => action.mutate({ action: "retry" })}>
+          <Button disabled={busy} onClick={() => action.mutate({ action: "retry" })}>
             Retry
           </Button>
         ) : null}
@@ -100,20 +184,26 @@ export function ProductionPanel({
           <Button
             key={scene.sceneNumber}
             variant="quiet"
-            disabled={action.isPending}
+            disabled={busy}
             onClick={() => action.mutate({ action: "retryScene", sceneNumber: scene.sceneNumber })}
           >
             Retry scene {scene.sceneNumber}
           </Button>
         ))}
         {run && (run.status === "running" || run.status === "waiting_for_approval") ? (
-          <Button variant="quiet" disabled={action.isPending} onClick={() => action.mutate({ action: "cancel" })}>
+          <Button variant="quiet" disabled={busy} onClick={() => action.mutate({ action: "cancel" })}>
             Stop run
           </Button>
         ) : null}
       </div>
       {action.error instanceof ApiError ? (
         <p className="mt-3 text-sm text-[#e7b2a8]">{action.error.message}</p>
+      ) : null}
+      {approveStory.error instanceof ApiError ? (
+        <p className="mt-3 text-sm text-[#e7b2a8]">{approveStory.error.message}</p>
+      ) : null}
+      {storyJobFailed(jobs) ? (
+        <p className="mt-3 text-sm text-[#e7b2a8]">{storyJobFailed(jobs)}</p>
       ) : null}
     </section>
   );

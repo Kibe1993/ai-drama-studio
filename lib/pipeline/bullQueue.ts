@@ -1,4 +1,5 @@
 import { Queue, type ConnectionOptions } from "bullmq";
+import { log } from "@/lib/log";
 import { queueNameFor } from "@/lib/pipeline/redis";
 import type { JobQueue, JobRecord } from "@/lib/pipeline/types";
 
@@ -12,6 +13,7 @@ export function createBullQueue(connection: ConnectionOptions): JobQueue {
         queue = new Queue(name, { connection });
         queues.set(name, queue);
       }
+      log.info("queue", "add", { queue: name, jobType: job.jobType, jobId: job.id, attempts: job.maxAttempts });
       await queue.add(
         job.jobType,
         { generationJobId: job.id },

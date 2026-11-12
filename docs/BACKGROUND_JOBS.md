@@ -1,6 +1,6 @@
 # Background jobs
 
-Status: Phase 2. BullMQ and `workers/studio.ts` are installed. Jobs are recorded in MongoDB. The worker exits if `REDIS_URL` is missing. Tests use an in-memory queue, not Redis.
+Status: Phase 3. BullMQ and `workers/studio.ts` are installed. The worker loads `.env` and `.env.local` with `@next/env`, connects to MongoDB, logs which language providers have a key, then registers the queues. Jobs are recorded in MongoDB. The worker exits if `REDIS_URL` is missing. `story.generate` walks the allowed free language providers one at a time. Paid providers are skipped while `LLM_FREE_ONLY` is on. The other job types still use the mock engines. Tests use an in-memory queue, not Redis.
 
 ## Two stores
 

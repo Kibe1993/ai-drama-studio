@@ -1,3 +1,4 @@
+import { logged } from "@/lib/http/logged";
 import { readActor } from "@/lib/http/request";
 import { assertRateLimit } from "@/lib/http/rateLimit";
 import { jsonData, toErrorResponse } from "@/lib/http/errors";
@@ -20,6 +21,6 @@ async function action(
   }
 }
 
-export function POST(_request: Request, context: Context) {
-  return action(context, (actor, id) => projectService.duplicate(actor, id));
+export function POST(request: Request, context: Context) {
+  return logged(request, () => action(context, (actor, id) => projectService.duplicate(actor, id)));
 }

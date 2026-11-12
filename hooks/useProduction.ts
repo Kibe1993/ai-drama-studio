@@ -3,10 +3,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/api";
 import type { RunRecord, JobRecord } from "@/lib/pipeline/types";
+import type { StoryRecord } from "@/lib/validation/story";
 
 export type ProductionState = {
   run: RunRecord | null;
   jobs: JobRecord[];
+  story: StoryRecord | null;
 };
 
 const key = (projectId: string) => ["production", projectId] as const;
@@ -31,6 +33,19 @@ export function useProductionAction(projectId: string) {
         method: "POST",
         body: JSON.stringify(body),
       }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key(projectId) });
+      void client.invalidateQueries({ queryKey: ["projects", projectId] });
+      void client.invalidateQueries({ queryKey: ["summary"] });
+    },
+  });
+}
+
+export function useApproveStory(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (storyId: string) =>
+      api<unknown>(`/api/projects/${projectId}/stories/${storyId}/approve`, { method: "POST" }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: key(projectId) });
       void client.invalidateQueries({ queryKey: ["projects", projectId] });

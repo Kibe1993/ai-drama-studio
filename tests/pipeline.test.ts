@@ -111,6 +111,17 @@ function harness(status: ProjectRecord["status"] = "draft") {
         enqueued.push(job.id);
       },
     },
+    stories: {
+      async findOwned() {
+        return null;
+      },
+      async findForRun() {
+        return null;
+      },
+      async markApproved() {
+        return null;
+      },
+    },
     engines: createMockEngines(),
   };
 
@@ -167,6 +178,8 @@ describe("production pipeline", () => {
     deps.engines.failNext("video.scene", 1, false);
     await api.start(owner, projectId, "automatic");
     await api.generateStory(owner, projectId);
+    await nextQueued(deps);
+    await api.approve(owner, projectId);
     for (let i = 0; i < 8; i += 1) {
       const open = (await deps.jobs.listOpen()).some((job) => job.status === "queued");
       if (!open) break;

@@ -1,18 +1,17 @@
+import { logged } from "@/lib/http/logged";
 import { readActor } from "@/lib/http/request";
 import { assertRateLimit } from "@/lib/http/rateLimit";
-import { jsonData, toErrorResponse } from "@/lib/http/errors";
+import { jsonData } from "@/lib/http/errors";
 import { projectService } from "@/lib/services/projectService";
 
 type Context = { params: Promise<{ projectId: string }> };
 
-export async function POST(_request: Request, context: Context) {
-  try {
+export function POST(request: Request, context: Context) {
+  return logged(request, async () => {
     const actor = await readActor();
     assertRateLimit(`project-write:${actor.userId}`);
     const { projectId } = await context.params;
     const project = await projectService.restore(actor, projectId);
     return jsonData({ project });
-  } catch (error) {
-    return toErrorResponse(error);
-  }
+  });
 }

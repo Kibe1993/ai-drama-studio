@@ -1,15 +1,16 @@
 import { z } from "zod";
+import { logged } from "@/lib/http/logged";
 import { readActor, readJson } from "@/lib/http/request";
 import { assertRateLimit } from "@/lib/http/rateLimit";
-import { errorResponse, jsonData, toErrorResponse } from "@/lib/http/errors";
+import { errorResponse, jsonData } from "@/lib/http/errors";
 import { projectService } from "@/lib/services/projectService";
 import { idempotencyKeySchema, projectInputSchema } from "@/lib/validation/project";
 import { PROJECT_STATUSES, type ProjectStatus } from "@/lib/domain/projectCatalog";
 
 const statusSchema = z.enum(PROJECT_STATUSES);
 
-export async function GET(request: Request) {
-  try {
+export function GET(request: Request) {
+  return logged(request, async () => {
     const actor = await readActor();
     const url = new URL(request.url);
     const statusRaw = url.searchParams.get("status");
@@ -23,13 +24,11 @@ export async function GET(request: Request) {
     }
     const data = await projectService.list(actor, url.searchParams.get("cursor"), status);
     return jsonData(data);
-  } catch (error) {
-    return toErrorResponse(error);
-  }
+  });
 }
 
-export async function POST(request: Request) {
-  try {
+export function POST(request: Request) {
+  return logged(request, async () => {
     const actor = await readActor();
     assertRateLimit(`project-write:${actor.userId}`);
     const parsed = projectInputSchema.safeParse(await readJson(request));
@@ -47,7 +46,5 @@ export async function POST(request: Request) {
     }
     const project = await projectService.create(actor, parsed.data, idempotencyKey);
     return jsonData({ project }, 201);
-  } catch (error) {
-    return toErrorResponse(error);
-  }
+  });
 }

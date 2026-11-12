@@ -2,7 +2,7 @@
 
 A production system that turns a short story idea into a finished 1–3 minute drama.
 
-This repository is that product. Phase 1 is the signed-in studio: create, edit, duplicate, archive, restore, and delete projects. Story generation, media, and rendering are not built yet.
+This repository is that product. A signed-in user can manage projects and generate a real screenplay on the free tiers of Gemini, Groq, OpenRouter, and Mistral. Paid providers stay off unless `LLM_FREE_ONLY=false`. The story waits for approval. Characters, scenes, video, and the final render are still mock stages.
 
 ## Run it
 
@@ -12,7 +12,7 @@ Copy `.env.example` to `.env.local` and set:
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
 - `CLERK_SECRET_KEY`
 
-Optional: `ADMIN_USER_IDS` for `/admin`. Provider, Redis, and storage variables are unused until later phases. See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md).
+Optional: `ADMIN_USER_IDS` for `/admin`. Story generation also reads `REDIS_URL`, `LLM_FREE_ONLY`, `LLM_PROVIDER`, `LLM_FALLBACK_PROVIDERS`, `LLM_SEQUENCE_TIMEOUT_MS`, and `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, and `MISTRAL_API_KEY`. Image, video, speech, and storage variables are still unused. See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md).
 
 ```bash
 npm install
@@ -27,7 +27,7 @@ To move a project through the mocked production stages, set `REDIS_URL` and run 
 npm run worker
 ```
 
-The worker calls stand-in engines. It does not call Gemini or a video model. Without Redis, the app still saves the job and shows that the queue is waiting.
+The worker calls free-tier language providers, one at a time, for `story.generate`. Free-only mode is on unless `LLM_FREE_ONLY=false`. The default free order is Gemini, Groq, OpenRouter, and Mistral. OpenAI, Anthropic, and DeepSeek are not called in that mode. Restart the worker after changing those variables. A configured API key does not add a provider unless its name is in the sequence and its model is on the verified free list. If story generation fails, Develop story retries it. Character extraction, scene breakdown, scene video, and the final render stay on the mock engines. Without Redis, the app still saves the job and shows that the queue is waiting. A generated story does not continue to characters until you approve it on the project page.
 
 ```bash
 npm test

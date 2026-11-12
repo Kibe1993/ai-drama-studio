@@ -1,9 +1,12 @@
 import { canTransition } from "@/lib/domain/projectStatus";
+import { log } from "@/lib/log";
 import type { ProjectStatus } from "@/lib/domain/projectCatalog";
 import { stageMessage } from "@/lib/pipeline/messages";
 import type { PipelineDeps } from "@/lib/pipeline/ports";
+import { LlmSequenceError } from "@/lib/providers/llm/manager";
 import {
   JobError,
+  type CharacterResult,
   type JobRecord,
   type RunRecord,
   type SceneItem,
@@ -37,7 +40,10 @@ async function enqueueNew(
   const base = `${jobType}:${run.id}:${sceneNumber ?? "all"}`;
   const existing = await deps.jobs.listByKeyPrefix(base);
   const open = existing.find((job) => OPEN.has(job.status));
-  if (open) return open;
+  if (open) {
+    log.info("pipeline", "reuse open job", { jobType, jobId: open.id, runId: run.id });
+    return open;
+  }
   const key = existing.length === 0 ? base : `${base}:${existing.length + 1}`;
   const job = await deps.jobs.insert({
     clerkUserId: run.clerkUserId,
@@ -63,9 +69,15 @@ async function enqueueNew(
     await deps.queue.enqueue(job);
     job.bullJobId = job.id;
     await deps.jobs.save(job);
-  } catch {
+    log.info("pipeline", "enqueued", { jobType, jobId: job.id, projectId: run.projectId, runId: run.id });
+  } catch (error) {
     job.progress = { stage: jobType, message: "Waiting for the job queue" };
     await deps.jobs.save(job);
+    log.error("pipeline", "queue unavailable", {
+      jobType,
+      jobId: job.id,
+      detail: error instanceof Error ? error.message : "enqueue failed",
+    });
   }
   return job;
 }
@@ -87,26 +99,31 @@ async function afterSuccess(deps: PipelineDeps, run: RunRecord, job: JobRecord, 
     results.story = {
       title: String(output.title ?? "Untitled"),
       synopsis: String(output.synopsis ?? ""),
-      approved: automatic,
+      approved: false,
+      storyId: typeof output.storyId === "string" ? output.storyId : undefined,
     };
     run.stageResults = results;
     run.currentStage = "story";
-    if (automatic) {
-      await transition(deps, run, "story_ready");
-      run.currentStage = "characters";
-      run.status = "running";
-      await deps.runs.save(run);
-      await enqueueNew(deps, run, "character.extract", null, {});
-      return;
-    }
     run.status = "waiting_for_approval";
     await deps.runs.save(run);
     return;
   }
 
   if (job.jobType === "character.extract") {
-    const names = Array.isArray(output.names) ? output.names.map(String) : [];
-    results.characters = { names, approved: automatic };
+    const profiles = Array.isArray(output.profiles) ? output.profiles : [];
+    const names = profiles.length > 0
+      ? profiles.map((profile) => String((profile as { name?: unknown }).name ?? "")).filter(Boolean)
+      : Array.isArray(output.names)
+        ? output.names.map(String)
+        : [];
+    results.characters = {
+      names,
+      profiles: profiles as CharacterResult["profiles"],
+      approved: automatic,
+      provider: typeof output.provider === "string" ? output.provider : undefined,
+      model: typeof output.model === "string" ? output.model : undefined,
+      fallbackFrom: typeof output.fallbackFrom === "string" ? output.fallbackFrom : null,
+    };
     run.stageResults = results;
     run.currentStage = "characters";
     if (automatic) {
@@ -124,7 +141,13 @@ async function afterSuccess(deps: PipelineDeps, run: RunRecord, job: JobRecord, 
 
   if (job.jobType === "scene.breakdown") {
     const items = Array.isArray(output.items) ? (output.items as SceneItem[]) : [];
-    results.scenes = { approved: automatic, items };
+    results.scenes = {
+      approved: automatic,
+      items,
+      provider: typeof output.provider === "string" ? output.provider : undefined,
+      model: typeof output.model === "string" ? output.model : undefined,
+      fallbackFrom: typeof output.fallbackFrom === "string" ? output.fallbackFrom : null,
+    };
     run.stageResults = results;
     run.currentStage = "scenes";
     if (automatic) {
@@ -193,11 +216,21 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
   job.startedAt = job.startedAt ?? new Date().toISOString();
   job.progress = { stage: job.jobType, message: stageMessage(job) };
   await deps.jobs.save(job);
+  const started = Date.now();
+  log.info("worker", "start", {
+    jobType: job.jobType,
+    jobId: job.id,
+    projectId: job.projectId,
+    attempt: job.attempts,
+    sceneNumber: job.sceneNumber ?? "",
+  });
 
   try {
     const output = await deps.engines.run(job, run);
     job.status = "completed";
     job.output = output;
+    if (typeof output.provider === "string") job.provider = output.provider;
+    if (typeof output.model === "string") job.model = output.model;
     job.error = null;
     job.completedAt = new Date().toISOString();
     job.progress = { stage: job.jobType, message: stageMessage(job) };
@@ -205,7 +238,17 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
     const fresh = await deps.runs.findOwned(job.clerkUserId, job.runId);
     if (!fresh) return;
     await afterSuccess(deps, fresh, job, output);
+    log.info("worker", "completed", {
+      jobType: job.jobType,
+      jobId: job.id,
+      provider: job.provider,
+      model: job.model,
+      ms: Date.now() - started,
+    });
   } catch (error) {
+    if (error instanceof LlmSequenceError) {
+      job.output = { ...(job.output ?? {}), attempts: error.attempts };
+    }
     const failure =
       error instanceof JobError ? error : new JobError("The stage failed", "stage_failed", true);
     const retry = failure.retryable && job.attempts < job.maxAttempts;
@@ -214,6 +257,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       job.error = { code: failure.code, message: failure.message, retryable: true };
       job.progress = { stage: job.jobType, message: `${stageMessage(job)}. Retrying` };
       await deps.jobs.save(job);
+      log.error("worker", "retry", { jobType: job.jobType, jobId: job.id, code: failure.code, attempt: job.attempts });
       throw failure;
     }
     job.status = "failed";
@@ -233,6 +277,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
     } else if (fresh && current) {
       await failProject(deps, fresh, current.status);
     }
+    log.error("worker", "failed", { jobType: job.jobType, jobId: job.id, code: failure.code, ms: Date.now() - started });
     throw new JobError(failure.message, failure.code, false);
   }
 }

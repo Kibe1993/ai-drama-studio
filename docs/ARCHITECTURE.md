@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Phase 2. Signed-in users can manage projects and start a production run. The five engines are mocks. Redis and the worker move the run through story, characters, scenes, scene video, and render. No paid provider is called.
+Status: Phase 3. Signed-in users can manage projects, generate a screenplay through the free-tier language providers, and approve it. Character, scene, video, and render stages are still mocks. Redis and the worker move the run.
 
 ## Product
 

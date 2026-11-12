@@ -1,6 +1,8 @@
+import { logged } from "@/lib/http/logged";
 import { readActor, readJson } from "@/lib/http/request";
 import { assertRateLimit } from "@/lib/http/rateLimit";
-import { errorResponse, jsonData, toErrorResponse } from "@/lib/http/errors";
+import { errorResponse, jsonData } from "@/lib/http/errors";
+import { log } from "@/lib/log";
 import { livePipelineDeps } from "@/lib/pipeline/live";
 import { createPipelineService } from "@/lib/services/pipelineService";
 import { productionActionSchema } from "@/lib/validation/production";
@@ -11,18 +13,16 @@ function service() {
   return createPipelineService(livePipelineDeps());
 }
 
-export async function GET(_request: Request, context: Context) {
-  try {
+export function GET(request: Request, context: Context) {
+  return logged(request, async () => {
     const actor = await readActor();
     const { projectId } = await context.params;
     return jsonData(await service().get(actor, projectId));
-  } catch (error) {
-    return toErrorResponse(error);
-  }
+  });
 }
 
-export async function POST(request: Request, context: Context) {
-  try {
+export function POST(request: Request, context: Context) {
+  return logged(request, async () => {
     const actor = await readActor();
     assertRateLimit(`production:${actor.userId}`);
     const parsed = productionActionSchema.safeParse(await readJson(request));
@@ -32,6 +32,11 @@ export async function POST(request: Request, context: Context) {
     const { projectId } = await context.params;
     const pipeline = service();
     const action = parsed.data;
+    log.info("pipeline", `api ${action.action}`, {
+      projectId,
+      sceneNumber: "sceneNumber" in action ? action.sceneNumber : "",
+      workflowMode: "workflowMode" in action ? action.workflowMode : "",
+    });
     if (action.action === "start") return jsonData(await pipeline.start(actor, projectId, action.workflowMode));
     if (action.action === "story") return jsonData(await pipeline.generateStory(actor, projectId));
     if (action.action === "approve") return jsonData(await pipeline.approve(actor, projectId));
@@ -41,7 +46,5 @@ export async function POST(request: Request, context: Context) {
       return jsonData(await pipeline.retryScene(actor, projectId, action.sceneNumber));
     }
     return jsonData(await pipeline.cancel(actor, projectId));
-  } catch (error) {
-    return toErrorResponse(error);
-  }
+  });
 }

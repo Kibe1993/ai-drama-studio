@@ -1,6 +1,8 @@
 # Database
 
-Status: Phase 2 implements `users`, `projects`, `productionRuns`, and `generationJobs` on the `DramaStudio` database. Story, character, scene, and media collections are still design-only. Scene identity on a job is `sceneNumber` until scene documents exist.
+Status: The database holds `users`, `projects`, `productionRuns`, `generationJobs`, and `stories`. Character, scene, and media collections are still design-only. Scene identity on a job is `sceneNumber` until scene documents exist.
+
+`stories` is implemented by `lib/models/story.ts`. One document per production run (`productionRunId` is unique). A retry of `story.generate` updates that document instead of inserting another. Fields: `clerkUserId`, `projectId`, `productionRunId`, `title`, `synopsis`, `structure` (act 1 setup, act 2 conflict, act 3 resolution), `screenplay` (scenes with heading, location, time of day, characters, visual description, action, and dialogue), `status` (`awaiting_approval`, `approved`, `failed`), `provider`, `model`, `fallbackFrom`, `version`, and timestamps. Invalid screenplay JSON is not written. The story stays `awaiting_approval` until the owner approves it. The Zod schema is `lib/validation/story.ts`. `Project.currentStoryId` points at the saved story.
 
 MongoDB stores metadata and references. Image, audio, and video bytes go to object storage. `storageKey` is the pointer. A `url`, when present, is a derived delivery URL and may expire.
 

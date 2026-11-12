@@ -1,22 +1,24 @@
 # Production pipeline
 
-Status: Phase 2. `createPipelineService` coordinates mocked engines. A worker processes BullMQ jobs when `REDIS_URL` is set. The stage rules below are what the code enforces.
+Status: Phase 3. `createPipelineService` coordinates the run. `story.generate`, `character.extract`, and `scene.breakdown` call the free language-provider sequence. Paid providers are skipped while `LLM_FREE_ONLY` is on. Video and render still use `createMockEngines`. A worker processes BullMQ jobs when `REDIS_URL` is set.
+
+Story generation always stops for approval, including when the run was started in automatic mode. Automatic mode still continues on its own after the story, the character set, and the scene list have been approved.
 
 ## Responsibility
 
-The pipeline coordinates the five engines. It does not write prompts, call Gemini, or run FFmpeg. It checks dependencies, records a `ProductionRun`, and enqueues worker jobs.
+The pipeline coordinates the five engines. It checks dependencies, records a `ProductionRun`, and enqueues worker jobs. Prompt text and the language HTTP calls live in `lib/providers/llm`. The pipeline does not run FFmpeg. One BullMQ delivery waits at most `LLM_SEQUENCE_TIMEOUT_MS` for the whole provider sequence.
 
 | Method | Requires | Enqueues | On success |
 | --- | --- | --- | --- |
 | `createProduction` | Owned project | Nothing | A run row. Status becomes `planning` when the user starts |
-| `generateStory` | Owned project, no open job for the same idempotency key | `story.generate` | A story version. `story_ready` after approval or auto-accept |
+| `generateStory` | Owned project, no open job for the same idempotency key | `story.generate` | A Story document awaiting approval. The run waits. It does not enqueue characters |
 | `generateCharacters` | An approved story version | `character.extract`, then `image.character` per character | Profiles and reference assets. `characters_ready` after accept |
 | `generateScenes` | Approved story and character set | `scene.breakdown` | Ordered scenes. `scenes_ready` after accept |
 | `generateSceneMedia` | One scene, prompts, and a selected reference when the video provider needs one | `image.scene`, `video.scene`, `audio.dialogue`, `audio.narration` | That scene's assets. Project becomes `generating` |
 | `generateAudio` | Dialogue or narration on a scene, and a voice profile | `audio.dialogue` or `audio.narration` | Audio assets linked to the line and scene |
 | `renderProduction` | Every mandatory scene has a ready video | `render.final` | `RenderedVideo`. Project `completed` |
 
-Guided runs set the run status to `waiting_for_approval` between stages. Automatic runs enqueue the next method. The user can stop an automatic run and edit what already exists.
+Guided runs wait for approval between stages. A story always waits for approval, even in an automatic run. After that approval, an automatic run enqueues the next stage on its own. The user can stop an automatic run and keep what already exists.
 
 ## Dependencies
 

@@ -5,7 +5,8 @@ import { StudioError } from "@/lib/http/errors";
 import { isObjectId } from "@/lib/repositories/ownership";
 import { enqueueForRun } from "@/lib/pipeline/processJob";
 import type { PipelineDeps } from "@/lib/pipeline/ports";
-import type { RunRecord } from "@/lib/pipeline/types";
+import type { JobRecord, RunRecord } from "@/lib/pipeline/types";
+import type { StoryRecord } from "@/lib/validation/story";
 
 const ACTIVE = new Set(["pending", "running", "waiting_for_approval"]);
 
@@ -19,15 +20,55 @@ async function ownedRun(deps: PipelineDeps, actor: RequestAuth, projectId: strin
   return run;
 }
 
+async function existingCharacterJob(deps: PipelineDeps, runId: string): Promise<JobRecord | null> {
+  const jobs = await deps.jobs.listForRun(runId);
+  return jobs.find((job) => job.jobType === "character.extract" && job.status !== "cancelled") ?? null;
+}
+
+async function acceptStory(
+  deps: PipelineDeps,
+  actor: RequestAuth,
+  projectId: string,
+  run: RunRecord,
+  story: StoryRecord
+): Promise<{ story: StoryRecord; job: JobRecord }> {
+  const project = await deps.projects.findOwned(actor.userId, projectId);
+  if (!project) throw new StudioError("Project not found", 404, "not_found");
+  const saved = await deps.stories.markApproved(actor.userId, story.id);
+  if (!saved || saved.status !== "approved") {
+    throw new StudioError("This story cannot be approved", 409, "story_unavailable");
+  }
+  if (run.stageResults.story) {
+    run.stageResults.story.approved = true;
+    run.stageResults.story.storyId = saved.id;
+    run.stageResults.story.title = saved.title;
+    run.stageResults.story.synopsis = saved.synopsis;
+  }
+  if (project.status === "planning") {
+    if (!canTransition(project.status, "story_ready")) {
+      throw new StudioError("The story cannot be accepted yet", 409, "invalid_transition");
+    }
+    await deps.projects.update(actor.userId, projectId, { status: "story_ready" });
+  }
+  run.currentStage = "characters";
+  run.status = "running";
+  await deps.runs.save(run);
+  const job =
+    (await existingCharacterJob(deps, run.id)) ??
+    (await enqueueForRun(deps, run, "character.extract", null, {}));
+  return { story: saved, job };
+}
+
 export function createPipelineService(deps: PipelineDeps) {
-  return {
+  const service = {
     async get(actor: RequestAuth, projectId: string) {
       requireProjectId(projectId);
       const project = await deps.projects.findOwned(actor.userId, projectId);
       if (!project) throw new StudioError("Project not found", 404, "not_found");
       const run = await deps.runs.findLatest(actor.userId, projectId);
       const jobs = run ? await deps.jobs.listForRun(run.id) : [];
-      return { run, jobs };
+      const story = run ? await deps.stories.findForRun(actor.userId, run.id) : null;
+      return { run, jobs, story };
     },
 
     async start(actor: RequestAuth, projectId: string, workflowMode: WorkflowMode) {
@@ -59,6 +100,13 @@ export function createPipelineService(deps: PipelineDeps) {
     async generateStory(actor: RequestAuth, projectId: string) {
       const run = await ownedRun(deps, actor, projectId);
       const project = await deps.projects.findOwned(actor.userId, projectId);
+      if (
+        project?.status === "failed" &&
+        run.currentStage === "story" &&
+        !run.stageResults.story?.approved
+      ) {
+        return service.retry(actor, projectId);
+      }
       if (!project || project.status !== "planning" || run.stageResults.story?.approved) {
         throw new StudioError("The story step is not available", 409, "stage_unavailable");
       }
@@ -67,8 +115,54 @@ export function createPipelineService(deps: PipelineDeps) {
       });
     },
 
+    async approveStory(actor: RequestAuth, projectId: string, storyId: string) {
+      requireProjectId(projectId);
+      if (!isObjectId(storyId)) throw new StudioError("That story id is not valid", 400, "invalid_id");
+      const run = await ownedRun(deps, actor, projectId);
+      let story = await deps.stories.findOwned(actor.userId, storyId);
+      if (!story || story.projectId !== projectId || story.productionRunId !== run.id) {
+        throw new StudioError("Story not found", 404, "not_found");
+      }
+      if (story.status === "failed") {
+        throw new StudioError("A failed story cannot be approved", 409, "story_failed");
+      }
+      if (story.status === "approved" || run.stageResults.story?.approved) {
+        if (story.status !== "approved") {
+          const marked = await deps.stories.markApproved(actor.userId, story.id);
+          if (!marked) throw new StudioError("This story cannot be approved", 409, "story_unavailable");
+          story = marked;
+        }
+        if (run.stageResults.story && !run.stageResults.story.approved) {
+          run.stageResults.story.approved = true;
+          run.currentStage = "characters";
+          run.status = "running";
+          await deps.runs.save(run);
+        }
+        const project = await deps.projects.findOwned(actor.userId, projectId);
+        if (project?.status === "planning" && canTransition(project.status, "story_ready")) {
+          await deps.projects.update(actor.userId, projectId, { status: "story_ready" });
+        }
+        const job =
+          (await existingCharacterJob(deps, run.id)) ??
+          (await enqueueForRun(deps, run, "character.extract", null, {}));
+        return { story, job, alreadyApproved: true as const };
+      }
+      if (run.status !== "waiting_for_approval" || run.currentStage !== "story" || !run.stageResults.story) {
+        throw new StudioError("This story is not waiting for approval", 409, "not_waiting");
+      }
+      const approved = await acceptStory(deps, actor, projectId, run, story);
+      return { story: approved.story, job: approved.job, alreadyApproved: false as const };
+    },
+
     async approve(actor: RequestAuth, projectId: string) {
       const run = await ownedRun(deps, actor, projectId);
+      if (run.currentStage === "story" && run.stageResults.story?.storyId) {
+        const result = await this.approveStory(actor, projectId, run.stageResults.story.storyId);
+        return result.job ?? result.story;
+      }
+      if (run.stageResults.story?.approved && run.currentStage === "story") {
+        return enqueueForRun(deps, run, "character.extract", null, {});
+      }
       if (run.status !== "waiting_for_approval") {
         throw new StudioError("This stage is not waiting for approval", 409, "not_waiting");
       }
@@ -195,4 +289,5 @@ export function createPipelineService(deps: PipelineDeps) {
       return run;
     },
   };
+  return service;
 }

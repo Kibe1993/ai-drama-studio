@@ -1,5 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 
 const isPublicRoute = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)"]);
 
@@ -13,6 +14,7 @@ export default clerkMiddleware(async (auth, request) => {
   if (userId) return;
 
   if (request.nextUrl.pathname.startsWith("/api/")) {
+    log.info("api", `${request.method} ${request.nextUrl.pathname} -> 401`, { reason: "signed_out" });
     return NextResponse.json(
       { error: { code: "unauthorized", message: "Sign in to continue" } },
       { status: 401 }

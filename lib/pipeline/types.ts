@@ -2,6 +2,7 @@ import type { ProjectStatus, WorkflowMode } from "@/lib/domain/projectCatalog";
 
 export const JOB_TYPES = [
   "story.generate",
+  "storyBible.generate",
   "character.extract",
   "scene.breakdown",
   "video.scene",
@@ -17,11 +18,22 @@ export const RUN_STATUSES = [
   "pending",
   "running",
   "waiting_for_approval",
+  "unavailable",
   "completed",
   "failed",
   "cancelled",
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
+
+export const MEDIA_STATUSES = [
+  "pending",
+  "processing",
+  "mock",
+  "completed",
+  "failed",
+  "unavailable",
+] as const;
+export type MediaStatus = (typeof MEDIA_STATUSES)[number];
 
 export type PipelineStage = "story" | "characters" | "scenes" | "media" | "render" | "done";
 
@@ -54,7 +66,10 @@ export type CharacterResult = {
 export type SceneItem = {
   sceneNumber: number;
   title: string;
+  /** Legacy convenience flag. Readiness gates also require a stored asset reference and status. */
   videoReady: boolean;
+  videoStatus?: MediaStatus;
+  videoAssetId?: string;
   failed: boolean;
   location?: string;
   interiorExterior?: "interior" | "exterior" | "";
@@ -79,13 +94,21 @@ export type StageResults = {
   story?: StoryResult;
   characters?: CharacterResult;
   scenes?: SceneResult;
-  render?: { ready: boolean };
+  render?: { ready: boolean; status?: MediaStatus; mediaAssetId?: string };
 };
 
 export type RunRecord = {
   id: string;
   clerkUserId: string;
   projectId: string;
+  episode?: {
+    id: string;
+    number: number;
+    title: string;
+    premise: string;
+    targetDurationSeconds: number;
+    baseSnapshotVersion: number;
+  } | null;
   workflowMode: WorkflowMode;
   currentStage: PipelineStage;
   status: RunStatus;
@@ -99,7 +122,7 @@ export type JobRecord = {
   id: string;
   clerkUserId: string;
   projectId: string;
-  runId: string;
+  runId: string | null;
   sceneNumber: number | null;
   jobType: JobType;
   provider: string;

@@ -14,10 +14,11 @@ import type {
 } from "@/lib/providers/llm/types";
 import type { CharacterProfile, ProductionScene } from "@/lib/validation/productionStages";
 import { generatedStorySchema, type GeneratedStory } from "@/lib/validation/story";
+import { validateStoryBibleTaskResult, type StoryBibleTaskInput, type StoryBibleTaskResult } from "@/lib/providers/llm/storyBibleTask";
 
-export const DEFAULT_SEQUENCE_TIMEOUT_MS = 120_000;
+export const DEFAULT_SEQUENCE_TIMEOUT_MS = 300_000;
 export const DEFAULT_PROVIDER_TIMEOUT_MS = 90_000;
-const MINIMUM_ATTEMPT_MS = 1_000;
+const MINIMUM_ATTEMPT_MS = 100;
 
 export const FAILOVER_CODES = new Set([
   "rate_limited",
@@ -28,6 +29,7 @@ export const FAILOVER_CODES = new Set([
   "invalid_schema",
   "invalid_request",
   "quota_exhausted",
+  "invalid_model",
 ]);
 
 const TRANSPORT_CODES = new Set(["rate_limited", "timeout", "provider_unavailable", "quota_exhausted"]);
@@ -38,6 +40,7 @@ export type ProviderSlot = {
   configured: boolean;
   supported?: boolean;
   reason?: string;
+  timeoutMs?: number;
   generate(
     input: StoryPrompt,
     options: { signal: AbortSignal }
@@ -50,6 +53,10 @@ export type ProviderSlot = {
     input: ScenePrompt,
     options: { signal: AbortSignal }
   ): Promise<{ scenes: ProductionScene[]; usage?: TokenUsage }>;
+  generateStoryBible?(
+    input: StoryBibleTaskInput,
+    options: { signal: AbortSignal }
+  ): Promise<{ result: StoryBibleTaskResult; usage?: TokenUsage }>;
 };
 
 export class LlmSequenceError extends JobError {
@@ -64,16 +71,21 @@ export class LlmSequenceError extends JobError {
 }
 
 export function sequenceTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
-  const parsed = Number(env.LLM_SEQUENCE_TIMEOUT_MS);
+  const raw = env.LLM_SEQUENCE_TIMEOUT_MS?.trim();
+  const parsed = raw ? Number(raw) : Number.NaN;
   if (!Number.isFinite(parsed)) return DEFAULT_SEQUENCE_TIMEOUT_MS;
-  return Math.min(180_000, Math.max(15_000, parsed));
+  return Math.min(300_000, Math.max(15_000, parsed));
 }
 
 function providerLabel(id: string): string {
+  if (id === "ollama") return "Ollama";
   if (id === "openai") return "OpenAI";
   if (id === "anthropic") return "Anthropic";
   if (id === "deepseek") return "DeepSeek";
   if (id === "gemini") return "Gemini";
+  if (id === "groq") return "Groq";
+  if (id === "openrouter") return "OpenRouter";
+  if (id === "mistral") return "Mistral";
   return id;
 }
 
@@ -150,6 +162,24 @@ export class StoryProviderManager implements LLMProvider {
     };
   }
 
+  async generateStoryBible(input: StoryBibleTaskInput, context: StoryCallOptions = {}) {
+    const result = await this.runSequence(context, "story_bible", "Developing Story Bible", async (slot, signal) => {
+      if (!slot.generateStoryBible) {
+        throw new JobError(`${providerLabel(slot.id)} cannot develop a Story Bible.`, "configuration", false);
+      }
+      const generated = await slot.generateStoryBible(input, { signal });
+      return { value: validateStoryBibleTaskResult(input, generated.result), usage: generated.usage };
+    });
+    return {
+      result: result.value,
+      provider: result.provider,
+      model: result.model,
+      fallbackFrom: result.fallbackFrom,
+      attempts: result.attempts,
+      usage: result.usage,
+    };
+  }
+
   private async runSequence<T>(
     context: StoryCallOptions,
     task: string,
@@ -167,7 +197,7 @@ export class StoryProviderManager implements LLMProvider {
     if (slots.length === 0) {
       throw new LlmSequenceError("No language provider is configured.", "configuration", false, []);
     }
-    const sequenceMs = this.options.sequenceTimeoutMs ?? sequenceTimeoutMs();
+    const sequenceMs = this.options.sequenceTimeoutMs ?? context.sequenceTimeoutMs ?? sequenceTimeoutMs();
     const providerCap = this.options.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
     const deadline = Date.now() + sequenceMs;
     const attempts: AttemptRecord[] = [];
@@ -206,7 +236,9 @@ export class StoryProviderManager implements LLMProvider {
       if (!slot.configured) {
         if (index === 0) {
           throw new LlmSequenceError(
-            `${providerLabel(slot.id)} is selected but its API key is not set.`,
+            slot.id === "ollama"
+              ? "Ollama is selected but disabled. Set a different LLM_PROVIDER or re-enable Ollama."
+              : `${providerLabel(slot.id)} is selected but its API key is not set.`,
             "configuration",
             false,
             attempts
@@ -217,7 +249,13 @@ export class StoryProviderManager implements LLMProvider {
         continue;
       }
 
-      const budget = Math.min(providerCap, remaining);
+      // Share the remaining bounded sequence budget with configured providers
+      // still eligible in the chain. A slow first provider must not consume the
+      // entire allowance and prevent every fallback from being attempted.
+      const slotCap = slot.timeoutMs ?? providerCap;
+      const remainingEligible = slots.slice(index).filter((candidate) => candidate.supported !== false && candidate.configured).length;
+      const fairShareMs = Math.floor(remaining / Math.max(1, remainingEligible));
+      const budget = Math.min(slotCap, Math.max(fairShareMs, Math.min(slotCap, remaining - (remainingEligible - 1) * 15_000)));
       const signal = AbortSignal.any([AbortSignal.timeout(budget), ...(context.signal ? [context.signal] : [])]);
       await context.onStatus?.(
         index === 0
@@ -259,7 +297,18 @@ export class StoryProviderManager implements LLMProvider {
           usage: result.usage,
         };
       } catch (error) {
-        const failure = error instanceof JobError ? error : classifyProviderError(providerLabel(slot.id), error);
+        const reasonName = signal.reason && typeof signal.reason === "object" && "name" in signal.reason
+          ? signal.reason.name
+          : "";
+        const timeoutAbort = signal.aborted && reasonName === "TimeoutError";
+        // SDKs can wrap a manager-triggered AbortSignal timeout as a generic
+        // non-retryable provider_failed JobError. The signal deadline is the
+        // authoritative cause, so classify it before honoring that wrapper.
+        const failure = timeoutAbort
+          ? new JobError(`${providerLabel(slot.id)} timed out. The next provider will be tried.`, "timeout", true)
+          : error instanceof JobError
+            ? error
+            : classifyProviderError(providerLabel(slot.id), error);
         const durationMs = Date.now() - started;
         attempts.push(record(slot, durationMs, false, failure.code, httpStatusOf(error) ?? httpStatusOf(failure), index > 0));
         last = failure;
@@ -275,6 +324,11 @@ export class StoryProviderManager implements LLMProvider {
         if (!FAILOVER_CODES.has(failure.code)) {
           throw new LlmSequenceError(failure.message, failure.code, false, attempts);
         }
+        const next = slots[index + 1];
+        if (next) log.info("llm", "fallback starting", {
+          task, from: slot.id, fromModel: slot.model, to: next.id, toModel: next.model,
+          runId: context.runId ?? "", jobId: context.jobId ?? "",
+        });
       }
     }
 

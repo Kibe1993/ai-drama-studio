@@ -6,6 +6,8 @@ import { useParams, useRouter } from "next/navigation";
 import { isBusyStatus, STATUS_LABELS, type ProjectStatus } from "@/lib/domain/projectCatalog";
 import { ProductionPanel } from "@/components/production/ProductionPanel";
 import { ProjectForm } from "@/components/projects/ProjectForm";
+import { StoryBibleEditor } from "@/components/projects/StoryBibleEditor";
+import { EpisodeManager } from "@/components/projects/EpisodeManager";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/hooks/api";
 import {
@@ -40,6 +42,8 @@ function toInput(project: Project): ProjectInput {
     tone: project.tone,
     targetDurationSeconds: project.targetDurationSeconds as ProjectInput["targetDurationSeconds"],
     aspectRatio: project.aspectRatio as ProjectInput["aspectRatio"],
+    productionType: project.productionType,
+    productionMode: project.productionMode,
   };
 }
 
@@ -111,6 +115,13 @@ export default function ProjectPage() {
             ))}
           </ol>
           <ProductionPanel projectId={project.id} status={project.status} />
+          <EpisodeManager
+            projectId={project.id}
+            productionMode={project.productionMode}
+            defaultDuration={project.targetDurationSeconds}
+            projectStatus={project.status}
+          />
+          <StoryBibleEditor projectId={project.id} initialIdea={project.originalStoryIdea} initialTitle={project.title} readOnly={project.status === "archived" || isBusyStatus(project.status)} />
 
           {confirmDelete ? (
             <div className="mt-6 flex flex-wrap items-center gap-3 border border-[#6b3a32] px-4 py-3">
@@ -166,8 +177,8 @@ function Brief({ project }: { project: Project }) {
       <div>
         <dt className="text-sm text-[#a39b8f]">Setup</dt>
         <dd className="mt-1">
-          {project.genre} · {project.language} · {project.visualStyle} · {project.tone} ·{" "}
-          {project.targetDurationSeconds}s · {project.aspectRatio}
+          {project.productionType} · {project.productionMode} · {project.genre} · {project.language} ·{" "}
+          {project.visualStyle} · {project.tone} · {Math.round(project.targetDurationSeconds / 60)} min · {project.aspectRatio}
         </dd>
       </div>
     </dl>

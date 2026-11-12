@@ -300,6 +300,8 @@ describe("free provider sequence", () => {
             aspectRatio: "16:9",
             status: "planning",
             workflowMode: "guided",
+            productionType: "fictional_drama",
+            productionMode: "standalone",
             createdAt: "",
             updatedAt: "",
           };
@@ -395,6 +397,8 @@ describe("free provider sequence", () => {
               aspectRatio: "16:9",
               status: "planning",
               workflowMode: "guided",
+              productionType: "fictional_drama",
+              productionMode: "standalone",
               createdAt: "",
               updatedAt: "",
             };

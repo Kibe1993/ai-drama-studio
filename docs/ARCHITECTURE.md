@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Phase 3. Signed-in users can manage projects, generate a screenplay through the free-tier language providers, and approve it. Character, scene, video, and render stages are still mocks. Redis and the worker move the run.
+Status: Story, character extraction, and scene breakdown use the configured LLM provider manager. Video and rendering remain mock-only and are explicitly unavailable as real media; neither can complete a production without validated stored media. Redis and the worker move the run.
 
 ## Product
 

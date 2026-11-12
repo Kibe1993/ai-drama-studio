@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { STATUS_LABELS } from "@/lib/domain/projectCatalog";
+import { PRODUCTION_MODES, PRODUCTION_TYPES, STATUS_LABELS } from "@/lib/domain/projectCatalog";
 import type { Project } from "@/hooks/useProjects";
 
 export function ProjectRows({ projects }: { projects: Project[] }) {
@@ -17,7 +17,9 @@ export function ProjectRows({ projects }: { projects: Project[] }) {
             <span>
               <span className="block text-[#f3efe6]">{project.title}</span>
               <span className="text-sm text-[#a39b8f]">
-                {project.genre} · {Math.round(project.targetDurationSeconds / 60)} min · {project.aspectRatio}
+                {PRODUCTION_TYPES.find((item) => item.id === project.productionType)?.label} ·{" "}
+                {PRODUCTION_MODES.find((item) => item.id === project.productionMode)?.label} · {project.genre} ·{" "}
+                {Math.round(project.targetDurationSeconds / 60)} min · {project.aspectRatio}
               </span>
             </span>
             <span className="text-sm text-[#c4a574]">{STATUS_LABELS[project.status]}</span>

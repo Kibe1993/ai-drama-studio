@@ -1,8 +1,18 @@
 # Database
 
-Status: The database holds `users`, `projects`, `productionRuns`, `generationJobs`, and `stories`. Character, scene, and media collections are still design-only. Scene identity on a job is `sceneNumber` until scene documents exist.
+Status: The database holds `users`, `projects`, `productionRuns`, `generationJobs`, `stories`, `storyBibles`, `episodes`, persistent `productionScenes`, `canonicalEntities`, `storyEvents`, and `mediaAssets` metadata. Media bytes remain outside MongoDB.
 
 `stories` is implemented by `lib/models/story.ts`. One document per production run (`productionRunId` is unique). A retry of `story.generate` updates that document instead of inserting another. Fields: `clerkUserId`, `projectId`, `productionRunId`, `title`, `synopsis`, `structure` (act 1 setup, act 2 conflict, act 3 resolution), `screenplay` (scenes with heading, location, time of day, characters, visual description, action, and dialogue), `status` (`awaiting_approval`, `approved`, `failed`), `provider`, `model`, `fallbackFrom`, `version`, and timestamps. Invalid screenplay JSON is not written. The story stays `awaiting_approval` until the owner approves it. The Zod schema is `lib/validation/story.ts`. `Project.currentStoryId` points at the saved story.
+
+`StoryBible` is implemented in `lib/models/storyBible.ts` with its Zod shape in `lib/validation/storyBible.ts`. It is unique per owned project and stores an editable draft plus an immutable approval history. Each approval uses the expected approved version and draft revision as a compare-and-set guard. Serialized episodes retain the approved snapshot version they were created from. Story generation uses that exact snapshot when available. Event extraction and canonical entity records are not implemented yet.
+
+`Episode` is implemented in `lib/models/episode.ts`. Episodes are numbered within a project and retain their premise, target screenplay duration, status, current story, and starting Story Bible version. Production runs and stories reference their episode. Existing projects are supported; the first episode is created when needed.
+
+`ProductionScene` is implemented in `lib/models/productionScene.ts` with validation in `lib/validation/scene.ts`. Scene breakdowns are persisted idempotently by production run and scene number, linked to the project, episode, and approved story. Editable scene details and manually authored shot plans are saved before scene approval. Video status remains pending/mock/unavailable; a scene document is not evidence of a generated video.
+
+`CanonicalEntity` stores project-scoped characters and locations. Idempotent stage persistence records appearances without overwriting an established profile. Character records become approved at the character approval checkpoint; locations become approved with the scene checkpoint. `StoryEvent` stores one scene beat from the validated scene action and links it to its characters/location. The beat remains pending until scene approval; edited scene actions are synchronized to the event. Only approved entities and events from earlier episodes are included in serialized prompts. These collections are created for new pipeline output; existing run snapshots are not automatically backfilled.
+
+`MediaAsset` metadata is defined by `lib/models/mediaAsset.ts`. It records ownership and source links, storage key/provider, content type, size, SHA-256, optional media metadata, signature-validation state, storage verification, and review status. Records are idempotent by owner/idempotency key. The current service only stores signature-verified files and does not mark them playable or wire them into scene readiness.
 
 MongoDB stores metadata and references. Image, audio, and video bytes go to object storage. `storageKey` is the pointer. A `url`, when present, is a derived delivery URL and may expire.
 
@@ -18,13 +28,13 @@ Fields: `email`, `name`, `avatar`, `preferences`, `subscription` (`plan`, `statu
 
 ## Project
 
-Fields: `clerkUserId`, `title`, `originalStoryIdea`, `genre`, `language`, `visualStyle`, `tone`, `targetDurationSeconds`, `aspectRatio`, `status`, `workflowMode`, `thumbnailAssetId`, `currentStoryId`, timestamps.
+Fields: `clerkUserId`, `title`, `originalStoryIdea`, `productionType` (one of the eight supported content categories), `productionMode` (`standalone`, `serialized`, or `anthology`), `genre`, `language`, `visualStyle`, `tone`, `targetDurationSeconds`, `aspectRatio`, `status`, `workflowMode`, `thumbnailAssetId`, `currentStoryId`, timestamps. Existing records without the profile fields read as `fictional_drama` and `standalone`; no database backfill is required.
 
 Indexes: `{ clerkUserId: 1, updatedAt: -1, _id: -1 }`, `{ clerkUserId: 1, status: 1 }`.
 
-`targetDurationSeconds` is validated as 60–180 in the first release. The field is a number so a later release can allow longer values without a migration.
+`targetDurationSeconds` accepts 60, 120, 180, 300, 600, and 900 seconds (1–15 minutes). This sets the screenplay-generation target only; it does not imply that the current mock video/render stages produce a video of that duration.
 
-Genres: `romance`, `family`, `comedy`, `suspense`, `thriller`, `crime`, `inspirational`, `social`.
+Genres/focus values include romance, family, comedy, suspense, thriller, crime, social drama, science fiction, fantasy, mystery, historical, human interest, philosophical, documentary, educational, satire, and animation style.
 
 Aspect ratios: `16:9`, `9:16`, `1:1`.
 
@@ -48,15 +58,15 @@ Indexes: `{ projectId: 1 }`, `{ clerkUserId: 1, projectId: 1 }`.
 
 Relationships must reference characters in the same project. The repository checks that before save.
 
-## Scene
+## ProductionScene
 
-Fields: `clerkUserId`, `projectId`, `sceneNumber`, `title`, `location`, `timeOfDay`, `characterIds`, `action`, `dialogue` (array of `{ characterId, line, audioAssetId }`), `narration`, `visualDirection`, `cameraAngle`, `cameraMovement`, `lighting`, `mood`, `imagePrompt`, `videoPrompt`, `soundDirection`, `estimatedDurationSeconds`, `status`, timestamps.
+Fields: `clerkUserId`, `projectId`, `productionRunId`, `episodeId`, `storyId`, `sceneNumber`, `title`, `location`, `interiorExterior`, `timeOfDay`, `charactersPresent`, `visualDescription`, `action`, `dialogue`, `cameraDirection`, `estimatedDurationSeconds`, editable `shotPlan`, video readiness/status metadata, timestamps.
 
-Indexes: unique `{ projectId: 1, sceneNumber: 1 }`, `{ clerkUserId: 1, projectId: 1 }`.
+Indexes: unique `{ clerkUserId: 1, productionRunId: 1, sceneNumber: 1 }`, `{ clerkUserId: 1, projectId: 1, episodeId: 1, sceneNumber: 1 }`.
 
 Reorder rewrites `sceneNumber` for that project in one bulk write. Render sorts by `sceneNumber`.
 
-Scene status: `draft`, `prompts_ready`, `image_ready`, `video_ready`, `audio_ready`, `failed`. A failed asset does not delete the scene.
+Shot plans are creator-authored; the app does not claim they are generated or validated by a video provider. A failed/unavailable media stage does not delete a scene.
 
 ## MediaAsset
 

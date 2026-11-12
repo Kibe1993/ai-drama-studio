@@ -15,6 +15,7 @@ import {
 export type CharacterPrompt = {
   title: string;
   screenplay: ScreenplayScene[];
+  continuityContext?: string;
 };
 
 export type ScenePrompt = {
@@ -22,6 +23,7 @@ export type ScenePrompt = {
   screenplay: ScreenplayScene[];
   characterNames: string[];
   targetDurationSeconds: number;
+  continuityContext?: string;
 };
 
 export type StageTransport = {
@@ -50,6 +52,7 @@ export function characterInstructions(input: CharacterPrompt): { system: string;
       "Do not omit anyone from that list.",
       "If age, gender, appearance, clothing, personality, or background is not stated, use an empty string.",
       "Do not invent those details.",
+      input.continuityContext ? `Approved prior-episode character canon. Keep these established traits consistent where names match; do not add details absent from this canon or screenplay:\n${input.continuityContext}` : "",
       "Approved screenplay:",
       JSON.stringify(input.screenplay),
     ].join("\n"),
@@ -68,6 +71,7 @@ export function sceneInstructions(input: ScenePrompt): { system: string; prompt:
       "Copy the dialogue from the screenplay.",
       "interiorExterior is interior, exterior, or an empty string when the heading does not say.",
       "cameraDirection and estimatedDurationSeconds may be omitted when the screenplay does not state them.",
+      input.continuityContext ? `Approved prior-episode character and location canon. Preserve established appearance and location details where applicable:\n${input.continuityContext}` : "",
       "Approved screenplay:",
       JSON.stringify(input.screenplay),
     ].join("\n"),

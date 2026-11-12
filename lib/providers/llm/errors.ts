@@ -75,14 +75,25 @@ export class ClassifiedProviderError extends JobError {
   }
 }
 
-export function failedGenerationOf(error: unknown): string {
-  if (!error || typeof error !== "object" || !("error" in error)) return "";
-  const body = error.error;
-  if (!body || typeof body !== "object" || !("failed_generation" in body)) return "";
-  const value = body.failed_generation;
+function generationText(value: unknown): string {
   if (typeof value === "string") return value;
   if (value && typeof value === "object") return JSON.stringify(value);
   return "";
+}
+
+export function failedGenerationOf(error: unknown): string {
+  if (!error || typeof error !== "object" || !("error" in error)) return "";
+  const body = error.error;
+  if (!body || typeof body !== "object") return "";
+  // OpenAI-compatible clients store the full response body on `error.error`.
+  // Groq's body is { error: { failed_generation } }, while some providers put
+  // failed_generation at the top level.
+  const record = body as { failed_generation?: unknown; error?: unknown };
+  const direct = generationText(record.failed_generation);
+  if (direct) return direct;
+  const inner = record.error;
+  if (!inner || typeof inner !== "object") return "";
+  return generationText((inner as { failed_generation?: unknown }).failed_generation);
 }
 
 export function classifyProviderError(providerName: string, error: unknown): ClassifiedProviderError {
@@ -126,7 +137,8 @@ export function classifyProviderError(providerName: string, error: unknown): Cla
     status === 502 ||
     status === 503 ||
     status === 504 ||
-    /econnreset|enotfound|eai_again|network|fetch failed|socket/i.test(detail)
+    causeCodeOf(error) === "ECONNREFUSED" ||
+    /econnreset|econnrefused|enotfound|eai_again|network|fetch failed|socket/i.test(detail)
   ) {
     return named(`${providerName} is unavailable. The story will be retried.`, "provider_unavailable", true);
   }

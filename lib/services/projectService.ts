@@ -110,6 +110,8 @@ export function createProjectService(projects: ProjectRepositoryPort, users: Use
         aspectRatio: input.aspectRatio,
         status: "draft",
         workflowMode: "guided",
+        productionType: input.productionType,
+        productionMode: input.productionMode,
         idempotencyKey,
       });
     },
@@ -137,6 +139,8 @@ export function createProjectService(projects: ProjectRepositoryPort, users: Use
         aspectRatio: current.aspectRatio,
         status: "draft",
         workflowMode: "guided",
+        productionType: current.productionType,
+        productionMode: current.productionMode,
       });
     },
 

@@ -8,6 +8,7 @@ type RunDoc = {
   _id: mongoose.Types.ObjectId;
   clerkUserId: string;
   projectId: string;
+  episode?: RunRecord["episode"];
   workflowMode: RunRecord["workflowMode"];
   currentStage: RunRecord["currentStage"];
   status: RunRecord["status"];
@@ -22,6 +23,7 @@ function toRecord(doc: RunDoc): RunRecord {
     id: doc._id.toString(),
     clerkUserId: doc.clerkUserId,
     projectId: doc.projectId,
+    episode: doc.episode ?? null,
     workflowMode: doc.workflowMode,
     currentStage: doc.currentStage,
     status: doc.status,

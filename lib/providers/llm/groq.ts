@@ -4,7 +4,7 @@ import { ClassifiedProviderError } from "@/lib/providers/llm/errors";
 import { parseStory } from "@/lib/providers/llm/parse";
 import { storySystemPrompt, storyUserPrompt } from "@/lib/providers/llm/prompt";
 import { storyJsonSchemaFormat } from "@/lib/providers/llm/schemaFormat";
-import { bindChatStages } from "@/lib/providers/llm/chatStages";
+import { bindChatStages, storyBibleCompletionBudget } from "@/lib/providers/llm/chatStages";
 import type { LLMProvider, StoryCallOptions, StoryModelResult, StoryPrompt } from "@/lib/providers/llm/types";
 import { DEFAULT_FREE_MODELS } from "@/lib/providers/llm/freePolicy";
 
@@ -15,6 +15,7 @@ export class GroqLLMProvider implements LLMProvider {
   readonly model: string;
   readonly generateCharacters: LLMProvider["generateCharacters"];
   readonly generateScenes: LLMProvider["generateScenes"];
+  readonly generateStoryBible: NonNullable<LLMProvider["generateStoryBible"]>;
 
   constructor(private readonly options: { model: string; apiKey: string | undefined }) {
     this.model = options.model;
@@ -25,11 +26,18 @@ export class GroqLLMProvider implements LLMProvider {
       model: options.model,
       schemaMode: "json_schema",
       strictSchema: false,
+      // Groq's grammar-constrained Story Bible mode rejects this large schema
+      // server-side. JSON object mode plus the explicit prompt contract lets
+      // Groq answer normally; any incomplete shape is rejected by Zod and the
+      // sequence moves to the next provider.
+      storyBibleSchemaMode: "json_object",
+      storyBibleMaxCompletionTokens: (input) => storyBibleCompletionBudget(input, 16_000),
       recoverRejected: true,
       extra: { reasoning_effort: "low" },
     });
     this.generateCharacters = stages.generateCharacters;
     this.generateScenes = stages.generateScenes;
+    this.generateStoryBible = stages.generateStoryBible!;
   }
 
   async generateStory(input: StoryPrompt, options: StoryCallOptions = {}): Promise<StoryModelResult> {

@@ -32,6 +32,8 @@ function project(status: ProjectRecord["status"] = "draft"): ProjectRecord {
     aspectRatio: "16:9",
     status,
     workflowMode: "guided",
+    productionType: "fictional_drama",
+    productionMode: "standalone",
     createdAt: now,
     updatedAt: now,
   };
@@ -125,7 +127,7 @@ function harness(status: ProjectRecord["status"] = "draft") {
     engines: createMockEngines(),
   };
 
-  return { deps, api: createPipelineService(deps), projects, jobs, enqueued };
+  return { deps, api: createPipelineService(deps), projects, runs, jobs, enqueued };
 }
 
 async function nextQueued(deps: PipelineDeps) {
@@ -147,7 +149,7 @@ describe("production pipeline", () => {
     expect(canTransition("draft", "completed")).toBe(false);
   });
 
-  it("walks a guided run from story to a finished render", async () => {
+  it("stops at mock video output instead of completing a guided production", async () => {
     const { api, deps, projects } = harness();
     await api.start(owner, projectId, "guided");
     const first = await api.generateStory(owner, projectId);
@@ -162,15 +164,65 @@ describe("production pipeline", () => {
     await api.approve(owner, projectId);
     expect(projects[0]?.status).toBe("generating");
     await nextQueued(deps);
-    expect(projects[0]?.status).toBe("generating");
-    await nextQueued(deps);
-    await api.approve(owner, projectId);
-    expect(projects[0]?.status).toBe("rendering");
-    await nextQueued(deps);
-    expect(projects[0]?.status).toBe("completed");
     const state = await api.get(owner, projectId);
     expect(state.run?.stageResults.story?.approved).toBe(true);
     expect(state.run?.stageResults.scenes?.items).toHaveLength(2);
+    expect(state.run?.status).toBe("unavailable");
+    expect(state.run?.stageResults.scenes?.items.every((scene) => !scene.videoReady)).toBe(true);
+    expect(state.run?.stageResults.scenes?.items.some((scene) => scene.videoStatus === "mock")).toBe(true);
+    expect((await deps.jobs.listForRun(state.run!.id)).some((job) => job.jobType === "render.final")).toBe(false);
+    expect(projects[0]?.status).toBe("generating");
+    await expect(api.approve(owner, projectId)).rejects.toMatchObject({ code: "not_waiting" });
+  });
+
+  it("does not accept a legacy videoReady flag without an asset reference", async () => {
+    const { api, deps } = harness();
+    await api.start(owner, projectId, "guided");
+    await api.generateStory(owner, projectId);
+    await nextQueued(deps);
+    await api.approve(owner, projectId);
+    await nextQueued(deps);
+    await api.approve(owner, projectId);
+    await nextQueued(deps);
+
+    const state = await api.get(owner, projectId);
+    const run = state.run!;
+    for (const scene of run.stageResults.scenes!.items) scene.videoReady = true;
+    run.currentStage = "media";
+    run.status = "waiting_for_approval";
+    await deps.runs.save(run);
+
+    await expect(api.approve(owner, projectId)).rejects.toMatchObject({ code: "media_incomplete" });
+    expect((await deps.jobs.listForRun(run.id)).some((job) => job.jobType === "render.final")).toBe(false);
+  });
+
+  it("does not complete the production when the final render engine is mocked", async () => {
+    const { api, deps, projects, runs } = harness();
+    await api.start(owner, projectId, "guided");
+    await api.generateStory(owner, projectId);
+    await nextQueued(deps);
+    await api.approve(owner, projectId);
+    await nextQueued(deps);
+    await api.approve(owner, projectId);
+    await nextQueued(deps);
+    const run = runs[0]!;
+    for (const scene of run.stageResults.scenes!.items) {
+      scene.videoReady = true;
+      scene.videoStatus = "completed";
+      scene.videoAssetId = `asset-${scene.sceneNumber}`;
+    }
+    run.currentStage = "media";
+    run.status = "waiting_for_approval";
+    projects[0]!.status = "generating";
+    await deps.runs.save(run);
+
+    await api.approve(owner, projectId);
+    expect(projects[0]?.status).toBe("rendering");
+    await nextQueued(deps);
+
+    expect(run.status).toBe("unavailable");
+    expect(run.stageResults.render).toMatchObject({ ready: false, status: "mock" });
+    expect(projects[0]?.status).toBe("rendering");
   });
 
   it("keeps a failed scene from discarding the other scene", async () => {
@@ -188,7 +240,8 @@ describe("production pipeline", () => {
     const state = await api.get(owner, projectId);
     const items = state.run?.stageResults.scenes?.items ?? [];
     expect(items.filter((scene) => scene.failed)).toHaveLength(1);
-    expect(items.filter((scene) => scene.videoReady)).toHaveLength(1);
+    expect(items.filter((scene) => scene.videoReady)).toHaveLength(0);
+    expect(state.run?.status).toBe("unavailable");
     expect(projects[0]?.status).toBe("generating");
   });
 

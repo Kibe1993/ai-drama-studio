@@ -15,7 +15,7 @@ function toRecord(doc: JobDoc): JobRecord {
     id: doc._id.toString(),
     clerkUserId: doc.clerkUserId,
     projectId: doc.projectId,
-    runId: doc.runId,
+    runId: doc.runId ?? null,
     sceneNumber: doc.sceneNumber,
     jobType: doc.jobType,
     provider: doc.provider,
@@ -93,6 +93,8 @@ export const generationJobRepository = {
       job.id,
       {
         status: job.status,
+        provider: job.provider,
+        model: job.model,
         output: job.output,
         progress: job.progress,
         attempts: job.attempts,

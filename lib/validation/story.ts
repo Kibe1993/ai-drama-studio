@@ -57,6 +57,7 @@ export type StoryRecord = GeneratedStory & {
   clerkUserId: string;
   projectId: string;
   productionRunId: string;
+  episodeId?: string | null;
   status: StoryStatus;
   version: number;
   provider: string;

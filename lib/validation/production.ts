@@ -4,6 +4,7 @@ export const productionActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("start"),
     workflowMode: z.enum(["guided", "automatic"]),
+    episodeId: z.string().regex(/^[a-f\d]{24}$/i).optional(),
   }),
   z.object({ action: z.literal("story") }),
   z.object({ action: z.literal("approve") }),

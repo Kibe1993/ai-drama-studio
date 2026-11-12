@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { createLiveEngines } from "@/lib/pipeline/liveEngines";
 import { JobError, type JobRecord, type RunRecord } from "@/lib/pipeline/types";
-import { classifyProviderError } from "@/lib/providers/llm/errors";
+import { classifyProviderError, failedGenerationOf } from "@/lib/providers/llm/errors";
 import { StoryProviderManager, type ProviderSlot } from "@/lib/providers/llm/manager";
 import { providerSequence } from "@/lib/providers/llm/registry";
+import { storyBibleResponseFormat } from "@/lib/providers/llm/chatStages";
 import { parseStory } from "@/lib/providers/llm/parse";
 import type { StoryPrompt } from "@/lib/providers/llm/types";
 import type { GeneratedStory, StoryRecord } from "@/lib/validation/story";
@@ -117,9 +118,7 @@ describe("language provider failover", () => {
         slot("gemini", (_input, options) => {
           return new Promise((_resolve, reject) => {
             options.signal.addEventListener("abort", () => {
-              const error = new Error("timed out");
-              error.name = "TimeoutError";
-              reject(error);
+              reject(new Error("Request was aborted."));
             });
           });
         }),
@@ -131,10 +130,27 @@ describe("language provider failover", () => {
     expect(result.attempts?.[0]?.category).toBe("timeout");
   });
 
-  it("stops later providers when the sequence budget is gone", async () => {
+  it("treats an SDK-wrapped provider_failed abort as a timeout and reaches the next model", async () => {
     const second = vi.fn(async () => ({ story: sample }));
-    await expect(
-      manager(
+    const result = await manager(
+      [
+        slot("openrouter", (_input, options) => new Promise((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => {
+            reject(classifyProviderError("OpenRouter", new Error("Request was aborted.")));
+          });
+        })),
+        slot("mistral", second),
+      ],
+      { providerTimeoutMs: 30, sequenceTimeoutMs: 5_000 }
+    ).generateStory(prompt);
+    expect(result.provider).toBe("mistral");
+    expect(result.attempts?.[0]?.category).toBe("timeout");
+    expect(second).toHaveBeenCalledOnce();
+  });
+
+  it("shares the bounded sequence budget so later providers get a fallback attempt", async () => {
+    const second = vi.fn(async () => ({ story: sample }));
+    const result = await manager(
         [
           slot("gemini", (_input, options) => {
             return new Promise((_resolve, reject) => {
@@ -148,9 +164,10 @@ describe("language provider failover", () => {
           slot("openai", second),
         ],
         { providerTimeoutMs: 80, sequenceTimeoutMs: 1_050 }
-      ).generateStory(prompt)
-    ).rejects.toMatchObject({ code: "timeout", retryable: true });
-    expect(second).not.toHaveBeenCalled();
+      ).generateStory(prompt);
+    expect(second).toHaveBeenCalledOnce();
+    expect(result.provider).toBe("openai");
+    expect(result.attempts?.[0]?.category).toBe("timeout");
   });
 
   it("fails over malformed JSON and does not return it", async () => {
@@ -296,6 +313,8 @@ describe("language provider failover", () => {
             aspectRatio: "16:9",
             status: "draft",
             workflowMode: "guided",
+            productionType: "fictional_drama",
+            productionMode: "standalone",
             createdAt: "",
             updatedAt: "",
           };
@@ -334,5 +353,44 @@ describe("provider error classes", () => {
       retryable: true,
     });
     expect(classifyProviderError("OpenAI", new Error("unknown model")).code).toBe("invalid_model");
+  });
+
+  it("extracts failed_generation from the OpenAI-compatible error body", () => {
+    const body = {
+      status: 400,
+      message: "400 Failed to generate JSON.",
+      error: {
+        error: {
+          message: "Failed to generate JSON.",
+          code: "json_validate_failed",
+          failed_generation: '{"title":"partial"}',
+        },
+      },
+    };
+
+    expect(failedGenerationOf(body)).toBe('{"title":"partial"}');
+    expect(classifyProviderError("Groq", body).failedGeneration).toBe('{"title":"partial"}');
+  });
+
+  it("also reads a top-level failed_generation body", () => {
+    const body = {
+      status: 400,
+      message: "rejected",
+      error: { failed_generation: '{"title":"partial"}' },
+    };
+
+    expect(failedGenerationOf(body)).toBe('{"title":"partial"}');
+  });
+});
+
+describe("Story Bible response format", () => {
+  it("uses JSON object mode when the provider opts out of json_schema", () => {
+    const format = storyBibleResponseFormat(
+      { label: "Groq", schemaMode: "json_schema", storyBibleSchemaMode: "json_object" },
+      { type: "object" },
+      "generate"
+    );
+
+    expect(format).toEqual({ type: "json_object" });
   });
 });

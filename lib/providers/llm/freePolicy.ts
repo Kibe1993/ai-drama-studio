@@ -9,13 +9,20 @@ export const FREE_GEMINI_MODELS = ["gemini-3.8-flash", "gemini-3.6-flash"] as co
  */
 export const FREE_GROQ_MODELS = ["openai/gpt-oss-20b"] as const;
 
-/** Official free-mode setup request uses this model id. */
-export const FREE_MISTRAL_MODELS = ["mistral-small-latest"] as const;
+/**
+ * The default free OpenRouter model must actually support `response_format`
+ * and produce a full Story Bible. The `openrouter/free` router can select a
+ * tiny model that reports support but returns empty constrained output, so the
+ * verified default is pinned to a specific free model. Any id ending in
+ * `:free` is still accepted.
+ */
+export const FREE_OPENROUTER_MODELS = ["baidu/ernie-5.5-flash-preview:free"] as const;
 
 export const DEFAULT_FREE_MODELS = {
+  ollama: "gemma3:4b",
   gemini: "gemini-3.8-flash",
   groq: "openai/gpt-oss-20b",
-  openrouter: "openrouter/free",
+  openrouter: FREE_OPENROUTER_MODELS[0],
   mistral: "mistral-small-latest",
 } as const;
 
@@ -30,10 +37,11 @@ export function openRouterModelIsFree(model: string): boolean {
 
 export function freeModelAllowed(provider: string, model: string): boolean {
   if ((PAID_PROVIDER_IDS as readonly string[]).includes(provider)) return false;
+  if (provider === "ollama") return true;
   if (provider === "gemini") return (FREE_GEMINI_MODELS as readonly string[]).includes(model);
   if (provider === "groq") return (FREE_GROQ_MODELS as readonly string[]).includes(model);
   if (provider === "openrouter") return openRouterModelIsFree(model);
-  if (provider === "mistral") return (FREE_MISTRAL_MODELS as readonly string[]).includes(model);
+  if (provider === "mistral") return true;
   return false;
 }
 

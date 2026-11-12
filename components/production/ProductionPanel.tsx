@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { StoryReview } from "@/components/production/StoryReview";
+import { ScenePlanner } from "@/components/production/ScenePlanner";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/hooks/api";
 import { useApproveStory, useProduction, useProductionAction } from "@/hooks/useProduction";
@@ -48,6 +49,23 @@ function storyJobFailed(jobs: JobRecord[]): string | null {
   return storyJob.error?.message ?? "Story generation failed";
 }
 
+function videoStatusLabel(scene: { videoStatus?: string; videoReady: boolean; videoAssetId?: string; failed: boolean }) {
+  if (scene.videoStatus) return scene.videoStatus.toUpperCase();
+  if (scene.failed) return "FAILED";
+  // Historical videoReady values were written by the mock-only implementation.
+  if (scene.videoReady && !scene.videoAssetId) return "MOCK";
+  return "PENDING";
+}
+
+function unavailableMessage(run: RunRecord): string {
+  if (run.currentStage === "render" || run.stageResults.render) {
+    return run.stageResults.render?.status === "mock"
+      ? "UNAVAILABLE - the render stage is MOCK; no final video file was created."
+      : "UNAVAILABLE - no validated final video file was stored.";
+  }
+  return "UNAVAILABLE - the video stage is MOCK; no real scene clips were generated.";
+}
+
 export function ProductionPanel({
   projectId,
   status,
@@ -82,7 +100,9 @@ export function ProductionPanel({
       {run ? (
         <p className="mt-3 text-[#f3efe6]">
           {activeJob?.progress.message ||
-            (run.status === "waiting_for_approval"
+            (run.status === "unavailable"
+              ? unavailableMessage(run)
+              : run.status === "waiting_for_approval"
               ? "Waiting for your approval"
               : run.status === "completed"
                 ? "Rendering final video is finished"
@@ -90,7 +110,7 @@ export function ProductionPanel({
         </p>
       ) : (
         <p className="mt-3 text-[#cfc6b8]">
-          Start a run, then read the screenplay and approve it before characters are created. Later stages can still continue on their own in an automatic run.
+          Create an episode below, then start its screenplay. Review and approve it before later stages continue.
         </p>
       )}
       {label ? <p className="mt-3 text-sm text-[#c4a574]">{label}</p> : null}
@@ -132,8 +152,7 @@ export function ProductionPanel({
                 Scene {scene.sceneNumber}: {scene.title}
                 {scene.location ? ` · ${scene.location}` : ""}
                 {scene.timeOfDay ? ` · ${scene.timeOfDay}` : ""}
-                {scene.videoReady ? " · video ready" : ""}
-                {scene.failed ? " · failed" : ""}
+                {` · video ${videoStatusLabel(scene)}`}
               </li>
             ))}
           </ul>
@@ -145,21 +164,10 @@ export function ProductionPanel({
           ) : null}
         </div>
       ) : null}
+      {run?.status === "waiting_for_approval" && run.currentStage === "scenes" ? (
+        <ScenePlanner projectId={projectId} scenes={production.data?.scenes ?? []} />
+      ) : null}
       <div className="mt-4 flex flex-wrap gap-2">
-        {status === "draft" ? (
-          <>
-            <Button disabled={busy} onClick={() => action.mutate({ action: "start", workflowMode: "guided" })}>
-              Start guided
-            </Button>
-            <Button
-              variant="quiet"
-              disabled={busy}
-              onClick={() => action.mutate({ action: "start", workflowMode: "automatic" })}
-            >
-              Start automatic
-            </Button>
-          </>
-        ) : null}
         {status === "planning" && run && !open && !run.stageResults.story ? (
           <Button disabled={busy} onClick={() => action.mutate({ action: "story" })}>
             Develop story
@@ -190,7 +198,7 @@ export function ProductionPanel({
             Retry scene {scene.sceneNumber}
           </Button>
         ))}
-        {run && (run.status === "running" || run.status === "waiting_for_approval") ? (
+        {run && (run.status === "running" || run.status === "waiting_for_approval" || run.status === "unavailable") ? (
           <Button variant="quiet" disabled={busy} onClick={() => action.mutate({ action: "cancel" })}>
             Stop run
           </Button>

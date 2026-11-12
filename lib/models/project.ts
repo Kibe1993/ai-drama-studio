@@ -4,6 +4,8 @@ import {
   GENRES,
   LANGUAGES,
   PROJECT_STATUSES,
+  PRODUCTION_MODES,
+  PRODUCTION_TYPES,
   VISUAL_STYLES,
   WORKFLOW_MODES,
 } from "@/lib/domain/projectCatalog";
@@ -12,6 +14,8 @@ const genreIds = GENRES.map((item) => item.id);
 const languageIds = LANGUAGES.map((item) => item.id);
 const styleIds = VISUAL_STYLES.map((item) => item.id);
 const ratioIds = ASPECT_RATIOS.map((item) => item.id);
+const productionTypeIds = PRODUCTION_TYPES.map((item) => item.id);
+const productionModeIds = PRODUCTION_MODES.map((item) => item.id);
 
 export type ProjectShape = {
   clerkUserId: string;
@@ -25,6 +29,8 @@ export type ProjectShape = {
   aspectRatio: (typeof ratioIds)[number];
   status: (typeof PROJECT_STATUSES)[number];
   workflowMode: (typeof WORKFLOW_MODES)[number];
+  productionType: (typeof productionTypeIds)[number];
+  productionMode: (typeof productionModeIds)[number];
   thumbnailAssetId?: Types.ObjectId | null;
   currentStoryId?: Types.ObjectId | null;
   idempotencyKey?: string | null;
@@ -43,6 +49,8 @@ const ProjectSchema = new Schema(
     aspectRatio: { type: String, enum: ratioIds, required: true },
     status: { type: String, enum: PROJECT_STATUSES, default: "draft" },
     workflowMode: { type: String, enum: WORKFLOW_MODES, default: "guided" },
+    productionType: { type: String, enum: productionTypeIds, default: "fictional_drama" },
+    productionMode: { type: String, enum: productionModeIds, default: "standalone" },
     thumbnailAssetId: { type: Schema.Types.ObjectId, default: null },
     currentStoryId: { type: Schema.Types.ObjectId, default: null },
     idempotencyKey: { type: String, default: null },

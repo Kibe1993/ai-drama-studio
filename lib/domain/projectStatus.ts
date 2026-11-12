@@ -13,12 +13,12 @@ import {
 const EDGES: Record<ProjectStatus, readonly ProjectStatus[]> = {
   draft: ["planning", "archived"],
   planning: ["story_ready", "failed"],
-  story_ready: ["characters_ready", "archived"],
-  characters_ready: ["scenes_ready", "archived"],
-  scenes_ready: ["generating", "archived"],
-  generating: ["rendering", "failed"],
+  story_ready: ["planning", "characters_ready", "archived"],
+  characters_ready: ["planning", "scenes_ready", "archived"],
+  scenes_ready: ["planning", "generating", "archived"],
+  generating: ["planning", "rendering", "failed"],
   rendering: ["completed", "failed"],
-  completed: ["archived"],
+  completed: ["planning", "archived"],
   failed: ["archived"],
   archived: ["draft"],
 };

@@ -2,6 +2,7 @@ import type { JobRecord, JobType } from "@/lib/pipeline/types";
 
 const LABELS: Record<JobType, string> = {
   "story.generate": "Developing story",
+  "storyBible.generate": "Developing Story Bible",
   "character.extract": "Creating characters",
   "scene.breakdown": "Preparing scenes",
   "video.scene": "Generating scene",

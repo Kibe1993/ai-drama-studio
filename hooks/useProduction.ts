@@ -4,11 +4,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/api";
 import type { RunRecord, JobRecord } from "@/lib/pipeline/types";
 import type { StoryRecord } from "@/lib/validation/story";
+import type { SceneRecord } from "@/lib/validation/scene";
 
 export type ProductionState = {
   run: RunRecord | null;
   jobs: JobRecord[];
   story: StoryRecord | null;
+  scenes: SceneRecord[];
 };
 
 const key = (projectId: string) => ["production", projectId] as const;
@@ -35,6 +37,7 @@ export function useProductionAction(projectId: string) {
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: key(projectId) });
+      void client.invalidateQueries({ queryKey: ["episodes", projectId] });
       void client.invalidateQueries({ queryKey: ["projects", projectId] });
       void client.invalidateQueries({ queryKey: ["summary"] });
     },

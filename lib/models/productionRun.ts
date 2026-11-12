@@ -6,6 +6,7 @@ const RunSchema = new Schema(
   {
     clerkUserId: { type: String, required: true },
     projectId: { type: String, required: true },
+    episode: { type: Schema.Types.Mixed, default: null },
     workflowMode: { type: String, enum: WORKFLOW_MODES, required: true },
     currentStage: { type: String, required: true },
     status: { type: String, enum: RUN_STATUSES, required: true },

@@ -3,11 +3,13 @@ import { log } from "@/lib/log";
 import type { ProjectStatus } from "@/lib/domain/projectCatalog";
 import { stageMessage } from "@/lib/pipeline/messages";
 import type { PipelineDeps } from "@/lib/pipeline/ports";
+import { readStoredVideoEvidence, sceneHasStoredVideo } from "@/lib/pipeline/mediaEvidence";
 import { LlmSequenceError } from "@/lib/providers/llm/manager";
 import {
   JobError,
   type CharacterResult,
   type JobRecord,
+  type MediaStatus,
   type RunRecord,
   type SceneItem,
   type StageResults,
@@ -91,6 +93,22 @@ async function failProject(deps: PipelineDeps, run: RunRecord, projectStatus: Pr
   await deps.runs.save(run);
 }
 
+async function cancelQueuedVideoJobs(deps: PipelineDeps, run: RunRecord, exceptJobId: string): Promise<void> {
+  const jobs = await deps.jobs.listForRun(run.id);
+  for (const job of jobs) {
+    if (job.id === exceptJobId || job.jobType !== "video.scene" || job.status !== "queued") continue;
+    job.status = "cancelled";
+    job.error = {
+      code: "media_unavailable",
+      message: "No real video provider is available for this run.",
+      retryable: false,
+    };
+    job.progress = { stage: job.jobType, message: "Unavailable: no real video was generated" };
+    job.completedAt = new Date().toISOString();
+    await deps.jobs.save(job);
+  }
+}
+
 async function afterSuccess(deps: PipelineDeps, run: RunRecord, job: JobRecord, output: Record<string, unknown>) {
   const automatic = run.workflowMode === "automatic";
   const results: StageResults = { ...run.stageResults };
@@ -116,6 +134,19 @@ async function afterSuccess(deps: PipelineDeps, run: RunRecord, job: JobRecord, 
       : Array.isArray(output.names)
         ? output.names.map(String)
         : [];
+    if (deps.continuity && profiles.length > 0) {
+      const storyId = run.stageResults.story?.storyId;
+      if (!storyId) throw new JobError("Character records require a saved story.", "dependency", false);
+      await deps.continuity.persistCharacters(
+        job.clerkUserId,
+        run,
+        storyId,
+        profiles as NonNullable<CharacterResult["profiles"]>
+      );
+      if (run.workflowMode === "automatic") {
+        await deps.continuity.approveCharactersForRun(job.clerkUserId, job.projectId, run.id);
+      }
+    }
     results.characters = {
       names,
       profiles: profiles as CharacterResult["profiles"],
@@ -140,7 +171,21 @@ async function afterSuccess(deps: PipelineDeps, run: RunRecord, job: JobRecord, 
   }
 
   if (job.jobType === "scene.breakdown") {
-    const items = Array.isArray(output.items) ? (output.items as SceneItem[]) : [];
+    let items = Array.isArray(output.items) ? (output.items as SceneItem[]) : [];
+    if (deps.scenes && !output.mock) {
+      const storyId = run.stageResults.story?.storyId;
+      if (!storyId) throw new JobError("Scene records require a saved approved story.", "dependency", false);
+      const persisted = await deps.scenes.persistBreakdown(job.clerkUserId, run, storyId, items);
+      items = persisted.map((scene) => ({
+        ...scene,
+        videoReady: scene.videoReady,
+        videoStatus: scene.videoStatus,
+        videoAssetId: scene.videoAssetId ?? undefined,
+        failed: scene.failed,
+      }));
+      await deps.continuity?.persistSceneCanon(job.clerkUserId, run, storyId, items);
+      if (automatic) await deps.continuity?.approveScenesForRun(job.clerkUserId, job.projectId, run.id);
+    }
     results.scenes = {
       approved: automatic,
       items,
@@ -167,19 +212,50 @@ async function afterSuccess(deps: PipelineDeps, run: RunRecord, job: JobRecord, 
   }
 
   if (job.jobType === "video.scene") {
-    const items = scenesOf(run).map((scene) =>
-      scene.sceneNumber === job.sceneNumber ? { ...scene, videoReady: true, failed: false } : scene
-    );
-    results.scenes = { approved: true, items };
+    const evidence = readStoredVideoEvidence(output.videoAsset);
+    const isMock = output.mock === true;
+    const isReady = !isMock && evidence !== null;
+    const videoStatus: MediaStatus = isMock ? "mock" : isReady ? "completed" : "unavailable";
+    const scenes = scenesOf(run);
+    const matched = scenes.some((scene) => scene.sceneNumber === job.sceneNumber);
+    const items = scenes.map((scene) => {
+      if (scene.sceneNumber === job.sceneNumber) {
+        return {
+          ...scene,
+          videoReady: isReady,
+          videoStatus,
+          videoAssetId: isReady ? evidence?.mediaAssetId : undefined,
+          failed: false,
+        };
+      }
+      if (!isReady && !sceneHasStoredVideo(scene) && !scene.failed) {
+        return { ...scene, videoReady: false, videoStatus: "unavailable" as const };
+      }
+      return scene;
+    });
+    results.scenes = { ...(run.stageResults.scenes ?? { approved: true, items: [] }), approved: true, items };
     run.stageResults = results;
     run.currentStage = "media";
-    const pending = items.some((scene) => !scene.videoReady && !scene.failed);
+    if (!isReady || !matched) {
+      run.status = "unavailable";
+      await deps.runs.save(run);
+      if (run.episode && deps.episodes) await deps.episodes.updateStatus(job.clerkUserId, job.projectId, run.episode.id, "unavailable");
+      await cancelQueuedVideoJobs(deps, run, job.id);
+      log.error("pipeline", "video unavailable", {
+        jobId: job.id,
+        runId: run.id,
+        reason: isMock ? "mock_output" : matched ? "missing_validated_asset" : "scene_missing",
+      });
+      return;
+    }
+
+    const pending = items.some((scene) => !sceneHasStoredVideo(scene) && !scene.failed);
     if (pending) {
       run.status = "running";
       await deps.runs.save(run);
       return;
     }
-    const ready = items.length > 0 && items.every((scene) => scene.videoReady);
+    const ready = items.length > 0 && items.every(sceneHasStoredVideo);
     if (ready && automatic) {
       await transition(deps, run, "rendering");
       run.currentStage = "render";
@@ -193,18 +269,106 @@ async function afterSuccess(deps: PipelineDeps, run: RunRecord, job: JobRecord, 
     return;
   }
 
-  results.render = { ready: true };
+  const finalVideo = readStoredVideoEvidence(output.finalVideoAsset);
+  if (output.mock === true || !finalVideo) {
+    results.render = { ready: false, status: output.mock === true ? "mock" : "unavailable" };
+    run.stageResults = results;
+    run.currentStage = "render";
+    run.status = "unavailable";
+    await deps.runs.save(run);
+    if (run.episode && deps.episodes) await deps.episodes.updateStatus(job.clerkUserId, job.projectId, run.episode.id, "unavailable");
+    log.error("pipeline", "render unavailable", {
+      jobId: job.id,
+      runId: run.id,
+      reason: output.mock === true ? "mock_output" : "missing_validated_asset",
+    });
+    return;
+  }
+
+  results.render = { ready: true, status: "completed", mediaAssetId: finalVideo.mediaAssetId };
   run.stageResults = results;
   run.currentStage = "done";
   run.status = "completed";
   run.completedAt = new Date().toISOString();
   await transition(deps, run, "completed");
   await deps.runs.save(run);
+  if (run.episode && deps.episodes) await deps.episodes.updateStatus(job.clerkUserId, job.projectId, run.episode.id, "completed");
 }
 
 export async function processGenerationJob(deps: PipelineDeps, jobId: string): Promise<void> {
   const job = await deps.jobs.findById(jobId);
   if (!job || job.status === "cancelled" || job.status === "completed") return;
+  if (job.jobType === "storyBible.generate") {
+    const started = Date.now();
+    const project = await deps.projects.findOwned(job.clerkUserId, job.projectId);
+    if (!deps.storyBibleEngine || job.runId !== null || !project) {
+      log.error("worker", "story bible job rejected", {
+        jobId: job.id, projectId: job.projectId, hasEngine: Boolean(deps.storyBibleEngine),
+        hasProject: Boolean(project), runIdPresent: Boolean(job.runId),
+      });
+      throw new JobError("The Story Bible job does not match a project.", "ownership", false);
+    }
+    job.status = "processing";
+    job.attempts += 1;
+    job.startedAt = job.startedAt ?? new Date().toISOString();
+    job.progress = { stage: job.jobType, message: stageMessage(job) };
+    await deps.jobs.save(job);
+    log.info("worker", "story bible job started", { jobId: job.id, projectId: job.projectId, attempt: job.attempts, maxAttempts: job.maxAttempts, runId: "none" });
+    try {
+      const output = await deps.storyBibleEngine.run(job, project);
+      job.status = "completed";
+      job.output = output;
+      job.provider = typeof output.provider === "string" ? output.provider : job.provider;
+      job.model = typeof output.model === "string" ? output.model : job.model;
+      job.error = null;
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: "Story Bible ready for review" };
+      await deps.jobs.save(job);
+      log.info("worker", "story bible job completed", { jobType: job.jobType, jobId: job.id, provider: job.provider, model: job.model, ms: Date.now() - started });
+      return;
+    } catch (error) {
+      if (error instanceof LlmSequenceError) {
+        job.output = { ...(job.output ?? {}), attempts: error.attempts };
+      }
+      const failure = error instanceof JobError ? error : new JobError("Story Bible generation failed.", "stage_failed", true);
+      const partial = job.output?.storyBibleSections as
+        | { sections?: Record<string, unknown>; failedSection?: string }
+        | undefined;
+      const preservedCount = partial?.sections && typeof partial.sections === "object"
+        ? Object.keys(partial.sections).length
+        : 0;
+      // Sectioned generation can resume: a retry replays only the failed section
+      // because completed sections live in job.output. Without preserved
+      // sections, replaying an exhausted provider chain is still avoided.
+      const retry = failure.retryable && job.attempts < job.maxAttempts
+        && (!(error instanceof LlmSequenceError) || preservedCount > 0);
+      if (retry) {
+        job.status = "queued";
+        job.error = { code: failure.code, message: failure.message, retryable: true };
+        job.progress = {
+          stage: job.jobType,
+          message: preservedCount > 0
+            ? `Developing Story Bible. Retrying ${partial?.failedSection ?? "failed"} section (${preservedCount} preserved)`
+            : "Developing Story Bible. Retrying",
+        };
+        await deps.jobs.save(job);
+        log.error("worker", "story bible job retry", {
+          jobId: job.id, projectId: job.projectId, code: failure.code,
+          attempt: job.attempts, preservedSections: preservedCount, ms: Date.now() - started,
+        });
+        throw failure;
+      }
+      job.status = "failed";
+      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: failure.message };
+      await deps.jobs.save(job);
+      await deps.storyBibleEngine.fail(job, failure.message);
+      log.error("worker", "story bible job failed", { jobId: job.id, projectId: job.projectId, code: failure.code, attempt: job.attempts, ms: Date.now() - started });
+      throw new JobError(failure.message, failure.code, false);
+    }
+  }
+  if (job.runId === null) throw new JobError("The job does not match a production run.", "ownership", false);
   const run = await deps.runs.findOwned(job.clerkUserId, job.runId);
   const project = await deps.projects.findOwned(job.clerkUserId, job.projectId);
   if (!run || !project) {
@@ -233,16 +397,20 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
     if (typeof output.model === "string") job.model = output.model;
     job.error = null;
     job.completedAt = new Date().toISOString();
-    job.progress = { stage: job.jobType, message: stageMessage(job) };
+    job.progress = {
+      stage: job.jobType,
+      message: output.mock === true ? "MOCK output processed; no real media generated" : stageMessage(job),
+    };
     await deps.jobs.save(job);
     const fresh = await deps.runs.findOwned(job.clerkUserId, job.runId);
     if (!fresh) return;
     await afterSuccess(deps, fresh, job, output);
-    log.info("worker", "completed", {
+    log.info("worker", output.mock === true ? "mock output processed" : "completed", {
       jobType: job.jobType,
       jobId: job.id,
       provider: job.provider,
       model: job.model,
+      outputStatus: output.mock === true ? "MOCK" : "COMPLETED",
       ms: Date.now() - started,
     });
   } catch (error) {
@@ -268,13 +436,25 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
     const fresh = await deps.runs.findOwned(job.clerkUserId, job.runId);
     const current = await deps.projects.findOwned(job.clerkUserId, job.projectId);
     if (fresh && current && job.jobType === "video.scene") {
-      const items = scenesOf(fresh).map((scene) =>
-        scene.sceneNumber === job.sceneNumber ? { ...scene, failed: true, videoReady: false } : scene
-      );
-      fresh.stageResults = { ...fresh.stageResults, scenes: { approved: true, items } };
-      fresh.status = "running";
+      const items = scenesOf(fresh).map((scene) => {
+        if (scene.sceneNumber === job.sceneNumber) {
+          return { ...scene, failed: true, videoReady: false, videoStatus: "failed" as const, videoAssetId: undefined };
+        }
+        if (!sceneHasStoredVideo(scene) && !scene.failed) {
+          return { ...scene, videoReady: false, videoStatus: "unavailable" as const };
+        }
+        return scene;
+      });
+      fresh.stageResults = {
+        ...fresh.stageResults,
+        scenes: { ...(fresh.stageResults.scenes ?? { approved: true, items: [] }), approved: true, items },
+      };
+      fresh.status = "unavailable";
       await deps.runs.save(fresh);
+      if (fresh.episode && deps.episodes) await deps.episodes.updateStatus(job.clerkUserId, job.projectId, fresh.episode.id, "unavailable");
+      await cancelQueuedVideoJobs(deps, fresh, job.id);
     } else if (fresh && current) {
+      if (fresh.episode && deps.episodes) await deps.episodes.updateStatus(job.clerkUserId, job.projectId, fresh.episode.id, "failed");
       await failProject(deps, fresh, current.status);
     }
     log.error("worker", "failed", { jobType: job.jobType, jobId: job.id, code: failure.code, ms: Date.now() - started });

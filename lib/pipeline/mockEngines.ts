@@ -26,13 +26,15 @@ export function createMockEngines(): EngineSet {
         return {
           title: run.stageResults.story?.title ?? "A private meeting",
           synopsis: "Two people keep meeting after the family forbids it.",
+          mock: true,
         };
       }
       if (job.jobType === "character.extract") {
-        return { names: ["Amara", "Julian", "Mr. Adeyemi"] };
+        return { names: ["Amara", "Julian", "Mr. Adeyemi"], mock: true };
       }
       if (job.jobType === "scene.breakdown") {
         return {
+          mock: true,
           items: [
             { sceneNumber: 1, title: "The refusal", videoReady: false, failed: false },
             { sceneNumber: 2, title: "The secret", videoReady: false, failed: false },
@@ -40,9 +42,9 @@ export function createMockEngines(): EngineSet {
         };
       }
       if (job.jobType === "video.scene") {
-        return { sceneNumber: job.sceneNumber, referenceUsed: false };
+        return { sceneNumber: job.sceneNumber, referenceUsed: false, mock: true, status: "mock" };
       }
-      return { ready: true };
+      return { ready: false, mock: true, status: "mock" };
     },
   };
 }

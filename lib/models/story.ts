@@ -5,6 +5,7 @@ export type StoryShape = {
   clerkUserId: string;
   projectId: Types.ObjectId;
   productionRunId: Types.ObjectId;
+  episodeId?: Types.ObjectId | null;
   title: string;
   synopsis: string;
   structure: Record<string, unknown>;
@@ -21,6 +22,7 @@ const StorySchema = new Schema(
     clerkUserId: { type: String, required: true },
     projectId: { type: Schema.Types.ObjectId, required: true },
     productionRunId: { type: Schema.Types.ObjectId, required: true },
+    episodeId: { type: Schema.Types.ObjectId, default: null },
     title: { type: String, required: true, maxlength: 120 },
     synopsis: { type: String, required: true, maxlength: 1200 },
     structure: { type: Schema.Types.Mixed, required: true },

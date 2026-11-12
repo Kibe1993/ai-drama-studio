@@ -1,19 +1,19 @@
 import { log } from "@/lib/log";
 import { chatJson } from "@/lib/providers/llm/chat";
-import { DEFAULT_FREE_MODELS } from "@/lib/providers/llm/freePolicy";
 import { parseStory } from "@/lib/providers/llm/parse";
 import { storySystemPrompt, storyUserPrompt } from "@/lib/providers/llm/prompt";
 import { storyJsonSchemaFormat } from "@/lib/providers/llm/schemaFormat";
-import { bindChatStages } from "@/lib/providers/llm/chatStages";
+import { bindChatStages, storyBibleCompletionBudget } from "@/lib/providers/llm/chatStages";
 import type { LLMProvider, StoryCallOptions, StoryModelResult, StoryPrompt } from "@/lib/providers/llm/types";
 
-export const DEFAULT_MISTRAL_MODEL = DEFAULT_FREE_MODELS.mistral;
+export const DEFAULT_MISTRAL_MODEL = "mistral-small-latest";
 
 export class MistralLLMProvider implements LLMProvider {
   readonly id = "mistral";
   readonly model: string;
   readonly generateCharacters: LLMProvider["generateCharacters"];
   readonly generateScenes: LLMProvider["generateScenes"];
+  readonly generateStoryBible: NonNullable<LLMProvider["generateStoryBible"]>;
 
   constructor(private readonly options: { model: string; apiKey: string | undefined }) {
     this.model = options.model;
@@ -24,9 +24,11 @@ export class MistralLLMProvider implements LLMProvider {
       model: options.model,
       schemaMode: "json_schema",
       strictSchema: true,
+      storyBibleMaxCompletionTokens: (input) => storyBibleCompletionBudget(input, 8_000),
     });
     this.generateCharacters = stages.generateCharacters;
     this.generateScenes = stages.generateScenes;
+    this.generateStoryBible = stages.generateStoryBible!;
   }
 
   async generateStory(input: StoryPrompt, options: StoryCallOptions = {}): Promise<StoryModelResult> {

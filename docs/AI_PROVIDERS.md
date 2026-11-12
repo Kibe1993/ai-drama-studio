@@ -75,23 +75,60 @@ Webhooks are optional later. The first integrations poll. A webhook handler must
 
 ## Language
 
-Implemented in `lib/providers/llm`. The pipeline calls `LLMProvider.generateStory`. It does not import a vendor SDK. `createStoryProvider()` in `lib/pipeline/live.ts` builds the sequence from `LLM_PROVIDER` and `LLM_FALLBACK_PROVIDERS`.
+Implemented in `lib/providers/llm`. The pipeline calls `LLMProvider.generateStory`. It does not import a vendor SDK for local models. `createStoryProvider()` in `lib/pipeline/live.ts` builds the sequence from `LLM_PROVIDER` and `LLM_FALLBACK_PROVIDERS`.
 
-Free-only mode is the default. `LLM_FREE_ONLY=false` is required before OpenAI, Anthropic, or DeepSeek can run. While it is on, the allowed story models are Gemini `gemini-3.8-flash` and `gemini-3.6-flash` (both listed as free of charge on the Gemini pricing page), Groq `openai/gpt-oss-20b` on the $0 Free plan, OpenRouter `openrouter/free` or any id ending in `:free`, and Mistral `mistral-small-latest` in Free mode. A model outside that list is not called. Quota, rate-limit, timeout, HTTP 400, malformed JSON, and Zod failures try the next allowed provider. Invalid output is not saved.
+The default provider priority is:
+1. **Ollama** (`gemma3:4b` locally via Ollama HTTP API)
+2. **Groq** (`openai/gpt-oss-20b`)
+3. **OpenRouter** (`baidu/ernie-5.5-flash-preview:free`)
+4. **Mistral** (`mistral-small-latest`)
 
-Checked on 2 November 2026 against the Gemini pricing page, Groq's Free plan and rate-limit page, OpenRouter's free router, and Mistral's free-mode setup. Free-only defaults when the matching `*_MODEL` variable is empty:
+Free-only mode is the default. `LLM_FREE_ONLY=false` is required before OpenAI, Anthropic, or DeepSeek can run. While it is on, the allowed story models are local Ollama `gemma3:4b` (free open-weights), Gemini `gemini-3.8-flash` and `gemini-3.6-flash` (both listed as free of charge on the Gemini pricing page), Groq `openai/gpt-oss-20b` on the $0 Free plan, any OpenRouter id ending in `:free` (the verified default is `baidu/ernie-5.5-flash-preview:free`), and Mistral `mistral-small-latest` in Free mode. A model outside that list is not called. Quota, rate-limit, timeout, HTTP 400, malformed JSON, and Zod failures try the next allowed provider. Invalid output is not saved.
 
-- Gemini: `gemini-3.8-flash`. `gemini-3.6-flash` is also allowed. `gemini-flash-latest` and `gemini-4-argon` are not.
-- Groq: `openai/gpt-oss-20b` at `https://api.groq.com/openai/v1`.
-- OpenRouter: `openrouter/free` at `https://openrouter.ai/api/v1`. A specific free model must end in `:free`. The request does not include a paid model fallback list.
-- Mistral: `mistral-small-latest` at `https://api.mistral.ai/v1`.
+- **Ollama**: Connects to the local Ollama HTTP API at `http://127.0.0.1:11434/api/chat`. No API key is required. Uses `gemma3:4b` by default. Configurable via `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `OLLAMA_TIMEOUT_MS`, `OLLAMA_SECTION_TIMEOUT_MS`, `OLLAMA_TEMPERATURE`, `OLLAMA_NUM_CTX`, `OLLAMA_TOP_P`, `OLLAMA_REPEAT_PENALTY`, and `OLLAMA_FORMAT`. Output is validated with the project's Zod schemas. If Ollama is offline, times out, returns an empty or invalid response, or does not have the model installed, the same fallback loop continues to the next configured provider. Story Bible section requests use the larger of `OLLAMA_TIMEOUT_MS` and `OLLAMA_SECTION_TIMEOUT_MS` (default 300 seconds) because a section can still take a while on a 4B model, and always request schema-constrained output so a small model cannot rename required fields.
+- **Groq**: `openai/gpt-oss-20b` at `https://api.groq.com/openai/v1`.
+- **OpenRouter**: `baidu/ernie-5.5-flash-preview:free` at `https://openrouter.ai/api/v1`. Any specific free model must end in `:free`. The request does not include a paid model fallback list. `OPENROUTER_TIMEOUT_MS` caps one OpenRouter attempt (default 150 seconds); section requests are much smaller than a whole bible.
+- **Mistral**: `mistral-small-latest` at `https://api.mistral.ai/v1`.
+- **Gemini**: `gemini-3.8-flash`. `gemini-3.6-flash` is also allowed.
 
-`LLM_MODEL` is ignored while free-only mode is on. `LLM_SEQUENCE_TIMEOUT_MS` bounds one BullMQ delivery of the whole sequence. The default is 120 seconds, clamped from 15 to 180 seconds. BullMQ can still retry a retryable sequence failure up to the job's `maxAttempts` of 3.
+`LLM_MODEL` is ignored while free-only mode is on. `LLM_SEQUENCE_TIMEOUT_MS` bounds one provider-sequence attempt for normal stages. Story Bible section requests use a dedicated 600,000 ms sequence budget per section so a slow local model keeps time for cloud fallback. BullMQ can still retry a retryable failure up to the job's `maxAttempts` of 3.
+
+The Story Bible is the largest structured stage, so it is generated in six sequential section requests rather than one large request: `identity`, `world`, `characters`, `narrative`, `guidelines`, and `canon`. Each response contains one section, is validated against that section's Zod schema, and is merged in memory. The complete content is validated again, and the draft is saved only after all six sections pass.
+
+- Every section uses the normal provider chain (`LLM_PROVIDER`, then `LLM_FALLBACK_PROVIDERS`). Ollama is tried first for each section; if it fails that section, Groq, OpenRouter, and Mistral are tried for that section only. Sections that already succeeded are not regenerated.
+- The job records the provider and model for each section. A job that used more than one provider reports `mixed`, and the per-section runs are stored in the job output.
+- Each request receives a compact projection of only the relevant earlier sections (identity for world, identity and world for characters, and so on), not the full document. A single-section revision receives compact sibling sections so it can avoid contradictions. This keeps a local prompt inside the 8k context window.
+- Completion budgets are per section: Ollama uses 1,500-2,500 `num_predict` tokens and the OpenAI-compatible providers use 4,000-8,000 completion tokens. A section does not reserve a whole-bible budget. The provider-facing JSON schema also caps array sizes and text lengths so a small model cannot fill the generous validation maxima.
+- Ollama section requests use schema-constrained output and a low-entropy sampling profile: temperature at most 0.2, `top_p` at most 0.8, `repeat_penalty` at least 1.3, and a 128-token repeat window. They stream, so if Ollama's token-repeat guard stops a run, the partial text still goes through strict Zod validation instead of surfacing as a hard HTTP 500.
+- Completed sections are stored under `job.output.storyBibleSections` with a request fingerprint. A retry with the same request resumes at the failed section. If the idea, direction, title, project settings, or draft revision changed, the cached sections are discarded and generation starts over.
+- If a section fails on every provider, the job reports which section failed, preserves the completed sections, and does not save a partial draft. A retryable failure remains eligible for BullMQ retry; a non-retryable failure marks generation as failed while leaving the current draft and approved snapshot untouched.
+
+### Story Bible output contract
+
+The Story Bible response schema mirrors the Zod constraints that decide acceptance: required sections and fields, non-empty text, minimum list items, and the required `protagonist`/`antagonist`/`supporting`/`recurring` role values. The prompt includes the section guidance and explicit field-length limits; a full-bible request still includes a complete JSON skeleton.
+
+Small models are still uneven, but a single section is much easier for Gemma 3 4B than the whole document. If a section is structurally invalid, only that section moves to the next provider; successful sections stay cached. Groq `openai/gpt-oss-20b` is fast but can omit fields or use objects where the contract requires strings, so it still uses `json_object` mode plus the prompt contract. OpenRouter's pinned free model uses `json_schema` with a 32,000-token completion budget for whole-bible calls, and smaller per-section budgets when generating sections. Zod decides whether any response can be saved.
+
+### Operating the local Ollama provider
+
+Install Ollama for Windows, then run `ollama pull gemma3:4b`. The desktop app starts the daemon; `ollama serve` starts it manually. Verify with `ollama list`, `curl http://127.0.0.1:11434/api/tags`, or `npm run test:ollama`, which checks the daemon, the model, plain completion, and schema-validated character extraction against the live instance.
+
+To test sectioned Story Bible generation locally:
+
+1. Start Ollama (`ollama serve` if the desktop app is not running), Redis, `npm run dev`, and `npm run worker` in separate terminals.
+2. Open a project, open its Story Bible, and start generation. No cloud key is required while Ollama is reachable.
+3. Watch the job progress: it reports `Developing Story Bible: <section> (n/6)` and then `Story Bible: n of 6 sections ready`.
+4. If a section falls through, the job output records the provider and model per section; the job may report `mixed`. If all providers fail one section, the message names that section and the completed sections remain cached for the retry.
+5. Run `npm test -- story-bible-generation` for the mocked section/fallback/resume suite; it does not need Ollama, Redis, or cloud keys.
+
+The order is `LLM_PROVIDER` followed by `LLM_FALLBACK_PROVIDERS`. The default is `ollama`, then `groq,openrouter,mistral`. To change priority, edit those two values, for example `LLM_PROVIDER=groq` with `LLM_FALLBACK_PROVIDERS=ollama,openrouter,mistral`, then restart the dev server and worker.
+
+Ollama failures are classified before the next provider is tried: connection refused (`provider_unavailable`, daemon not running), HTTP 404 (`invalid_model`, model not pulled), timeout (`timeout`, including cold model loading), empty content (`empty_response`), and malformed or schema-mismatched output (`invalid_json` / `invalid_schema`). A validation failure is never saved as a successful stage result; it moves to the next provider, and if every provider fails the job reports the failure instead of returning invented output.
 
 Each provider needs its own API key. Keys are created in [Google AI Studio](https://aistudio.google.com/), the [Groq console](https://console.groq.com/), [OpenRouter](https://openrouter.ai/), and [Mistral Studio](https://console.mistral.ai/). The worker logs the provider name, whether a key is present, and the model. It does not log key values or make a live call at startup.
 
 - Gemini stays on `generateContent` with a JSON schema. SDK retries are set to one attempt so they do not multiply the sequence or BullMQ.
-- Groq and Mistral use Chat Completions with the same JSON schema Gemini uses. Groq asks for that schema without strict server-side rejection, sets `reasoning_effort` to `low`, and repairs empty strings, string scene numbers, and missing list fields from text the model already wrote. If Groq still returns HTTP 400, the rejected generation is repaired the same way. OpenRouter stays on `json_object` because the free router chooses the model, and the prompt lists every required key. Zod remains the check that decides whether a story can be saved. A response wrapped in a code fence is still parsed. A story with no real scene text is not saved.
+- Groq and Mistral use Chat Completions with the same JSON schema Gemini uses. Groq asks for that schema without strict server-side rejection, sets `reasoning_effort` to `low`, and repairs empty strings, string scene numbers, and missing list fields from text the model already wrote. If Groq still returns HTTP 400, the rejected generation is repaired the same way. Groq's Story Bible request uses `json_object` mode because the full schema is rejected by its grammar-constrained path; the prompt lists every required key and Zod still decides whether the result can be saved. OpenRouter uses `json_object` for the screenplay and stage calls, and `json_schema` for the Story Bible with a pinned free model that supports structured output. A response wrapped in a code fence is still parsed. A story with no real scene text is not saved.
 - OpenAI (`gpt-6-luna`), Anthropic (`claude-haiku-5-5`), and DeepSeek (`deepseek-flash`) stay in the registry. They run only when `LLM_FREE_ONLY=false`.
 - Token counts are stored only when the response includes them. Prices are not invented.
 - The story service parses the JSON with Zod. A schema mismatch tries the next allowed provider. A story is saved only after Zod accepts it.

@@ -13,6 +13,7 @@ export class DeepSeekLLMProvider implements LLMProvider {
   readonly model: string;
   readonly generateCharacters: LLMProvider["generateCharacters"];
   readonly generateScenes: LLMProvider["generateScenes"];
+  readonly generateStoryBible: NonNullable<LLMProvider["generateStoryBible"]>;
 
   constructor(private readonly options: { model: string; apiKey: string | undefined }) {
     this.model = options.model;
@@ -26,6 +27,7 @@ export class DeepSeekLLMProvider implements LLMProvider {
     });
     this.generateCharacters = stages.generateCharacters;
     this.generateScenes = stages.generateScenes;
+    this.generateStoryBible = stages.generateStoryBible!;
   }
 
   async generateStory(input: StoryPrompt, options: StoryCallOptions = {}): Promise<StoryModelResult> {

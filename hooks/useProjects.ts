@@ -2,7 +2,7 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/api";
-import type { ProjectStatus } from "@/lib/domain/projectCatalog";
+import type { ProductionMode, ProductionType, ProjectStatus } from "@/lib/domain/projectCatalog";
 import type { ProjectInput } from "@/lib/validation/project";
 
 export type Project = {
@@ -17,6 +17,8 @@ export type Project = {
   aspectRatio: string;
   status: ProjectStatus;
   workflowMode: "guided" | "automatic";
+  productionType: ProductionType;
+  productionMode: ProductionMode;
   createdAt: string;
   updatedAt: string;
 };

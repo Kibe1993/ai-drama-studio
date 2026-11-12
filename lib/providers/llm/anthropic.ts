@@ -15,6 +15,7 @@ import type {
 } from "@/lib/providers/llm/types";
 import type { CharacterPrompt, ScenePrompt } from "@/lib/providers/llm/stageTasks";
 import { STORY_RESPONSE_SCHEMA } from "@/lib/validation/story";
+import { requestStoryBible, type StoryBibleTaskInput } from "@/lib/providers/llm/storyBibleTask";
 
 export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-5-5";
 
@@ -76,6 +77,11 @@ export class AnthropicLLMProvider implements LLMProvider {
   async generateScenes(input: ScenePrompt, options: StoryCallOptions = {}): Promise<SceneModelResult> {
     const result = await requestScenes(this.stageTransport(), input, options);
     return { ...result, provider: this.id, model: this.model };
+  }
+
+  async generateStoryBible(input: StoryBibleTaskInput, options?: StoryCallOptions) {
+    const generated = await requestStoryBible(this.stageTransport(), input, options);
+    return { result: generated.result, usage: generated.usage };
   }
 
   private stageTransport(): StageTransport {

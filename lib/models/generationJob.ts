@@ -5,7 +5,7 @@ const JobSchema = new Schema(
   {
     clerkUserId: { type: String, required: true },
     projectId: { type: String, required: true },
-    runId: { type: String, required: true },
+    runId: { type: String, default: null },
     sceneNumber: { type: Number, default: null },
     jobType: { type: String, enum: JOB_TYPES, required: true },
     provider: { type: String, required: true },

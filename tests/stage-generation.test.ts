@@ -161,6 +161,69 @@ function llm(calls: string[]): LLMProvider {
 }
 
 describe("character and scene stages", () => {
+  it("adds only the approved Story Bible snapshot to story generation", async () => {
+    let captured: { continuityContext?: string } | undefined;
+    const savedStory = story();
+    const provider: LLMProvider = {
+      id: "openrouter",
+      model: "openrouter/free",
+      async generateStory(input) {
+        captured = input;
+        return {
+          title: savedStory.title,
+          synopsis: savedStory.synopsis,
+          structure: savedStory.structure,
+          screenplay: savedStory.screenplay,
+          provider: "openrouter",
+          model: "openrouter/free",
+        };
+      },
+      async generateCharacters() { return { characters: [] }; },
+      async generateScenes() { return { scenes: [] }; },
+    };
+    const projectRecord = {
+      id: "a".repeat(24),
+      title: "The closed gate",
+      originalStoryIdea: "Ada returns home.",
+      genre: "family" as const,
+      language: "en" as const,
+      visualStyle: "realistic" as const,
+      tone: "quiet",
+      targetDurationSeconds: 300,
+      aspectRatio: "16:9" as const,
+      status: "planning" as const,
+      workflowMode: "guided" as const,
+      productionType: "fictional_drama" as const,
+      productionMode: "serialized" as const,
+      createdAt: "",
+      updatedAt: "",
+    };
+    const engines = createLiveEngines({
+      llm: provider,
+      projects: { async findOwned() { return projectRecord; }, async update() { return null; } },
+      stories: {
+        async upsertAwaiting() { return { id: "c".repeat(24), title: savedStory.title, synopsis: savedStory.synopsis }; },
+        async findForRun() { return savedStory; },
+      },
+      storyBible: {
+        async findApproved() {
+          return {
+            premise: "A family guards a secret.",
+            worldRules: ["The old house is never sold."],
+            themes: ["Sacrifice"],
+            boundaries: [],
+            canonFacts: ["Ada's brother left ten years ago."],
+            version: 1,
+            createdAt: "",
+          };
+        },
+      },
+    });
+    await engines.run(job("story.generate"), run());
+    expect(captured?.continuityContext).toContain("The old house is never sold");
+    expect(captured?.continuityContext).toContain("Ada's brother left ten years ago");
+  });
+
   it("uses the language provider for characters and scenes, and the mock for video", async () => {
     const calls: string[] = [];
     const engines = createLiveEngines({
@@ -180,6 +243,8 @@ describe("character and scene stages", () => {
             aspectRatio: "16:9",
             status: "story_ready",
             workflowMode: "guided",
+            productionType: "fictional_drama",
+            productionMode: "standalone",
             createdAt: "",
             updatedAt: "",
           };
@@ -307,6 +372,8 @@ function box(saved: RunRecord, currentJob: JobRecord, provider: LLMProvider, app
           aspectRatio: "16:9",
           status: "story_ready",
           workflowMode: saved.workflowMode,
+          productionType: "fictional_drama",
+          productionMode: "standalone",
           createdAt: "",
           updatedAt: "",
         };
@@ -324,6 +391,8 @@ function box(saved: RunRecord, currentJob: JobRecord, provider: LLMProvider, app
           aspectRatio: "16:9",
           status: patch.status ?? "story_ready",
           workflowMode: saved.workflowMode,
+          productionType: "fictional_drama",
+          productionMode: "standalone",
           createdAt: "",
           updatedAt: "",
         };
@@ -376,6 +445,8 @@ function box(saved: RunRecord, currentJob: JobRecord, provider: LLMProvider, app
             aspectRatio: "16:9",
             status: "characters_ready",
             workflowMode: saved.workflowMode,
+            productionType: "fictional_drama",
+            productionMode: "standalone",
             createdAt: "",
             updatedAt: "",
           };

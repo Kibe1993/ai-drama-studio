@@ -36,8 +36,9 @@ export function POST(request: Request, context: Context) {
       projectId,
       sceneNumber: "sceneNumber" in action ? action.sceneNumber : "",
       workflowMode: "workflowMode" in action ? action.workflowMode : "",
+      episodeId: "episodeId" in action ? action.episodeId ?? "" : "",
     });
-    if (action.action === "start") return jsonData(await pipeline.start(actor, projectId, action.workflowMode));
+    if (action.action === "start") return jsonData(await pipeline.start(actor, projectId, action.workflowMode, action.episodeId));
     if (action.action === "story") return jsonData(await pipeline.generateStory(actor, projectId));
     if (action.action === "approve") return jsonData(await pipeline.approve(actor, projectId));
     if (action.action === "scenes") return jsonData(await pipeline.generateScenes(actor, projectId));

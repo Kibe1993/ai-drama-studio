@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { connectDB } from "@/lib/db/connect";
 import { projectModel } from "@/lib/models/project";
+import { episodeModel } from "@/lib/models/episode";
 import { storyModel, type StoryShape } from "@/lib/models/story";
 import { ownedQuery } from "@/lib/repositories/ownership";
 import { JobError } from "@/lib/pipeline/types";
@@ -15,6 +16,7 @@ type StoryDoc = StoryShape & {
   _id: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
+  episodeId?: mongoose.Types.ObjectId | null;
 };
 
 function toRecord(doc: StoryDoc): StoryRecord {
@@ -30,6 +32,7 @@ function toRecord(doc: StoryDoc): StoryRecord {
     clerkUserId: doc.clerkUserId,
     projectId: doc.projectId.toString(),
     productionRunId: doc.productionRunId.toString(),
+    episodeId: doc.episodeId?.toString() ?? null,
     status: doc.status,
     version: doc.version,
     provider: doc.provider || "",
@@ -42,13 +45,14 @@ function toRecord(doc: StoryDoc): StoryRecord {
 
 async function models() {
   const connection = await connectDB();
-  return { Story: storyModel(connection), Project: projectModel(connection) };
+  return { Story: storyModel(connection), Project: projectModel(connection), Episode: episodeModel(connection) };
 }
 
 export type StoryDraft = GeneratedStory & {
   clerkUserId: string;
   projectId: string;
   productionRunId: string;
+  episodeId?: string | null;
   provider?: string;
   model?: string;
   fallbackFrom?: string | null;
@@ -56,7 +60,7 @@ export type StoryDraft = GeneratedStory & {
 
 export const storyRepository = {
   async upsertAwaiting(input: StoryDraft): Promise<StoryRecord> {
-    const { Story, Project } = await models();
+    const { Story, Project, Episode } = await models();
     const existing = await Story.findOne({
       clerkUserId: input.clerkUserId,
       productionRunId: input.productionRunId,
@@ -70,6 +74,7 @@ export const storyRepository = {
         clerkUserId: input.clerkUserId,
         projectId: input.projectId,
         productionRunId: input.productionRunId,
+        episodeId: input.episodeId ?? null,
         title: input.title,
         synopsis: input.synopsis,
         structure: input.structure,
@@ -86,6 +91,12 @@ export const storyRepository = {
     await Project.updateOne(ownedQuery(input.clerkUserId, input.projectId), {
       currentStoryId: doc._id,
     });
+    if (input.episodeId) {
+      await Episode.updateOne(
+        { clerkUserId: input.clerkUserId, projectId: input.projectId, _id: input.episodeId },
+        { currentStoryId: doc._id, status: "story_review" }
+      );
+    }
     return toRecord(doc);
   },
 

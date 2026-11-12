@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canTransition } from "@/lib/domain/projectStatus";
 import { projectInputSchema } from "@/lib/validation/project";
+import { storyUserPrompt } from "@/lib/providers/llm/prompt";
 import { decodeCursor, encodeCursor } from "@/lib/repositories/cursor";
 import { ownedQuery } from "@/lib/repositories/ownership";
 import { safeErrorMessage } from "@/lib/http/errors";
@@ -33,6 +34,8 @@ const validInput = {
   tone: "quiet",
   targetDurationSeconds: 60,
   aspectRatio: "16:9",
+  productionType: "fictional_drama",
+  productionMode: "serialized",
 };
 
 function memory() {
@@ -92,6 +95,8 @@ function memory() {
         aspectRatio: input.aspectRatio,
         status: input.status,
         workflowMode: input.workflowMode,
+        productionType: input.productionType,
+        productionMode: input.productionMode,
         createdAt: now,
         updatedAt: now,
       };
@@ -137,10 +142,68 @@ describe("project status", () => {
 });
 
 describe("project schema", () => {
-  it("accepts a one-minute brief and rejects a long runtime", () => {
+  it("accepts supported short and extended runtimes, while rejecting unsupported values", () => {
     expect(projectInputSchema.parse(validInput).targetDurationSeconds).toBe(60);
+    expect(projectInputSchema.parse({ ...validInput, targetDurationSeconds: 900 }).targetDurationSeconds).toBe(900);
     expect(projectInputSchema.safeParse({ ...validInput, title: "  " }).success).toBe(false);
-    expect(projectInputSchema.safeParse({ ...validInput, targetDurationSeconds: 600 }).success).toBe(false);
+    expect(projectInputSchema.safeParse({ ...validInput, targetDurationSeconds: 600 }).success).toBe(true);
+    expect(projectInputSchema.safeParse({ ...validInput, targetDurationSeconds: 86400 }).success).toBe(false);
+  });
+
+  it("defaults legacy profile fields and rejects unknown continuity modes", () => {
+    const { productionMode: _mode, productionType: _type, ...legacy } = validInput;
+    expect(projectInputSchema.parse(legacy)).toMatchObject({
+      productionType: "fictional_drama",
+      productionMode: "standalone",
+    });
+    expect(projectInputSchema.safeParse({ ...validInput, productionMode: "shared" }).success).toBe(false);
+    expect(projectInputSchema.safeParse({ ...validInput, productionType: "unlisted" }).success).toBe(false);
+  });
+
+  it("accepts all requested content categories and guides story generation", () => {
+    const ids = [
+      "fictional_drama",
+      "science_fiction_fantasy",
+      "mystery_crime_thriller",
+      "historical_stories",
+      "romance_human_interest",
+      "documentary_educational",
+      "philosophical",
+      "comedy_satire_animation",
+    ];
+    for (const productionType of ids) {
+      expect(projectInputSchema.safeParse({ ...validInput, productionType }).success).toBe(true);
+    }
+    const documentary = projectInputSchema.parse({ ...validInput, productionType: "documentary_educational" });
+    const prompt = storyUserPrompt({
+      title: documentary.title,
+      idea: documentary.originalStoryIdea,
+      genre: documentary.genre,
+      language: documentary.language,
+      visualStyle: documentary.visualStyle,
+      tone: documentary.tone,
+      aspectRatio: documentary.aspectRatio,
+      targetDurationSeconds: documentary.targetDurationSeconds,
+      productionType: documentary.productionType,
+    });
+    expect(prompt).toContain("do not invent factual claims");
+    expect(prompt).toContain("does not yet provide a research-verification stage");
+  });
+
+  it("passes an extended target duration through to the story prompt", () => {
+    const project = projectInputSchema.parse({ ...validInput, targetDurationSeconds: 600 });
+    const prompt = storyUserPrompt({
+      title: project.title,
+      idea: project.originalStoryIdea,
+      genre: project.genre,
+      language: project.language,
+      visualStyle: project.visualStyle,
+      tone: project.tone,
+      aspectRatio: project.aspectRatio,
+      targetDurationSeconds: project.targetDurationSeconds,
+    });
+    expect(prompt).toContain("Target duration: 600 seconds, about 10 minutes.");
+    expect(prompt).toContain("including targets longer than three minutes");
   });
 });
 
@@ -161,10 +224,13 @@ describe("project service", () => {
     const created = await api.create(owner, projectInputSchema.parse(validInput), null);
     expect(created.status).toBe("draft");
     expect(created.workflowMode).toBe("guided");
+    expect(created.productionMode).toBe("serialized");
     await expect(api.get(stranger, created.id)).rejects.toMatchObject({ code: "not_found" });
     const copy = await api.duplicate(owner, created.id);
     expect(copy.title.startsWith("Copy of ")).toBe(true);
     expect(copy.originalStoryIdea).toBe(validInput.originalStoryIdea);
+    expect(copy.productionMode).toBe("serialized");
+    expect(copy.productionType).toBe("fictional_drama");
     expect(copy.id).not.toBe(created.id);
   });
 

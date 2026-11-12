@@ -1,8 +1,8 @@
 # AI Drama Studio
 
-A production system that turns a short story idea into a finished 1–3 minute drama.
+A production system for developing a short drama screenplay and preparing later media production.
 
-This repository is that product. A signed-in user can manage projects and generate a real screenplay on the free tiers of Gemini, Groq, OpenRouter, and Mistral. Paid providers stay off unless `LLM_FREE_ONLY=false`. The story waits for approval. Characters, scenes, video, and the final render are still mock stages.
+The current app supports project management, eight selectable content categories, 1–15 minute screenplay targets, a project Story Bible with explicitly approved snapshots, episode records, and live LLM generation for stories, character extraction, and scene breakdowns. Serialized episodes retain their approved starting Story Bible version. Scene breakdowns are stored as editable scene records with creator-authored shot plans. Approved character/location records and reviewed scene beats provide continuity context to later serialized episodes. Documentary/educational scripts are drafts only and require external fact research and human verification. Video and final rendering remain mocks; mock output is labeled and cannot mark scenes or a production as having real media. The app does not currently produce a finished video file.
 
 ## Run it
 
@@ -12,7 +12,7 @@ Copy `.env.example` to `.env.local` and set:
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
 - `CLERK_SECRET_KEY`
 
-Optional: `ADMIN_USER_IDS` for `/admin`. Story generation also reads `REDIS_URL`, `LLM_FREE_ONLY`, `LLM_PROVIDER`, `LLM_FALLBACK_PROVIDERS`, `LLM_SEQUENCE_TIMEOUT_MS`, and `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, and `MISTRAL_API_KEY`. Image, video, speech, and storage variables are still unused. See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md).
+Optional: `ADMIN_USER_IDS` for `/admin`. Story generation also reads `REDIS_URL`, `LLM_FREE_ONLY`, `LLM_PROVIDER`, `LLM_FALLBACK_PROVIDERS`, `LLM_SEQUENCE_TIMEOUT_MS`, the local Ollama variables (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `OLLAMA_TIMEOUT_MS`), and `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, and `MISTRAL_API_KEY`. Image, video, speech, and storage variables are still unused. See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for the Ollama install and troubleshooting steps.
 
 ```bash
 npm install
@@ -21,13 +21,13 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). Sign in, then create a drama from the dashboard.
 
-To move a project through the mocked production stages, set `REDIS_URL` and run the worker in a second terminal:
+To run background story, character, scene, and simulated media jobs, set `REDIS_URL` and run the worker in a second terminal:
 
 ```bash
 npm run worker
 ```
 
-The worker calls free-tier language providers, one at a time, for `story.generate`. Free-only mode is on unless `LLM_FREE_ONLY=false`. The default free order is Gemini, Groq, OpenRouter, and Mistral. OpenAI, Anthropic, and DeepSeek are not called in that mode. Restart the worker after changing those variables. A configured API key does not add a provider unless its name is in the sequence and its model is on the verified free list. If story generation fails, Develop story retries it. Character extraction, scene breakdown, scene video, and the final render stay on the mock engines. Without Redis, the app still saves the job and shows that the queue is waiting. A generated story does not continue to characters until you approve it on the project page.
+The worker calls the configured language providers sequentially for `story.generate`, `character.extract`, and `scene.breakdown`. Free-only mode defaults on unless `LLM_FREE_ONLY=false`; the default free sequence is local Ollama (`gemma3:4b`), Groq, OpenRouter, and Mistral. Ollama needs no API key: install it, run `ollama pull gemma3:4b`, and keep the daemon running. Restart the worker after changing provider configuration. A generated story does not continue to characters until you approve it on the project page. Character and scene stages use the LLM provider manager after their approval gates. `video.scene` and `render.final` remain mock engines. They report `MOCK`/`UNAVAILABLE`; they cannot satisfy the render gate or mark the project completed. No image, audio, video, or storage adapter is currently connected. Without Redis, the app saves the job and shows that the queue is waiting.
 
 ```bash
 npm test

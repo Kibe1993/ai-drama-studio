@@ -7,6 +7,8 @@ import {
   DURATION_OPTIONS,
   GENRES,
   LANGUAGES,
+  PRODUCTION_MODES,
+  PRODUCTION_TYPES,
   VISUAL_STYLES,
 } from "@/lib/domain/projectCatalog";
 import { projectInputSchema, type ProjectInput } from "@/lib/validation/project";
@@ -24,6 +26,8 @@ export const emptyProject: ProjectInput = {
   tone: "dramatic",
   targetDurationSeconds: 60,
   aspectRatio: "16:9",
+  productionType: "fictional_drama",
+  productionMode: "standalone",
 };
 
 export function ProjectForm({
@@ -60,7 +64,7 @@ export function ProjectForm({
         />
       </Field>
       <div className="grid gap-5 sm:grid-cols-2">
-        <Field label="Genre" error={form.formState.errors.genre?.message}>
+        <Field label="Genre / focus" error={form.formState.errors.genre?.message}>
           <select className="studio-field" {...form.register("genre")}>
             {GENRES.map((item) => (
               <option key={item.id} value={item.id}>
@@ -83,7 +87,7 @@ export function ProjectForm({
             className="studio-field"
             value={form.watch("targetDurationSeconds")}
             onChange={(event) =>
-              form.setValue("targetDurationSeconds", Number(event.target.value) as 60 | 120 | 180, {
+              form.setValue("targetDurationSeconds", Number(event.target.value), {
                 shouldValidate: true,
               })
             }
@@ -94,6 +98,35 @@ export function ProjectForm({
               </option>
             ))}
           </select>
+        </Field>
+        <Field label="Production type" error={form.formState.errors.productionType?.message}>
+          <select className="studio-field" {...form.register("productionType")}>
+            {PRODUCTION_TYPES.map((item) => (
+              <option key={item.id} value={item.id}>{item.label}</option>
+            ))}
+          </select>
+          {(() => {
+            const selected = PRODUCTION_TYPES.find((item) => item.id === form.watch("productionType"));
+            return selected ? (
+              <span className="grid gap-1 text-xs text-[#a39b8f]">
+                <span>{selected.description}</span>
+                <span>Example: {selected.example}</span>
+                {selected.id === "documentary_educational" ? (
+                  <span className="text-[#e7d0a7]">Factual claims need source research and human verification; that workflow is not implemented yet.</span>
+                ) : null}
+              </span>
+            ) : null;
+          })()}
+        </Field>
+        <Field label="Continuity mode" error={form.formState.errors.productionMode?.message}>
+          <select className="studio-field" {...form.register("productionMode")}>
+            {PRODUCTION_MODES.map((item) => (
+              <option key={item.id} value={item.id}>{item.label}</option>
+            ))}
+          </select>
+          <span className="text-xs text-[#a39b8f]">
+            Episode-to-episode story memory is a planned phase; this setting is saved with the project now.
+          </span>
         </Field>
         <Field label="Aspect ratio" error={form.formState.errors.aspectRatio?.message}>
           <select className="studio-field" {...form.register("aspectRatio")}>
@@ -117,6 +150,9 @@ export function ProjectForm({
           <Input {...form.register("tone")} maxLength={80} />
         </Field>
       </div>
+      <p className="text-xs text-[#a39b8f]">
+        Duration sets the screenplay target. Real video generation and final rendering are not available yet.
+      </p>
       <div>
         <Button type="submit" disabled={pending}>
           {pending ? "Saving" : submitLabel}

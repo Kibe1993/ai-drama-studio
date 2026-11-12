@@ -48,7 +48,13 @@ export function parseStory(providerName: string, text: string): GeneratedStory {
   return result.data;
 }
 
-export function parseStructured<T>(providerName: string, text: string, schema: ZodType<T>, noun: string): T {
+export function parseStructured<T>(
+  providerName: string,
+  text: string,
+  schema: ZodType<T>,
+  noun: string,
+  normalize?: (parsed: unknown) => unknown
+): T {
   const trimmed = storyJsonText(text);
   if (!trimmed) {
     throw new JobError(`${providerName} returned an empty ${noun}.`, "empty_response", false);
@@ -59,10 +65,13 @@ export function parseStructured<T>(providerName: string, text: string, schema: Z
   } catch {
     log.error("llm", "invalid json", {
       provider: providerName,
-      detail: safeProviderDetail(trimmed.slice(0, 180)),
+      chars: trimmed.length,
+      head: safeProviderDetail(trimmed.slice(0, 180)),
+      tail: safeProviderDetail(trimmed.slice(-120)),
     });
     throw new JobError(`${providerName} returned a ${noun} that was not valid JSON.`, "invalid_json", false);
   }
+  if (normalize) parsed = normalize(parsed);
   const result = schema.safeParse(parsed);
   if (!result.success) {
     const issue = result.error.issues[0];

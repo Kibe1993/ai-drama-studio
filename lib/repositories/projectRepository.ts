@@ -17,6 +17,8 @@ export type ProjectRecord = {
   aspectRatio: ProjectShape["aspectRatio"];
   status: ProjectStatus;
   workflowMode: ProjectShape["workflowMode"];
+  productionType: ProjectShape["productionType"];
+  productionMode: ProjectShape["productionMode"];
   createdAt: string;
   updatedAt: string;
 };
@@ -33,6 +35,8 @@ export type ProjectWrite = {
   aspectRatio: ProjectShape["aspectRatio"];
   status: ProjectStatus;
   workflowMode: ProjectShape["workflowMode"];
+  productionType: ProjectShape["productionType"];
+  productionMode: ProjectShape["productionMode"];
   idempotencyKey?: string | null;
 };
 
@@ -55,6 +59,8 @@ function toRecord(doc: ProjectDoc): ProjectRecord {
     aspectRatio: doc.aspectRatio,
     status: doc.status,
     workflowMode: doc.workflowMode,
+    productionType: doc.productionType ?? "fictional_drama",
+    productionMode: doc.productionMode ?? "standalone",
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };

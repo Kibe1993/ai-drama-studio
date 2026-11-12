@@ -71,6 +71,8 @@ function project(): ProjectRecord {
     aspectRatio: "16:9",
     status: "draft",
     workflowMode: "guided",
+    productionType: "fictional_drama",
+    productionMode: "standalone",
     createdAt: now,
     updatedAt: now,
   };

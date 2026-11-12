@@ -3,19 +3,29 @@ import { chatJson } from "@/lib/providers/llm/chat";
 import { DEFAULT_FREE_MODELS } from "@/lib/providers/llm/freePolicy";
 import { parseStory } from "@/lib/providers/llm/parse";
 import { storySystemPrompt, storyUserPrompt } from "@/lib/providers/llm/prompt";
-import { bindChatStages } from "@/lib/providers/llm/chatStages";
+import { bindChatStages, storyBibleCompletionBudget } from "@/lib/providers/llm/chatStages";
 import type { LLMProvider, StoryCallOptions, StoryModelResult, StoryPrompt } from "@/lib/providers/llm/types";
 
 export const DEFAULT_OPENROUTER_MODEL = DEFAULT_FREE_MODELS.openrouter;
+export const DEFAULT_OPENROUTER_TIMEOUT_MS = 150_000;
+
+export function openRouterTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.OPENROUTER_TIMEOUT_MS?.trim();
+  const parsed = raw ? Number(raw) : Number.NaN;
+  if (!Number.isFinite(parsed)) return DEFAULT_OPENROUTER_TIMEOUT_MS;
+  return Math.max(15_000, Math.min(300_000, parsed));
+}
 
 export class OpenRouterLLMProvider implements LLMProvider {
   readonly id = "openrouter";
   readonly model: string;
   readonly generateCharacters: LLMProvider["generateCharacters"];
   readonly generateScenes: LLMProvider["generateScenes"];
+  readonly generateStoryBible: NonNullable<LLMProvider["generateStoryBible"]>;
 
-  constructor(private readonly options: { model: string; apiKey: string | undefined }) {
+  constructor(private readonly options: { model: string; apiKey: string | undefined; timeoutMs?: number }) {
     this.model = options.model;
+    const timeoutMs = options.timeoutMs ?? DEFAULT_OPENROUTER_TIMEOUT_MS;
     const stages = bindChatStages({
       label: "OpenRouter",
       apiKey: options.apiKey,
@@ -23,9 +33,15 @@ export class OpenRouterLLMProvider implements LLMProvider {
       model: options.model,
       headers: { "HTTP-Referer": "http://localhost:3000", "X-Title": "AI Drama Studio" },
       schemaMode: "json_object",
+      storyBibleSchemaMode: "json_schema",
+      storyBibleStrictSchema: false,
+      storyBibleMaxCompletionTokens: (input) => storyBibleCompletionBudget(input, 32_000),
+      storyBibleTimeoutMs: timeoutMs,
+      storyBibleExtra: { provider: { require_parameters: true } },
     });
     this.generateCharacters = stages.generateCharacters;
     this.generateScenes = stages.generateScenes;
+    this.generateStoryBible = stages.generateStoryBible!;
   }
 
   async generateStory(input: StoryPrompt, options: StoryCallOptions = {}): Promise<StoryModelResult> {
@@ -55,7 +71,12 @@ export class OpenRouterLLMProvider implements LLMProvider {
 }
 
 export function createOpenRouterProvider(
-  model = process.env.OPENROUTER_MODEL?.trim() || DEFAULT_OPENROUTER_MODEL
+  model = process.env.OPENROUTER_MODEL?.trim() || DEFAULT_OPENROUTER_MODEL,
+  env: NodeJS.ProcessEnv = process.env
 ): LLMProvider {
-  return new OpenRouterLLMProvider({ model, apiKey: process.env.OPENROUTER_API_KEY?.trim() });
+  return new OpenRouterLLMProvider({
+    model,
+    apiKey: env.OPENROUTER_API_KEY?.trim(),
+    timeoutMs: openRouterTimeoutMs(env),
+  });
 }

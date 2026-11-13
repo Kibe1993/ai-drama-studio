@@ -1,7 +1,7 @@
 import { log } from "@/lib/log";
 import { JobError } from "@/lib/pipeline/types";
 import { safeProviderDetail } from "@/lib/providers/llm/errors";
-import { repairStoryPayload } from "@/lib/providers/llm/repairStory";
+import { repairStoryPayload, screenplayEntryCount } from "@/lib/providers/llm/repairStory";
 import { generatedStorySchema, type GeneratedStory } from "@/lib/validation/story";
 import type { ZodType } from "zod";
 
@@ -19,15 +19,36 @@ export function parseStory(providerName: string, text: string): GeneratedStory {
   if (!trimmed) {
     throw new JobError(`${providerName} returned an empty story.`, "empty_response", false);
   }
-  let parsed: unknown;
+  let raw: unknown;
   try {
-    parsed = repairStoryPayload(JSON.parse(trimmed));
+    raw = JSON.parse(trimmed);
   } catch {
     log.error("llm", "invalid json", {
       provider: providerName,
       detail: safeProviderDetail(trimmed.slice(0, 180)),
     });
     throw new JobError(`${providerName} returned a story that was not valid JSON.`, "invalid_json", false);
+  }
+  const parsed = repairStoryPayload(raw);
+  // A repaired entry count below the declared count means scenes arrived with
+  // no usable content. That is what a token-truncated screenplay looks like
+  // once the provider closes the JSON. Fail loudly instead of saving the
+  // surviving fragment as a complete episode.
+  const declaredScenes = screenplayEntryCount(raw);
+  const repairedScenes = Array.isArray((parsed as { screenplay?: unknown }).screenplay)
+    ? ((parsed as { screenplay: unknown[] }).screenplay.length)
+    : 0;
+  if (declaredScenes > repairedScenes) {
+    log.error("llm", "incomplete screenplay", {
+      provider: providerName,
+      declaredScenes,
+      repairedScenes,
+    });
+    throw new JobError(
+      `${providerName} returned a screenplay with ${declaredScenes} scenes but only ${repairedScenes} were complete. The response was truncated.`,
+      "invalid_schema",
+      false
+    );
   }
   const result = generatedStorySchema.safeParse(parsed);
   if (!result.success) {

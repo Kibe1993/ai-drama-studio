@@ -12,6 +12,7 @@ const EpisodeSchema = new Schema(
     status: { type: String, enum: EPISODE_STATUSES, default: "draft" },
     currentStoryId: { type: Schema.Types.ObjectId, default: null },
     baseSnapshotVersion: { type: Number, default: 0, min: 0 },
+    basePlanVersion: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true, collection: "episodes" }
 );

@@ -205,6 +205,22 @@ export function storyBibleSectionContext(
   return context;
 }
 
+/**
+ * Compact view of every available section for consumers that need the whole
+ * bible at a glance (for example an episode suggestion) without receiving the
+ * full document.
+ */
+export function storyBibleBrief(sections: Partial<StoryBibleContent>): Partial<Record<StoryBibleSection, unknown>> {
+  const context: Partial<Record<StoryBibleSection, unknown>> = {};
+  if (sections.identity) context.identity = identityBrief(sections.identity);
+  if (sections.world) context.world = worldBrief(sections.world);
+  if (sections.characters) context.characters = charactersBrief(sections.characters);
+  if (sections.narrative) context.narrative = narrativeBrief(sections.narrative);
+  if (sections.guidelines) context.guidelines = guidelinesBrief(sections.guidelines);
+  if (sections.canon) context.canon = canonBrief(sections.canon);
+  return context;
+}
+
 export function buildStoryBibleSectionTask(
   base: StoryBibleTaskInput,
   section: StoryBibleSection,

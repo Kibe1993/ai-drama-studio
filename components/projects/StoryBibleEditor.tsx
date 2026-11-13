@@ -42,7 +42,6 @@ export function StoryBibleEditor({ projectId, readOnly = false, initialIdea = ""
   const [direction, setDirection] = useState("");
   const [instruction, setInstruction] = useState("");
   const [sectionInstruction, setSectionInstruction] = useState("");
-  const [fresh, setFresh] = useState(false);
   const bible = query.data?.bible;
 
   useEffect(() => {
@@ -61,6 +60,7 @@ export function StoryBibleEditor({ projectId, readOnly = false, initialIdea = ""
   const mutationPending = generate.isPending || regenerate.isPending || revise.isPending || regenerateSection.isPending || save.isPending || approve.isPending;
   const original = bible ? { premise: bible.premise, worldRules: bible.worldRules, themes: bible.themes, boundaries: bible.boundaries, canonFacts: bible.canonFacts } : null;
   const saved = Boolean(bible && original && JSON.stringify({ premise: draft.premise, worldRules: draft.worldRules, themes: draft.themes, boundaries: draft.boundaries, canonFacts: draft.canonFacts }) === JSON.stringify(original));
+  const unchangedSinceApproval = Boolean(bible && bible.draftRevision === bible.approvedVersion);
   const error = generate.error ?? regenerate.error ?? revise.error ?? regenerateSection.error ?? save.error ?? approve.error;
   const aiError = error instanceof ApiError ? error.message : error ? "The Story Bible request could not be completed." : bible?.generationError;
 
@@ -80,10 +80,10 @@ export function StoryBibleEditor({ projectId, readOnly = false, initialIdea = ""
         <div className="flex flex-wrap gap-3">
           <Button disabled={mutationPending || jobPending || !idea.trim()} onClick={() => bible.content
             ? regenerate.mutate({ ...inputBase(), freshInterpretation: false })
-            : generate.mutate({ operation: "generate", ...inputBase() })}>{generate.isPending || regenerate.isPending ? "Queueing" : bible.content ? "Develop current draft" : "Create Story Bible"}</Button>
-          {bible.content ? <Button variant="quiet" disabled={mutationPending || jobPending} onClick={() => regenerate.mutate({ ...inputBase(), freshInterpretation: fresh })}>{regenerate.isPending ? "Queueing" : "Regenerate full Bible"}</Button> : null}
+            : generate.mutate({ operation: "generate", ...inputBase() })}>{generate.isPending || regenerate.isPending ? "Queueing" : bible.content ? "Regenerate with my notes" : "Create Story Bible"}</Button>
+          {bible.content ? <Button variant="quiet" disabled={mutationPending || jobPending} onClick={() => regenerate.mutate({ ...inputBase(), freshInterpretation: true })}>{regenerate.isPending ? "Queueing" : "Start a fresh interpretation"}</Button> : null}
         </div>
-        {bible.content ? <label className="flex items-center gap-2 text-sm text-[#cfc6b8]"><input type="checkbox" checked={fresh} onChange={(e) => setFresh(e.target.checked)} />Start a fresh interpretation (release previously approved creative choices)</label> : null}
+        {bible.content ? <p className="text-xs text-[#a39b8f]">&ldquo;Regenerate with my notes&rdquo; keeps your approved creative choices and improves the draft from the boxes above. &ldquo;Start a fresh interpretation&rdquo; ignores them and reimagines the series.</p> : null}
       </div> : null}
 
       {bible ? <div className="mt-5 grid gap-4">
@@ -99,33 +99,41 @@ export function StoryBibleEditor({ projectId, readOnly = false, initialIdea = ""
         {aiError ? <p role="alert" className="text-sm text-[#e7b2a8]">{aiError}</p> : null}
 
         {bible.content ? <div className="grid gap-3">
-          <h3 className="font-display text-2xl">Review proposed Story Bible</h3>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-display text-2xl">Review draft — revision {bible.draftRevision}</h3>
+              <p className="mt-1 text-xs text-[#a39b8f]">Approving locks this draft as the canon production uses. You can keep editing and re-approve anytime.</p>
+            </div>
+            <Button disabled={mutationPending || jobPending || !saved || unchangedSinceApproval} onClick={() => approve.mutate({ expectedVersion: bible.approvedVersion, expectedDraftRevision: bible.draftRevision })}>{approve.isPending ? "Approving" : `Approve as canon — v${bible.approvedVersion + 1}`}</Button>
+          </div>
+          {!saved ? <p className="text-xs text-[#dfc18a]">You have unsaved manual edits in the legacy fields below — save them before approving.</p> : null}
+          {unchangedSinceApproval ? <p className="text-xs text-[#a39b8f]">This draft is already approved at v{bible.approvedVersion} — make a change before approving again.</p> : null}
           {SECTIONS.map((section) => <details key={section} className="rounded border border-[#39342d] p-4" open={section === "identity"}>
             <summary className="cursor-pointer font-medium">{LABELS[section]}</summary>
             <div className="mt-4"><ReadableValue value={bible.content?.[section]} /></div>
             {!readOnly ? <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
               <input className="studio-field" value={sectionInstruction} maxLength={1200} onChange={(e) => setSectionInstruction(e.target.value)} placeholder="Optional guidance for this section" />
-              <Button variant="quiet" disabled={mutationPending || jobPending} onClick={() => regenerateSection.mutate({ section, instruction: sectionInstruction, freshInterpretation: fresh })}>Regenerate section</Button>
+              <Button variant="quiet" disabled={mutationPending || jobPending} onClick={() => regenerateSection.mutate({ section, instruction: sectionInstruction, freshInterpretation: false })}>Regenerate section</Button>
             </div> : null}
           </details>)}
           <label className="grid gap-2 text-sm">Request a focused revision<textarea className="studio-field min-h-20" value={instruction} maxLength={2000} onChange={(e) => setInstruction(e.target.value)} placeholder="For example: strengthen the sisters’ rivalry without changing the setting or established facts" /></label>
-          {!readOnly ? <Button variant="quiet" className="w-fit" disabled={mutationPending || jobPending || !instruction.trim()} onClick={() => revise.mutate({ instruction, freshInterpretation: fresh })}>Apply revision</Button> : null}
+          {!readOnly ? <Button variant="quiet" className="w-fit" disabled={mutationPending || jobPending || !instruction.trim()} onClick={() => revise.mutate({ instruction, freshInterpretation: false })}>Apply focused revision</Button> : null}
         </div> : null}
 
         <details className="grid gap-4 rounded border border-[#39342d] p-4">
-          <summary className="cursor-pointer font-medium">Legacy five-field draft</summary>
-          <p className="text-xs text-[#a39b8f]">These original fields remain editable and are preserved for older records and clients.</p>
+          <summary className="cursor-pointer font-medium">Manual five-field draft (legacy)</summary>
+          <p className="text-xs text-[#a39b8f]">Editable fallback fields kept for older records. AI drafts live in the six sections above — you normally do not need these. Changes here require &ldquo;Save manual edits&rdquo; before they count.</p>
           <label className="grid gap-2 text-sm"><span>Premise</span><textarea disabled={readOnly} className="studio-field min-h-24" maxLength={2000} value={draft.premise} onChange={(e) => setDraft({ ...draft, premise: e.target.value })} /></label>
           <ListField disabled={readOnly} label="World rules" value={draft.worldRules ?? []} onChange={(worldRules) => setDraft({ ...draft, worldRules })} />
           <ListField disabled={readOnly} label="Themes" value={draft.themes ?? []} onChange={(themes) => setDraft({ ...draft, themes })} />
           <ListField disabled={readOnly} label="Story boundaries" value={draft.boundaries ?? []} onChange={(boundaries) => setDraft({ ...draft, boundaries })} />
           <ListField disabled={readOnly} label="Canon facts" value={draft.canonFacts ?? []} onChange={(canonFacts) => setDraft({ ...draft, canonFacts })} />
+          {!readOnly ? <Button variant="quiet" className="w-fit" disabled={mutationPending || jobPending || saved} onClick={() => save.mutate(draft)}>{save.isPending ? "Saving" : saved ? "Manual edits saved" : "Save manual edits"}</Button> : null}
         </details>
 
-        <p className="text-xs text-[#a39b8f]">Approved version: {bible.approvedVersion || "none"}; draft revision {bible.draftRevision}. Approval creates a versioned canon snapshot.</p>
-        {!readOnly ? <div className="flex flex-wrap gap-3">
-          <Button variant="quiet" disabled={mutationPending || jobPending} onClick={() => save.mutate(draft)}>{save.isPending ? "Saving" : "Save draft"}</Button>
-          <Button disabled={mutationPending || jobPending || !saved || (!bible.content && !bible.premise.trim() && !bible.canonFacts.length)} onClick={() => approve.mutate({ expectedVersion: bible.approvedVersion, expectedDraftRevision: bible.draftRevision })}>{approve.isPending ? "Approving" : `Approve version ${bible.approvedVersion + 1}`}</Button>
+        <p className="text-xs text-[#a39b8f]">Approved version: {bible.approvedVersion || "none"} · draft revision {bible.draftRevision}. Each approval stores an immutable canon snapshot.</p>
+        {!readOnly && !bible.content ? <div className="flex flex-wrap gap-3">
+          <Button disabled={mutationPending || jobPending || !saved || unchangedSinceApproval || (!bible.premise.trim() && !bible.canonFacts.length)} onClick={() => approve.mutate({ expectedVersion: bible.approvedVersion, expectedDraftRevision: bible.draftRevision })}>{approve.isPending ? "Approving" : `Approve as canon — v${bible.approvedVersion + 1}`}</Button>
         </div> : null}
         {bible.approvedSnapshot ? <p className="text-xs text-[#a39b8f]">Production uses approved version {bible.approvedSnapshot.version}. Current draft remains unapproved until you approve it.</p> : null}
       </div> : null}

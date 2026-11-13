@@ -18,7 +18,9 @@ type ChatJsonOptions = {
   maxCompletionTokens?: number;
 };
 
-export async function chatJson(options: ChatJsonOptions): Promise<{ text: string; usage?: TokenUsage }> {
+export async function chatJson(
+  options: ChatJsonOptions
+): Promise<{ text: string; usage?: TokenUsage; truncated?: boolean }> {
   const client = new OpenAI({
     apiKey: options.apiKey,
     baseURL: options.baseURL,
@@ -41,6 +43,12 @@ export async function chatJson(options: ChatJsonOptions): Promise<{ text: string
       { signal: options.signal, maxRetries: 0, timeout: options.timeoutMs }
     );
     const text = completion.choices[0]?.message?.content ?? "";
+    // The provider's own finish reason is authoritative: a response cut off at
+    // the token ceiling is truncated even when its JSON happens to close. This
+    // is what lets a clean-but-short screenplay be recognised without relying
+    // on a malformed trailing entry.
+    const finishReason = String(completion.choices[0]?.finish_reason ?? "");
+    const truncated = finishReason === "length" || finishReason === "max_tokens";
     if (!text.trim()) {
       const first = completion.choices[0];
       log.error("llm", "empty completion diagnostic", {
@@ -60,6 +68,7 @@ export async function chatJson(options: ChatJsonOptions): Promise<{ text: string
     return {
       text,
       usage: inputTokens == null && outputTokens == null ? undefined : { inputTokens, outputTokens },
+      truncated,
     };
   } catch (error) {
     if (error instanceof OpenAI.APIError) {

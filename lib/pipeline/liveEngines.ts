@@ -3,15 +3,25 @@ import type { ProjectPort } from "@/lib/pipeline/ports";
 import { createMockEngines } from "@/lib/pipeline/mockEngines";
 import { JobError, type EngineSet, type JobRecord, type RunRecord } from "@/lib/pipeline/types";
 import { assertCharacters, assertScenes } from "@/lib/providers/llm/stageTasks";
+import { storyBibleBrief } from "@/lib/providers/llm/storyBibleSections";
 import type { LLMProvider, StoryModelResult } from "@/lib/providers/llm/types";
 import type { StoryDraft } from "@/lib/repositories/storyRepository";
 import type { StoryRecord } from "@/lib/validation/story";
 import type { StoryBibleSnapshot } from "@/lib/validation/storyBible";
 import type { ProjectRecord } from "@/lib/repositories/projectRepository";
+import { compactCasnaPromptContext, type CasnaEpisodeContext } from "@/lib/pipeline/casnaContext";
+import { validateEpisodeScreenplay } from "@/lib/domain/screenplayValidation";
+import { mergeSceneRepair, repairSceneNumbers } from "@/lib/providers/llm/repairScenes";
+import type { SceneRepairRecord } from "@/lib/validation/story";
+
+/** Bounded targeted-repair rounds before falling back to full regeneration. */
+const MAX_SCENE_REPAIR_ROUNDS = 2;
 
 export type StoryWriter = {
   upsertAwaiting(input: StoryDraft): Promise<{ id: string; title: string; synopsis: string }>;
   findForRun(clerkUserId: string, productionRunId: string): Promise<StoryRecord | null>;
+  /** The approved project-level story draft a season is built on. */
+  findProjectDraft?(clerkUserId: string, projectId: string): Promise<StoryRecord | null>;
 };
 
 /**
@@ -29,6 +39,19 @@ export function createLiveEngines(options: {
   continuity?: {
     getPriorEpisodeContext(clerkUserId: string, projectId: string, beforeEpisodeNumber: number): Promise<string | undefined>;
   };
+  /** CASNA Stages E/F/G/H: approved plan, ledger, and prior approved episodes. */
+  casna?: {
+    load(input: {
+      clerkUserId: string;
+      projectId: string;
+      productionMode: string;
+      episodeNumber: number;
+      bibleApprovedVersion: number;
+      withScreenplays?: boolean;
+    }): Promise<CasnaEpisodeContext>;
+  };
+  /** CASNA: opt-in advisory continuity critique (never blocks approval). */
+  semanticCritique?: boolean;
   onStoryStatus?: (job: JobRecord, message: string) => Promise<void>;
 }): EngineSet {
   const mocks = createMockEngines();
@@ -49,10 +72,49 @@ export function createLiveEngines(options: {
       const approvedBible = run.episode?.baseSnapshotVersion && options.storyBible?.findApprovedVersion
         ? await options.storyBible.findApprovedVersion(job.clerkUserId, project.id, run.episode.baseSnapshotVersion)
         : await options.storyBible?.findApproved(job.clerkUserId, project.id);
+
+      // CASNA Stage E/F: for a serialized drama, load the approved Season Plan,
+      // the Continuity Ledger, and earlier approved episodes before deciding what
+      // this episode is allowed to be.
+      const episodeNumber = run.episode?.number ?? 1;
+      const casna = project.productionMode === "serialized" && options.casna
+        ? await options.casna.load({
+            clerkUserId: job.clerkUserId,
+            projectId: project.id,
+            productionMode: project.productionMode,
+            episodeNumber,
+            bibleApprovedVersion: approvedBible?.version ?? run.episode?.baseSnapshotVersion ?? 0,
+            withScreenplays: true,
+          })
+        : null;
+      if (casna && !casna.gate.allowed) {
+        throw new JobError(casna.gate.reason ?? "This episode is locked.", casna.gate.code, false);
+      }
+      if (casna?.episodePlanValidation && !casna.episodePlanValidation.passed) {
+        const error = casna.episodePlanValidation.findings.find((finding) => finding.severity === "error");
+        throw new JobError(
+          error?.message ?? "The episode plan conflicts with the approved Season Plan.",
+          "plan_conflict",
+          false
+        );
+      }
+      const casnaPrompt = casna ? compactCasnaPromptContext(casna) : null;
+
       const approvedEpisodeContext = project.productionMode === "serialized" && run.episode
         ? await options.continuity?.getPriorEpisodeContext(job.clerkUserId, project.id, run.episode.number)
         : undefined;
-      const continuityContext = [formatContinuityContext(approvedBible, project), approvedEpisodeContext]
+      // CASNA Stage A/E: the episode is developed from the approved project-level
+      // story draft as well as the Story Bible, so the season keeps one story.
+      const projectDraft = options.stories.findProjectDraft
+        ? await options.stories.findProjectDraft(job.clerkUserId, project.id)
+        : null;
+      const storyDraftContext =
+        projectDraft && projectDraft.status === "approved" ? formatStoryDraft(projectDraft) : undefined;
+      const continuityContext = [
+        formatContinuityContext(approvedBible, project),
+        storyDraftContext,
+        approvedEpisodeContext,
+      ]
         .filter(Boolean).join("\n\nPrior approved episode continuity:\n");
       const generated = await options.llm.generateStory(
         {
@@ -66,6 +128,10 @@ export function createLiveEngines(options: {
           aspectRatio: project.aspectRatio,
           productionType: project.productionType,
           continuityContext: continuityContext || undefined,
+          seasonPlan: casnaPrompt?.seasonPlan ?? null,
+          episodePlan: casnaPrompt?.episodePlan ?? null,
+          continuityLedger: casnaPrompt?.continuityLedger ?? null,
+          previousEpisode: casnaPrompt?.previousEpisode ?? null,
         },
         {
           runId: run.id,
@@ -74,26 +140,194 @@ export function createLiveEngines(options: {
         }
       );
       const trace = storyTrace(generated, options.llm);
+      const seriesTitle = approvedBible?.content?.identity.title ?? project.title;
+      const episodeTarget = run.episode?.targetDurationSeconds ?? project.targetDurationSeconds;
+
+      // CASNA Stage H: validate the finished screenplay against approved canon
+      // before it is presented for approval.
+      let screenplay = generated.screenplay;
+      let validation = casna
+        ? validateEpisodeScreenplay({
+            episodeNumber,
+            seriesTitle,
+            story: { title: generated.title, synopsis: generated.synopsis, screenplay },
+            targetDurationSeconds: episodeTarget,
+            bible: approvedBible?.content ?? null,
+            seasonPlan: casna.plan,
+            episodePlan: casna.episodePlan,
+            ledger: casna.ledger,
+            previousEpisodes: casna.previousEpisodes,
+          })
+        : null;
+      const repairHistory: SceneRepairRecord[] = [];
+
+      // Repair only the scenes the findings point at, then fall back to the
+      // job's bounded retry when a repair cannot resolve the problem.
+      while (
+        validation &&
+        !validation.passed &&
+        casna &&
+        options.llm.repairScenes &&
+        repairHistory.length < MAX_SCENE_REPAIR_ROUNDS
+      ) {
+        const targets = repairSceneNumbers(validation.findings);
+        if (targets.length === 0) break;
+        const findingsBefore = validation.findings.filter((finding) => finding.severity === "error").length;
+        let repaired;
+        try {
+          repaired = await options.llm.repairScenes(
+            {
+              seriesTitle,
+              episodeNumber,
+              targetDurationSeconds: episodeTarget,
+              screenplay,
+              findings: validation.findings,
+              episodePlan: casna.episodePlan,
+              seasonPlan: casnaPrompt?.seasonPlan ?? null,
+              continuityLedger: casnaPrompt?.continuityLedger ?? null,
+            },
+            {
+              runId: run.id,
+              jobId: job.id,
+              onStatus: (message) => options.onStoryStatus?.(job, message),
+            }
+          );
+        } catch (error) {
+          log.error("pipeline", "scene repair failed", {
+            jobId: job.id,
+            runId: run.id,
+            detail: error instanceof Error ? error.message : "unknown",
+          });
+          break;
+        }
+        const merged = mergeSceneRepair(screenplay, repaired.screenplay, targets);
+        if (!merged) {
+          log.error("pipeline", "scene repair returned an unusable merge", {
+            jobId: job.id,
+            runId: run.id,
+            targets: targets.join(","),
+          });
+          break;
+        }
+        screenplay = merged;
+        validation = validateEpisodeScreenplay({
+          episodeNumber,
+          seriesTitle,
+          story: { title: generated.title, synopsis: generated.synopsis, screenplay },
+          targetDurationSeconds: episodeTarget,
+          bible: approvedBible?.content ?? null,
+          seasonPlan: casna.plan,
+          episodePlan: casna.episodePlan,
+          ledger: casna.ledger,
+          previousEpisodes: casna.previousEpisodes,
+        });
+        repairHistory.push({
+          attempt: repairHistory.length + 1,
+          sceneNumbers: targets,
+          findingsBefore,
+          findingsAfter: validation.findings.filter((finding) => finding.severity === "error").length,
+          resolved: validation.passed,
+          provider: repaired.provider,
+          model: repaired.model,
+        });
+        log.info("pipeline", "scene repair applied", {
+          jobId: job.id,
+          runId: run.id,
+          attempt: repairHistory.length,
+          scenes: targets.join(","),
+          passed: validation.passed,
+        });
+      }
+
+      // Optional advisory critic: catches timeline/knowledge issues the
+      // deterministic checks cannot. Its findings are always warnings.
+      if (options.semanticCritique && options.llm.critiqueStory && casna && validation) {
+        try {
+          const critique = await options.llm.critiqueStory(
+            {
+              seriesTitle,
+              episodeNumber,
+              synopsis: generated.synopsis,
+              screenplay,
+              episodePlan: casna.episodePlan,
+              seasonPlan: casnaPrompt?.seasonPlan ?? null,
+              continuityLedger: casnaPrompt?.continuityLedger ?? null,
+              bibleBrief: approvedBible?.content ? storyBibleBrief(approvedBible.content) : null,
+            },
+            {
+              runId: run.id,
+              jobId: job.id,
+              onStatus: (message) => options.onStoryStatus?.(job, message),
+            }
+          );
+          if (critique.findings.length > 0) {
+            validation = {
+              ...validation,
+              validatedAt: new Date().toISOString(),
+              findings: [
+                ...validation.findings,
+                ...critique.findings.map((finding) => ({
+                  category: finding.category,
+                  severity: "warning" as const,
+                  sceneNumber: finding.sceneNumber,
+                  message: `[continuity critic] ${finding.message}`,
+                })),
+              ],
+            };
+          }
+          log.info("pipeline", "continuity critique complete", {
+            jobId: job.id,
+            runId: run.id,
+            findings: critique.findings.length,
+            provider: critique.provider ?? "",
+          });
+        } catch (error) {
+          log.error("pipeline", "continuity critique failed", {
+            jobId: job.id,
+            runId: run.id,
+            detail: error instanceof Error ? error.message : "unknown",
+          });
+        }
+      }
+
       log.info("pipeline", "story ready", {
         title: generated.title,
-        scenes: generated.screenplay.length,
+        scenes: screenplay.length,
         provider: trace.provider,
         model: trace.model,
         fallbackFrom: trace.fallbackFrom ?? "",
+        hasSeasonPlan: Boolean(casna?.plan),
+        hasLedger: Boolean(casna?.ledger),
+        validationPassed: validation?.passed ?? null,
+        validationErrors: validation?.findings.filter((finding) => finding.severity === "error").length ?? 0,
+        repairRounds: repairHistory.length,
       });
       const saved = await options.stories.upsertAwaiting({
         title: generated.title,
         synopsis: generated.synopsis,
         structure: generated.structure,
-        screenplay: generated.screenplay,
+        screenplay,
         provider: trace.provider,
         model: trace.model,
         fallbackFrom: trace.fallbackFrom,
         clerkUserId: job.clerkUserId,
         projectId: project.id,
         productionRunId: run.id,
-          episodeId: run.episode?.id ?? null,
+        episodeId: run.episode?.id ?? null,
+        plan: casna?.episodePlan ?? null,
+        validationFindings: validation,
+        repairHistory,
       });
+      // Preserve the draft (the screenplay is kept for review) but never report
+      // an episode that failed canon validation as a success.
+      if (validation && !validation.passed) {
+        const error = validation.findings.find((finding) => finding.severity === "error");
+        throw new JobError(
+          error?.message ?? "The screenplay conflicts with approved canon.",
+          "screenplay_conflict",
+          true
+        );
+      }
       return {
         title: saved.title,
         synopsis: saved.synopsis,
@@ -109,6 +343,9 @@ export function createLiveEngines(options: {
 
 function formatContinuityContext(snapshot: StoryBibleSnapshot | null | undefined, project: ProjectRecord): string | undefined {
   if (!snapshot) return undefined;
+  if (snapshot.content) {
+    return `Approved Story Bible:\n${JSON.stringify(storyBibleBrief(snapshot.content))}`;
+  }
   const facts = [
     snapshot.premise ? `Premise: ${snapshot.premise}` : "",
     snapshot.worldRules?.length ? `World rules: ${snapshot.worldRules.join("; ")}` : "",
@@ -119,6 +356,18 @@ function formatContinuityContext(snapshot: StoryBibleSnapshot | null | undefined
       : `Approved canon facts: ${snapshot.canonFacts?.join("; ")}`,
   ].filter(Boolean);
   return facts.length ? facts.join("\n") : undefined;
+}
+
+/** A compact projection of the approved project-level story draft. */
+function formatStoryDraft(draft: StoryRecord): string {
+  const { act1, act2, act3 } = draft.structure;
+  return [
+    `Approved story draft: ${draft.title}`,
+    `Synopsis: ${draft.synopsis}`,
+    `Beginning: ${act1.initialSituation} ${act1.incitingIncident}`,
+    `Turn: ${act2.turningPoint}`,
+    `Intended outcome: ${act3.finalOutcome}`,
+  ].join("\n");
 }
 
 async function approvedStory(

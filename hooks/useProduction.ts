@@ -40,6 +40,7 @@ export function useProductionAction(projectId: string) {
       void client.invalidateQueries({ queryKey: ["episodes", projectId] });
       void client.invalidateQueries({ queryKey: ["projects", projectId] });
       void client.invalidateQueries({ queryKey: ["summary"] });
+      void client.invalidateQueries({ queryKey: ["workflow", projectId] });
     },
   });
 }
@@ -53,6 +54,35 @@ export function useApproveStory(projectId: string) {
       void client.invalidateQueries({ queryKey: key(projectId) });
       void client.invalidateQueries({ queryKey: ["projects", projectId] });
       void client.invalidateQueries({ queryKey: ["summary"] });
+    },
+  });
+}
+
+export function useUpdateStory(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      storyId: string;
+      title?: string;
+      synopsis?: string;
+      screenplay: StoryRecord["screenplay"];
+      expectedUpdatedAt?: string;
+    }) =>
+      api<{ story: StoryRecord }>(
+        `/api/projects/${projectId}/stories/${input.storyId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            title: input.title,
+            synopsis: input.synopsis,
+            screenplay: input.screenplay,
+            expectedUpdatedAt: input.expectedUpdatedAt,
+          }),
+        }
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key(projectId) });
+      void client.invalidateQueries({ queryKey: ["workflow", projectId] });
     },
   });
 }

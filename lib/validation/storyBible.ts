@@ -184,6 +184,8 @@ export type StoryBibleRecord = {
   projectId: string;
   approvedVersion: number;
   draftRevision: number;
+  /** The story draft this Bible was approved from, used to detect stale canon. */
+  basedOnStoryId: string | null;
   approvedSnapshot: StoryBibleSnapshot | null;
   approvedSnapshots: StoryBibleSnapshot[];
   generationStatus: StoryBibleGenerationStatus;

@@ -18,8 +18,8 @@ export function StudioShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[240px_1fr]">
-      <aside className="border-b border-[#2e2a25] md:border-b-0 md:border-r">
+    <div className="min-h-screen md:grid md:grid-cols-[200px_1fr]">
+      <aside className="border-b border-[#2e2a25] md:border-b-0 md:border-r md:min-h-screen">
         <div className="flex items-center justify-between px-5 py-5 md:block">
           <Link href="/" className="font-display text-2xl tracking-tight text-[#f3efe6]">
             Drama Studio
@@ -48,7 +48,7 @@ export function StudioShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
       </aside>
-      <main className="px-5 py-8 sm:px-10 sm:py-12">{children}</main>
+      <main className="min-w-0 px-6 py-8 sm:px-10 sm:py-10">{children}</main>
     </div>
   );
 }

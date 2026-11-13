@@ -52,7 +52,10 @@ export function useGenerateStoryBible(projectId: string) {
     mutationFn: (input: StoryBibleGenerationRequest) => api<{ bible: StoryBibleRecord; job: unknown }>(
       `/api/projects/${projectId}/story-bible/generate`, { method: "POST", body: JSON.stringify(input) }
     ),
-    onSuccess: () => client.invalidateQueries({ queryKey: key(projectId) }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key(projectId) });
+      void client.invalidateQueries({ queryKey: ["workflow", projectId] });
+    },
   });
 }
 
@@ -62,7 +65,10 @@ export function useRegenerateStoryBible(projectId: string) {
     mutationFn: (input: Omit<StoryBibleGenerationRequest, "operation">) => api<{ bible: StoryBibleRecord; job: unknown }>(
       `/api/projects/${projectId}/story-bible/regenerate`, { method: "POST", body: JSON.stringify(input) }
     ),
-    onSuccess: () => client.invalidateQueries({ queryKey: key(projectId) }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key(projectId) });
+      void client.invalidateQueries({ queryKey: ["workflow", projectId] });
+    },
   });
 }
 
@@ -72,7 +78,10 @@ export function useReviseStoryBible(projectId: string) {
     mutationFn: (input: Pick<StoryBibleGenerationRequest, "instruction" | "freshInterpretation">) => api<{ bible: StoryBibleRecord; job: unknown }>(
       `/api/projects/${projectId}/story-bible/revise`, { method: "POST", body: JSON.stringify(input) }
     ),
-    onSuccess: () => client.invalidateQueries({ queryKey: key(projectId) }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key(projectId) });
+      void client.invalidateQueries({ queryKey: ["workflow", projectId] });
+    },
   });
 }
 
@@ -82,7 +91,10 @@ export function useRegenerateStoryBibleSection(projectId: string) {
     mutationFn: (input: Pick<StoryBibleGenerationRequest, "section" | "instruction" | "freshInterpretation">) => api<{ bible: StoryBibleRecord; job: unknown }>(
       `/api/projects/${projectId}/story-bible/sections/${input.section}/regenerate`, { method: "POST", body: JSON.stringify(input) }
     ),
-    onSuccess: () => client.invalidateQueries({ queryKey: key(projectId) }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key(projectId) });
+      void client.invalidateQueries({ queryKey: ["workflow", projectId] });
+    },
   });
 }
 
@@ -92,7 +104,10 @@ export function useSaveStoryBible(projectId: string) {
     mutationFn: (draft: StoryBibleDraft) => api<{ bible: StoryBibleRecord }>(
       `/api/projects/${projectId}/story-bible`, { method: "PATCH", body: JSON.stringify(draft) }
     ),
-    onSuccess: (result) => client.setQueryData(key(projectId), result),
+    onSuccess: (result) => {
+      client.setQueryData(key(projectId), result);
+      void client.invalidateQueries({ queryKey: ["workflow", projectId] });
+    },
   });
 }
 
@@ -105,6 +120,9 @@ export function useApproveStoryBible(projectId: string) {
         body: JSON.stringify(input),
       }
     ),
-    onSuccess: (result) => client.setQueryData(key(projectId), result),
+    onSuccess: (result) => {
+      client.setQueryData(key(projectId), result);
+      void client.invalidateQueries({ queryKey: ["workflow", projectId] });
+    },
   });
 }

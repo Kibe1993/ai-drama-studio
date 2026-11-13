@@ -1,22 +1,34 @@
 import { GoogleGenAI } from "@google/genai";
 import { log } from "@/lib/log";
+import { storyCompletionBudget } from "@/lib/providers/llm/budget";
+import { requestStoryContinuation } from "@/lib/providers/llm/continuation";
 import { geminiDiagnostics, geminiFailure } from "@/lib/providers/llm/errors";
 import { parseStory } from "@/lib/providers/llm/parse";
 import { storySystemPrompt, storyUserPrompt } from "@/lib/providers/llm/prompt";
-import { requestCharacters, requestScenes, type StageTransport } from "@/lib/providers/llm/stageTasks";
+import { requestCharacters, requestEpisodeSuggestion, requestScenes, type StageTransport } from "@/lib/providers/llm/stageTasks";
 import type {
   CharacterModelResult,
+  EpisodeSuggestionModelResult,
   LlmClient,
   LLMProvider,
   SceneModelResult,
   StoryCallOptions,
+  StoryContinuationModelResult,
   StoryModelResult,
   StoryPrompt,
 } from "@/lib/providers/llm/types";
-import type { CharacterPrompt, ScenePrompt } from "@/lib/providers/llm/stageTasks";
+import type { CharacterPrompt, EpisodeSuggestionPrompt, ScenePrompt } from "@/lib/providers/llm/stageTasks";
 import { JobError } from "@/lib/pipeline/types";
-import { STORY_RESPONSE_SCHEMA } from "@/lib/validation/story";
+import { STORY_RESPONSE_SCHEMA, type ScreenplayScene } from "@/lib/validation/story";
 import { requestStoryBible, type StoryBibleTaskInput } from "@/lib/providers/llm/storyBibleTask";
+import { requestSeasonPlan, type SeasonPlanPrompt } from "@/lib/providers/llm/seasonPlanTask";
+import { requestSceneRepair, type RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
+import { requestStoryCritique, type StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
+import type {
+  RepairScenesModelResult,
+  SeasonPlanModelResult,
+  StoryCritiqueModelResult,
+} from "@/lib/providers/llm/types";
 
 export const DEFAULT_LLM_MODEL = "gemini-flash-latest";
 const STORY_TIMEOUT_MS = 90_000;
@@ -64,6 +76,7 @@ export class GeminiLLMProvider implements LLMProvider {
         prompt: storyUserPrompt(input),
         jsonSchema: STORY_RESPONSE_SCHEMA as unknown as Record<string, unknown>,
         signal,
+        maxOutputTokens: storyCompletionBudget(input.targetDurationSeconds),
       });
       const story = parseStory("Gemini", response.text);
       log.info("gemini", "response", {
@@ -72,7 +85,7 @@ export class GeminiLLMProvider implements LLMProvider {
         scenes: story.screenplay.length,
         ms: Date.now() - started,
       });
-      return { ...story, usage: response.usage };
+      return { ...story, usage: response.usage, truncated: response.truncated };
     } catch (error) {
       if (error instanceof JobError) {
         log.error("gemini", "rejected", { model: this.model, code: error.code, ms: Date.now() - started });
@@ -105,20 +118,48 @@ export class GeminiLLMProvider implements LLMProvider {
     return { ...result, provider: this.id, model: this.model };
   }
 
+  async generateEpisodeSuggestion(input: EpisodeSuggestionPrompt, options?: StoryCallOptions): Promise<EpisodeSuggestionModelResult> {
+    const result = await requestEpisodeSuggestion(this.stageTransport(), input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
   async generateStoryBible(input: StoryBibleTaskInput, options?: StoryCallOptions) {
     const generated = await requestStoryBible(this.stageTransport(), input, options);
     return { result: generated.result, usage: generated.usage };
   }
 
+  async generateSeasonPlan(input: SeasonPlanPrompt, options?: StoryCallOptions): Promise<SeasonPlanModelResult> {
+    const result = await requestSeasonPlan(this.stageTransport(), input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async repairScenes(input: RepairScenesPrompt, options?: StoryCallOptions): Promise<RepairScenesModelResult> {
+    const result = await requestSceneRepair(this.stageTransport(), input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async critiqueStory(input: StoryCriticPrompt, options?: StoryCallOptions): Promise<StoryCritiqueModelResult> {
+    const result = await requestStoryCritique(this.stageTransport(), input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async continueStory(
+    input: StoryPrompt,
+    written: ScreenplayScene[],
+    options: StoryCallOptions = {}
+  ): Promise<StoryContinuationModelResult> {
+    return requestStoryContinuation(this.stageTransport(), input, written, options);
+  }
+
   private stageTransport(): StageTransport {
     return {
       label: "Gemini",
-      request: async (system, prompt, schema, signal) => {
+      request: async (system, prompt, schema, signal, maxCompletionTokens) => {
         if (!this.options.apiKey) {
           throw new JobError("GEMINI_API_KEY is not set.", "configuration", false);
         }
         const client = this.options.client ?? googleClient(this.options.apiKey);
-        return client.complete({ model: this.model, system, prompt, jsonSchema: schema, signal });
+        return client.complete({ model: this.model, system, prompt, jsonSchema: schema, signal, maxOutputTokens: maxCompletionTokens });
       },
     };
   }
@@ -139,14 +180,19 @@ function googleClient(apiKey: string): LlmClient {
           responseMimeType: "application/json",
           responseJsonSchema: input.jsonSchema,
           abortSignal: input.signal,
+          ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
         },
       });
       const usage = response.usageMetadata;
       const inputTokens = typeof usage?.promptTokenCount === "number" ? usage.promptTokenCount : undefined;
       const outputTokens = typeof usage?.candidatesTokenCount === "number" ? usage.candidatesTokenCount : undefined;
+      // MAX_TOKENS is Gemini's finish reason for a response stopped at the
+      // configured output ceiling.
+      const truncated = String(response.candidates?.[0]?.finishReason ?? "") === "MAX_TOKENS";
       return {
         text: response.text ?? "",
         usage: inputTokens == null && outputTokens == null ? undefined : { inputTokens, outputTokens },
+        truncated,
       };
     },
   };

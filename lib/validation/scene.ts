@@ -5,8 +5,12 @@ export const shotPlanSchema = z.object({
   shotNumber: z.number().int().positive().max(20),
   purpose: z.string().trim().min(1).max(240),
   framing: z.string().trim().max(120).default(""),
+  cameraAngle: z.string().trim().max(120).default(""),
   cameraDirection: z.string().trim().max(300).default(""),
   action: z.string().trim().max(500).default(""),
+  environment: z.string().trim().max(300).default(""),
+  lighting: z.string().trim().max(200).default(""),
+  continuity: z.string().trim().max(300).default(""),
   estimatedDurationSeconds: z.number().int().positive().max(180).nullable().default(null),
 });
 

@@ -11,7 +11,9 @@ import {
  * The caller passes that checkpoint. This table does not guess it.
  */
 const EDGES: Record<ProjectStatus, readonly ProjectStatus[]> = {
-  draft: ["planning", "archived"],
+  // `draft` may go straight to `story_ready` when the project-level story draft
+  // is approved before any production run exists.
+  draft: ["planning", "story_ready", "archived"],
   planning: ["story_ready", "failed"],
   story_ready: ["planning", "characters_ready", "archived"],
   characters_ready: ["planning", "scenes_ready", "archived"],

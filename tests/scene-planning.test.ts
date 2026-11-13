@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RequestAuth } from "@/lib/auth/session";
 import type { RunRecord } from "@/lib/pipeline/types";
 import type { SceneRecord } from "@/lib/validation/scene";
+import { shotPlanSchema } from "@/lib/validation/scene";
 import { createProductionSceneService } from "@/lib/services/productionSceneService";
 
 const owner: RequestAuth = { userId: "scene-owner", isAdmin: false, email: "", name: "", imageUrl: "" };
@@ -58,7 +59,7 @@ describe("persistent scene planning", () => {
       timeOfDay: "Evening", charactersPresent: ["Amara"],
       visualDescription: "Warm lamplight on a folded letter.", action: "Amara opens it.",
       dialogue: [], cameraDirection: "Slow push in", estimatedDurationSeconds: 45,
-      shotPlan: [{ shotNumber: 1, purpose: "Reveal her reaction", framing: "Close-up", cameraDirection: "Push in", action: "She looks up", estimatedDurationSeconds: 8 }],
+      shotPlan: [{ shotNumber: 1, purpose: "Reveal her reaction", framing: "Close-up", cameraAngle: "Eye level", cameraDirection: "Push in", action: "She looks up", environment: "Kitchen at night", lighting: "Warm lamp", continuity: "Letter stays folded", estimatedDurationSeconds: 8 }],
     };
     const saved = await service.update(owner, projectId, 1, input);
     expect(saved.shotPlan).toEqual(input.shotPlan);
@@ -75,5 +76,39 @@ describe("persistent scene planning", () => {
       charactersPresent: ["Amara"], visualDescription: "Light", action: "Open letter", dialogue: [],
       cameraDirection: "", estimatedDurationSeconds: 45, shotPlan: [],
     })).rejects.toMatchObject({ code: "scene_edit_closed" });
+  });
+});
+
+describe("shot plan fields", () => {
+  it("defaults the extended shot fields when a provider omits them", () => {
+    const shot = shotPlanSchema.parse({ shotNumber: 1, purpose: "Reveal her reaction", framing: "Close-up" });
+    expect(shot).toMatchObject({
+      cameraAngle: "",
+      cameraDirection: "",
+      environment: "",
+      lighting: "",
+      continuity: "",
+    });
+  });
+
+  it("keeps the extended shot fields when they are provided", () => {
+    const shot = shotPlanSchema.parse({
+      shotNumber: 1,
+      purpose: "Reveal her reaction",
+      framing: "Close-up",
+      cameraAngle: "Low angle",
+      cameraDirection: "Push in",
+      action: "She looks up",
+      environment: "Rain-lit kitchen",
+      lighting: "Single warm lamp",
+      continuity: "The letter stays folded",
+      estimatedDurationSeconds: 8,
+    });
+    expect(shot).toMatchObject({
+      cameraAngle: "Low angle",
+      environment: "Rain-lit kitchen",
+      lighting: "Single warm lamp",
+      continuity: "The letter stays folded",
+    });
   });
 });

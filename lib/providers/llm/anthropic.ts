@@ -1,21 +1,33 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { log } from "@/lib/log";
 import { JobError } from "@/lib/pipeline/types";
+import { storyCompletionBudget } from "@/lib/providers/llm/budget";
+import { requestStoryContinuation } from "@/lib/providers/llm/continuation";
 import { classifyProviderError } from "@/lib/providers/llm/errors";
 import { parseStory } from "@/lib/providers/llm/parse";
 import { storySystemPrompt, storyUserPrompt } from "@/lib/providers/llm/prompt";
-import { requestCharacters, requestScenes, type StageTransport } from "@/lib/providers/llm/stageTasks";
+import { requestCharacters, requestEpisodeSuggestion, requestScenes, type StageTransport } from "@/lib/providers/llm/stageTasks";
 import type {
   CharacterModelResult,
+  EpisodeSuggestionModelResult,
   LLMProvider,
   SceneModelResult,
   StoryCallOptions,
+  StoryContinuationModelResult,
   StoryModelResult,
   StoryPrompt,
 } from "@/lib/providers/llm/types";
-import type { CharacterPrompt, ScenePrompt } from "@/lib/providers/llm/stageTasks";
-import { STORY_RESPONSE_SCHEMA } from "@/lib/validation/story";
+import type { CharacterPrompt, EpisodeSuggestionPrompt, ScenePrompt } from "@/lib/providers/llm/stageTasks";
+import { STORY_RESPONSE_SCHEMA, type ScreenplayScene } from "@/lib/validation/story";
 import { requestStoryBible, type StoryBibleTaskInput } from "@/lib/providers/llm/storyBibleTask";
+import { requestSeasonPlan, type SeasonPlanPrompt } from "@/lib/providers/llm/seasonPlanTask";
+import { requestSceneRepair, type RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
+import { requestStoryCritique, type StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
+import type {
+  RepairScenesModelResult,
+  SeasonPlanModelResult,
+  StoryCritiqueModelResult,
+} from "@/lib/providers/llm/types";
 
 export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-5-5";
 
@@ -39,7 +51,7 @@ export class AnthropicLLMProvider implements LLMProvider {
       const message = await client.messages.create(
         {
           model: this.model,
-          max_tokens: 8000,
+          max_tokens: storyCompletionBudget(input.targetDurationSeconds),
           system: storySystemPrompt(),
           messages: [{ role: "user", content: storyUserPrompt(input) }],
           output_config: {
@@ -62,6 +74,7 @@ export class AnthropicLLMProvider implements LLMProvider {
       return {
         ...story,
         usage: inputTokens == null && outputTokens == null ? undefined : { inputTokens, outputTokens },
+        truncated: message.stop_reason === "max_tokens",
       };
     } catch (error) {
       if (error instanceof JobError) throw error;
@@ -79,22 +92,50 @@ export class AnthropicLLMProvider implements LLMProvider {
     return { ...result, provider: this.id, model: this.model };
   }
 
+  async generateEpisodeSuggestion(input: EpisodeSuggestionPrompt, options?: StoryCallOptions): Promise<EpisodeSuggestionModelResult> {
+    const result = await requestEpisodeSuggestion(this.stageTransport(), input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
   async generateStoryBible(input: StoryBibleTaskInput, options?: StoryCallOptions) {
     const generated = await requestStoryBible(this.stageTransport(), input, options);
     return { result: generated.result, usage: generated.usage };
   }
 
+  async generateSeasonPlan(input: SeasonPlanPrompt, options?: StoryCallOptions): Promise<SeasonPlanModelResult> {
+    const result = await requestSeasonPlan(this.stageTransport(), input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async repairScenes(input: RepairScenesPrompt, options?: StoryCallOptions): Promise<RepairScenesModelResult> {
+    const result = await requestSceneRepair(this.stageTransport(), input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async critiqueStory(input: StoryCriticPrompt, options?: StoryCallOptions): Promise<StoryCritiqueModelResult> {
+    const result = await requestStoryCritique(this.stageTransport(), input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async continueStory(
+    input: StoryPrompt,
+    written: ScreenplayScene[],
+    options: StoryCallOptions = {}
+  ): Promise<StoryContinuationModelResult> {
+    return requestStoryContinuation(this.stageTransport(), input, written, options);
+  }
+
   private stageTransport(): StageTransport {
     return {
       label: "Anthropic",
-      request: async (system, prompt, schema, signal) => {
+      request: async (system, prompt, schema, signal, maxCompletionTokens) => {
         if (!this.options.apiKey) throw new Error("ANTHROPIC_API_KEY is not set.");
         const client = new Anthropic({ apiKey: this.options.apiKey, maxRetries: 0, timeout: 90_000 });
         try {
           const message = await client.messages.create(
             {
               model: this.model,
-              max_tokens: 8000,
+              max_tokens: maxCompletionTokens ?? 8_000,
               system,
               messages: [{ role: "user", content: prompt }],
               output_config: { format: { type: "json_schema", schema } },
@@ -107,7 +148,11 @@ export class AnthropicLLMProvider implements LLMProvider {
             .join("");
           const inputTokens = typeof message.usage?.input_tokens === "number" ? message.usage.input_tokens : undefined;
           const outputTokens = typeof message.usage?.output_tokens === "number" ? message.usage.output_tokens : undefined;
-          return { text, usage: inputTokens == null && outputTokens == null ? undefined : { inputTokens, outputTokens } };
+          return {
+            text,
+            usage: inputTokens == null && outputTokens == null ? undefined : { inputTokens, outputTokens },
+            truncated: message.stop_reason === "max_tokens",
+          };
         } catch (error) {
           if (error instanceof JobError) throw error;
           throw classifyProviderError("Anthropic", error);

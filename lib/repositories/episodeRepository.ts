@@ -12,6 +12,8 @@ function toRecord(doc: EpisodeDoc): EpisodeRecord {
     id: doc._id.toString(),
     projectId: doc.projectId.toString(),
     currentStoryId: doc.currentStoryId?.toString() ?? null,
+    baseSnapshotVersion: doc.baseSnapshotVersion ?? 0,
+    basePlanVersion: doc.basePlanVersion ?? 0,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };
@@ -43,7 +45,7 @@ export const episodeRepository = {
     return this.create(clerkUserId, projectId, { title: "Episode 1", premise: "", targetDurationSeconds }, 0);
   },
 
-  async create(clerkUserId: string, projectId: string, input: EpisodeInput, baseSnapshotVersion: number): Promise<EpisodeRecord | null> {
+  async create(clerkUserId: string, projectId: string, input: EpisodeInput, baseSnapshotVersion: number, basePlanVersion = 0): Promise<EpisodeRecord | null> {
     const { Episode, Project } = await models();
     if (!(await Project.exists({ clerkUserId, _id: projectId }))) return null;
     const last = await Episode.findOne({ clerkUserId, projectId }).sort({ episodeNumber: -1 }).select({ episodeNumber: 1 }).lean<{ episodeNumber: number } | null>();
@@ -55,6 +57,7 @@ export const episodeRepository = {
       status: "draft",
       currentStoryId: null,
       baseSnapshotVersion,
+      basePlanVersion,
     });
     return toRecord(doc.toObject() as unknown as EpisodeDoc);
   },

@@ -35,6 +35,6 @@ describe("serialized continuity prompts", () => {
     }).prompt;
     expect(prompt).toContain("Approved prior-episode character and location canon");
     expect(prompt).toContain("east wing remains sealed");
-    expect(prompt).toContain("Do not change the story, add events, or add characters.");
+    expect(prompt).toContain("Do not change the story, add events, or add characters who are not in the approved character list.");
   });
 });

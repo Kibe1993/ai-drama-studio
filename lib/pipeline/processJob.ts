@@ -298,6 +298,60 @@ async function afterSuccess(deps: PipelineDeps, run: RunRecord, job: JobRecord, 
 export async function processGenerationJob(deps: PipelineDeps, jobId: string): Promise<void> {
   const job = await deps.jobs.findById(jobId);
   if (!job || job.status === "cancelled" || job.status === "completed") return;
+  if (job.jobType === "story.draft") {
+    const started = Date.now();
+    const project = await deps.projects.findOwned(job.clerkUserId, job.projectId);
+    if (!deps.storyDraftEngine || job.runId !== null || !project) {
+      log.error("worker", "story draft job rejected", {
+        jobId: job.id, projectId: job.projectId, hasEngine: Boolean(deps.storyDraftEngine),
+        hasProject: Boolean(project), runIdPresent: Boolean(job.runId),
+      });
+      throw new JobError("The story draft job does not match a project.", "ownership", false);
+    }
+    job.status = "processing";
+    job.attempts += 1;
+    job.startedAt = job.startedAt ?? new Date().toISOString();
+    job.progress = { stage: job.jobType, message: stageMessage(job) };
+    await deps.jobs.save(job);
+    log.info("worker", "story draft job started", { jobId: job.id, projectId: job.projectId, attempt: job.attempts, maxAttempts: job.maxAttempts, runId: "none" });
+    try {
+      const output = await deps.storyDraftEngine.run(job, project);
+      job.status = "completed";
+      job.output = output;
+      job.provider = typeof output.provider === "string" ? output.provider : job.provider;
+      job.model = typeof output.model === "string" ? output.model : job.model;
+      job.error = null;
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: "Story draft ready for review" };
+      await deps.jobs.save(job);
+      log.info("worker", "story draft job completed", { jobType: job.jobType, jobId: job.id, provider: job.provider, model: job.model, ms: Date.now() - started });
+      return;
+    } catch (error) {
+      if (error instanceof LlmSequenceError) {
+        job.output = { ...(job.output ?? {}), attempts: error.attempts };
+      }
+      const detail = error instanceof Error ? error.message : String(error);
+      const failure = error instanceof JobError ? error : new JobError("Story draft generation failed.", "stage_failed", true);
+      const retry = failure.retryable && job.attempts < job.maxAttempts;
+      if (retry) {
+        job.status = "queued";
+        job.error = { code: failure.code, message: failure.message, retryable: true };
+        job.progress = { stage: job.jobType, message: "Developing story draft. Retrying" };
+        await deps.jobs.save(job);
+        log.error("worker", "story draft job retry", { jobId: job.id, projectId: job.projectId, code: failure.code, attempt: job.attempts, detail, ms: Date.now() - started });
+        throw failure;
+      }
+      // No draft is persisted on failure, so an approved draft stays intact and
+      // the workflow does not advance.
+      job.status = "failed";
+      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: failure.message };
+      await deps.jobs.save(job);
+      log.error("worker", "story draft job failed", { jobId: job.id, projectId: job.projectId, code: failure.code, attempt: job.attempts, detail, ms: Date.now() - started });
+      throw new JobError(failure.message, failure.code, false);
+    }
+  }
   if (job.jobType === "storyBible.generate") {
     const started = Date.now();
     const project = await deps.projects.findOwned(job.clerkUserId, job.projectId);
@@ -365,6 +419,111 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       await deps.jobs.save(job);
       await deps.storyBibleEngine.fail(job, failure.message);
       log.error("worker", "story bible job failed", { jobId: job.id, projectId: job.projectId, code: failure.code, attempt: job.attempts, ms: Date.now() - started });
+      throw new JobError(failure.message, failure.code, false);
+    }
+  }
+  if (job.jobType === "episodeSuggest.generate") {
+    const started = Date.now();
+    const project = await deps.projects.findOwned(job.clerkUserId, job.projectId);
+    if (!deps.episodeSuggestEngine || job.runId !== null || !project) {
+      log.error("worker", "episode suggestion job rejected", {
+        jobId: job.id, projectId: job.projectId, hasEngine: Boolean(deps.episodeSuggestEngine),
+        hasProject: Boolean(project), runIdPresent: Boolean(job.runId),
+      });
+      throw new JobError("The episode suggestion job does not match a project.", "ownership", false);
+    }
+    job.status = "processing";
+    job.attempts += 1;
+    job.startedAt = job.startedAt ?? new Date().toISOString();
+    job.progress = { stage: job.jobType, message: stageMessage(job) };
+    await deps.jobs.save(job);
+    log.info("worker", "episode suggestion job started", { jobId: job.id, projectId: job.projectId, attempt: job.attempts, maxAttempts: job.maxAttempts, runId: "none" });
+    try {
+      const output = await deps.episodeSuggestEngine.run(job, project);
+      job.status = "completed";
+      job.output = output;
+      job.provider = typeof output.provider === "string" ? output.provider : job.provider;
+      job.model = typeof output.model === "string" ? output.model : job.model;
+      job.error = null;
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: `Episode ${output.episodeNumber ?? ""} proposal ready: ${String(output.title ?? "Untitled")}` };
+      await deps.jobs.save(job);
+      log.info("worker", "episode suggestion job completed", { jobType: job.jobType, jobId: job.id, provider: job.provider, model: job.model, ms: Date.now() - started });
+      return;
+    } catch (error) {
+      if (error instanceof LlmSequenceError) {
+        job.output = { ...(job.output ?? {}), attempts: error.attempts };
+      }
+      const failure = error instanceof JobError ? error : new JobError("Episode suggestion failed.", "stage_failed", true);
+      // Gate failures (busy project, missing canon, no reference) will not heal
+      // on a retry; only transient provider failures requeue.
+      const retry = failure.retryable && job.attempts < job.maxAttempts;
+      if (retry) {
+        job.status = "queued";
+        job.error = { code: failure.code, message: failure.message, retryable: true };
+        job.progress = { stage: job.jobType, message: "Developing episode idea. Retrying" };
+        await deps.jobs.save(job);
+        log.error("worker", "episode suggestion job retry", { jobId: job.id, projectId: job.projectId, code: failure.code, attempt: job.attempts, ms: Date.now() - started });
+        throw failure;
+      }
+      job.status = "failed";
+      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: failure.message };
+      await deps.jobs.save(job);
+      await deps.episodeSuggestEngine.fail(job, failure.message);
+      log.error("worker", "episode suggestion job failed", { jobId: job.id, projectId: job.projectId, code: failure.code, attempt: job.attempts, ms: Date.now() - started });
+      throw new JobError(failure.message, failure.code, false);
+    }
+  }
+  if (job.jobType === "seasonPlan.generate") {
+    const started = Date.now();
+    const project = await deps.projects.findOwned(job.clerkUserId, job.projectId);
+    if (!deps.seasonPlanEngine || job.runId !== null || !project) {
+      log.error("worker", "season plan job rejected", {
+        jobId: job.id, projectId: job.projectId, hasEngine: Boolean(deps.seasonPlanEngine),
+        hasProject: Boolean(project), runIdPresent: Boolean(job.runId),
+      });
+      throw new JobError("The season plan job does not match a project.", "ownership", false);
+    }
+    job.status = "processing";
+    job.attempts += 1;
+    job.startedAt = job.startedAt ?? new Date().toISOString();
+    job.progress = { stage: job.jobType, message: stageMessage(job) };
+    await deps.jobs.save(job);
+    log.info("worker", "season plan job started", { jobId: job.id, projectId: job.projectId, attempt: job.attempts, maxAttempts: job.maxAttempts, runId: "none" });
+    try {
+      const output = await deps.seasonPlanEngine.run(job, project);
+      job.status = "completed";
+      job.output = output;
+      job.provider = typeof output.provider === "string" ? output.provider : job.provider;
+      job.model = typeof output.model === "string" ? output.model : job.model;
+      job.error = null;
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: `Season plan ready for review${output.passed ? "" : " (with validation findings)"}` };
+      await deps.jobs.save(job);
+      log.info("worker", "season plan job completed", { jobType: job.jobType, jobId: job.id, provider: job.provider, model: job.model, passed: output.passed, ms: Date.now() - started });
+      return;
+    } catch (error) {
+      if (error instanceof LlmSequenceError) {
+        job.output = { ...(job.output ?? {}), attempts: error.attempts };
+      }
+      const failure = error instanceof JobError ? error : new JobError("Season plan generation failed.", "stage_failed", true);
+      const retry = failure.retryable && job.attempts < job.maxAttempts;
+      if (retry) {
+        job.status = "queued";
+        job.error = { code: failure.code, message: failure.message, retryable: true };
+        job.progress = { stage: job.jobType, message: "Developing season plan. Retrying" };
+        await deps.jobs.save(job);
+        log.error("worker", "season plan job retry", { jobId: job.id, projectId: job.projectId, code: failure.code, attempt: job.attempts, ms: Date.now() - started });
+        throw failure;
+      }
+      job.status = "failed";
+      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: failure.message };
+      await deps.jobs.save(job);
+      log.error("worker", "season plan job failed", { jobId: job.id, projectId: job.projectId, code: failure.code, attempt: job.attempts, ms: Date.now() - started });
       throw new JobError(failure.message, failure.code, false);
     }
   }

@@ -38,6 +38,7 @@ npm run typecheck
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [docs/PRODUCTION_PIPELINE.md](docs/PRODUCTION_PIPELINE.md)
+- [docs/CASNA.md](docs/CASNA.md)
 - [docs/DATABASE.md](docs/DATABASE.md)
 - [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md)
 - [docs/BACKGROUND_JOBS.md](docs/BACKGROUND_JOBS.md)
@@ -55,6 +56,7 @@ Licensing notes in `docs/AI_PROVIDERS.md` were checked on 31 October 2026. They 
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system boundaries and status rules
 - [docs/PRODUCTION_PIPELINE.md](docs/PRODUCTION_PIPELINE.md) — how a story becomes a video
+- [docs/CASNA.md](docs/CASNA.md) — season planning, gates, continuity, and canon
 - [docs/DATABASE.md](docs/DATABASE.md) — collections and ownership
 - [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md) — provider contracts and licenses
 - [docs/BACKGROUND_JOBS.md](docs/BACKGROUND_JOBS.md) — Redis, BullMQ, and workers

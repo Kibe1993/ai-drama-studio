@@ -1,8 +1,11 @@
 import type { ProjectStatus, WorkflowMode } from "@/lib/domain/projectCatalog";
 
 export const JOB_TYPES = [
+  "story.draft",
   "story.generate",
   "storyBible.generate",
+  "seasonPlan.generate",
+  "episodeSuggest.generate",
   "character.extract",
   "scene.breakdown",
   "video.scene",

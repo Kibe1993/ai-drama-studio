@@ -122,7 +122,9 @@ export function classifyProviderError(providerName: string, error: unknown): Cla
   if (/model.*(not found|does not exist|unsupported|invalid)|unknown model|invalid model/i.test(detail)) {
     return named(`${providerName} does not accept the configured model.`, "invalid_model", false);
   }
-  if (status === 429 || /resource_exhausted|rate limit|too many requests/i.test(detail)) {
+  // Groq rejects requests over a per-minute token budget with HTTP 413 and a
+  // "tokens per minute (TPM)" detail; that is rate limiting, not a bad request.
+  if (status === 429 || /resource_exhausted|rate limit|too many requests|tokens per minute/i.test(detail)) {
     return named(`${providerName} rate limit reached. The story will be retried.`, "rate_limited", true);
   }
   if (

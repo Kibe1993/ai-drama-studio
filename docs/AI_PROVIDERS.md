@@ -96,6 +96,7 @@ Free-only mode is the default. `LLM_FREE_ONLY=false` is required before OpenAI, 
 The Story Bible is the largest structured stage, so it is generated in six sequential section requests rather than one large request: `identity`, `world`, `characters`, `narrative`, `guidelines`, and `canon`. Each response contains one section, is validated against that section's Zod schema, and is merged in memory. The complete content is validated again, and the draft is saved only after all six sections pass.
 
 - Every section uses the normal provider chain (`LLM_PROVIDER`, then `LLM_FALLBACK_PROVIDERS`), in the configured order, until one provider returns a valid section. Each section falls through independently; sections that already succeeded are not regenerated. With the cloud-first example configuration, Groq, OpenRouter, and Mistral are tried first and Ollama is the last resort. With the code default, Ollama is tried first.
+- Provider-side token-budget rejections are transient, not fatal: Groq answers over-limit requests with HTTP 413 and a `tokens per minute (TPM)` detail, which is classified as `rate_limited` so the section falls through to the next provider instead of failing the job.
 - The job records the provider and model for each section. A job that used more than one provider reports `mixed`, and the per-section runs are stored in the job output.
 - Each request receives a compact projection of only the relevant earlier sections (identity for world, identity and world for characters, and so on), not the full document. A single-section revision receives compact sibling sections so it can avoid contradictions. This keeps a local prompt inside the 8k context window.
 - Completion budgets are per section: Ollama uses 1,500-2,500 `num_predict` tokens and the OpenAI-compatible providers use 4,000-8,000 completion tokens. A section does not reserve a whole-bible budget. The provider-facing JSON schema also caps array sizes and text lengths so a small model cannot fill the generous validation maxima.
@@ -112,6 +113,10 @@ Small models are still uneven, but a single section is much easier for Gemma 3 4
 ### Operating the local Ollama provider
 
 Install Ollama for Windows, then run `ollama pull gemma3:4b`. The desktop app starts the daemon; `ollama serve` starts it manually. Verify with `ollama list`, `curl http://127.0.0.1:11434/api/tags`, or `npm run test:ollama`, which checks the daemon, the model, plain completion, and schema-validated character extraction against the live instance.
+
+### Episode suggestions
+
+`POST /api/projects/:id/episodes/generate` proposes the next episode (title and premise) with `LLMProvider.generateEpisodeSuggestion` and creates it directly. The prompt carries a compact `storyBibleBrief` projection of the current draft (or the legacy five fields, or the project's original story idea as a last resort), the episode number, the production mode, and the titles and premises of the episodes already produced so a serialized episode continues the plot instead of repeating it. The suggestion uses the normal provider chain and Zod `episodeSuggestionSchema` validation; a provider failure is a 502 with the classified code, and the serialized canon gate still applies before episode 2 is created.
 
 To test sectioned Story Bible generation locally:
 

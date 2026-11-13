@@ -23,6 +23,9 @@ import {
 import { createOpenAIProvider, DEFAULT_OPENAI_MODEL } from "@/lib/providers/llm/openai";
 import { createOpenRouterProvider, openRouterTimeoutMs } from "@/lib/providers/llm/openrouter";
 import type { LLMProvider } from "@/lib/providers/llm/types";
+import type { SeasonPlanPrompt } from "@/lib/providers/llm/seasonPlanTask";
+import type { RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
+import type { StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 
 export const LLM_PROVIDER_IDS = [
   "ollama",
@@ -167,7 +170,13 @@ export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[]
             screenplay: result.screenplay,
           },
           usage: result.usage,
+          truncated: result.truncated,
         };
+      },
+      async continueStory(input, written, options) {
+        if (!provider?.continueStory) throw new Error(blocked ?? "Provider cannot continue a screenplay.");
+        const result = await provider.continueStory(input, written, { signal: options.signal });
+        return { screenplay: result.screenplay, usage: result.usage, truncated: result.truncated };
       },
       async generateCharacters(input, options) {
         if (!provider) throw new Error(blocked ?? "Provider is not available.");
@@ -184,6 +193,38 @@ export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[]
         const result = await provider.generateStoryBible(input, { signal: options.signal });
         return { result: result.result, usage: result.usage };
       },
+      async generateEpisodeSuggestion(input, options) {
+        if (!provider?.generateEpisodeSuggestion) throw new Error(blocked ?? "Provider cannot suggest an episode.");
+        const result = await provider.generateEpisodeSuggestion(input, { signal: options.signal });
+        return { suggestion: result.suggestion, usage: result.usage };
+      },
+      // Capability-scoped methods are only present when the adapter supports
+      // them, so the manager's capability filter can skip a provider that would
+      // simply fail instead of blocking failover.
+      ...(provider && "generateSeasonPlan" in provider && provider.generateSeasonPlan
+        ? {
+            async generateSeasonPlan(input: SeasonPlanPrompt, options: { signal: AbortSignal }) {
+              const result = await provider!.generateSeasonPlan!(input, { signal: options.signal });
+              return { plan: result.plan, usage: result.usage };
+            },
+          }
+        : {}),
+      ...(provider && "repairScenes" in provider && provider.repairScenes
+        ? {
+            async repairScenes(input: RepairScenesPrompt, options: { signal: AbortSignal }) {
+              const result = await provider!.repairScenes!(input, { signal: options.signal });
+              return { screenplay: result.screenplay, usage: result.usage };
+            },
+          }
+        : {}),
+      ...(provider && "critiqueStory" in provider && provider.critiqueStory
+        ? {
+            async critiqueStory(input: StoryCriticPrompt, options: { signal: AbortSignal }) {
+              const result = await provider!.critiqueStory!(input, { signal: options.signal });
+              return { findings: result.findings, usage: result.usage };
+            },
+          }
+        : {}),
     };
   });
 }

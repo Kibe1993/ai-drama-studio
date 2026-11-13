@@ -2,9 +2,13 @@ import type { RequestAuth } from "@/lib/auth/session";
 import type { WorkflowMode } from "@/lib/domain/projectCatalog";
 import { canTransition } from "@/lib/domain/projectStatus";
 import { StudioError } from "@/lib/http/errors";
+import { log } from "@/lib/log";
 import { isObjectId } from "@/lib/repositories/ownership";
+import { validateEpisodeScreenplay } from "@/lib/domain/screenplayValidation";
+import { screenplayEditSchema } from "@/lib/validation/story";
 import { enqueueForRun } from "@/lib/pipeline/processJob";
 import { sceneHasStoredVideo } from "@/lib/pipeline/mediaEvidence";
+import { minimumScenesForDuration } from "@/lib/providers/llm/budget";
 import type { PipelineDeps } from "@/lib/pipeline/ports";
 import type { JobRecord, RunRecord } from "@/lib/pipeline/types";
 import type { StoryRecord } from "@/lib/validation/story";
@@ -21,6 +25,19 @@ async function ownedRun(deps: PipelineDeps, actor: RequestAuth, projectId: strin
   return run;
 }
 
+/**
+ * Production builds on approved canon. Every stage after the episode screenplay
+ * — beginning with character extraction — requires an approved Story Bible.
+ */
+async function requireApprovedBible(deps: PipelineDeps, actor: RequestAuth, projectId: string): Promise<number> {
+  if (!deps.bibles) return 0;
+  const bible = await deps.bibles.findOwned(actor.userId, projectId);
+  if (!bible || bible.approvedVersion === 0) {
+    throw new StudioError("Approve the Story Bible before beginning production", 409, "bible_required");
+  }
+  return bible.approvedVersion;
+}
+
 async function existingCharacterJob(deps: PipelineDeps, runId: string): Promise<JobRecord | null> {
   const jobs = await deps.jobs.listForRun(runId);
   return jobs.find((job) => job.jobType === "character.extract" && job.status !== "cancelled") ?? null;
@@ -35,9 +52,31 @@ async function acceptStory(
 ): Promise<{ story: StoryRecord; job: JobRecord }> {
   const project = await deps.projects.findOwned(actor.userId, projectId);
   if (!project) throw new StudioError("Project not found", 404, "not_found");
+  await requireApprovedBible(deps, actor, projectId);
   const saved = await deps.stories.markApproved(actor.userId, story.id);
   if (!saved || saved.status !== "approved") {
     throw new StudioError("This story cannot be approved", 409, "story_unavailable");
+  }
+  // CASNA Stage I: only an approved episode may change canon. If the ledger
+  // cannot be updated, roll the approval back so the two never diverge.
+  if (deps.casna && run.episode) {
+    try {
+      await deps.casna.onEpisodeApproved({
+        clerkUserId: actor.userId,
+        projectId,
+        episodeNumber: run.episode.number,
+        story: saved,
+      });
+    } catch {
+      if (deps.stories.revertApproval) {
+        await deps.stories.revertApproval(actor.userId, saved.id);
+      }
+      throw new StudioError(
+        "The episode was not approved because its continuity record could not be saved. Try approving it again.",
+        503,
+        "canon_update_failed"
+      );
+    }
   }
   if (run.stageResults.story) {
     run.stageResults.story.approved = true;
@@ -80,6 +119,7 @@ export function createPipelineService(deps: PipelineDeps) {
       requireProjectId(projectId);
       const project = await deps.projects.findOwned(actor.userId, projectId);
       if (!project) throw new StudioError("Project not found", 404, "not_found");
+      const bibleApprovedVersion = await requireApprovedBible(deps, actor, projectId);
       const latest = await deps.runs.findLatest(actor.userId, projectId);
       if (latest && ACTIVE.has(latest.status)) {
         throw new StudioError("A production is already in progress", 409, "run_active");
@@ -91,6 +131,28 @@ export function createPipelineService(deps: PipelineDeps) {
       if (episode && episode.status !== "draft") throw new StudioError("This episode is not available to start", 409, "episode_unavailable");
       if (episode && deps.episodes && project.productionMode === "serialized" && episode.episodeNumber > 1 && episode.baseSnapshotVersion === 0) {
         throw new StudioError("Serialized episode has no approved canon snapshot", 409, "canon_required");
+      }
+      // CASNA Stage E: episodes are generated in order, from an approved and
+      // current Season Plan, only after every earlier episode is approved.
+      if (deps.casna && episode) {
+        const context = await deps.casna.load({
+          clerkUserId: actor.userId,
+          projectId,
+          productionMode: project.productionMode,
+          episodeNumber: episode.episodeNumber,
+          bibleApprovedVersion,
+        });
+        if (!context.gate.allowed) {
+          throw new StudioError(context.gate.reason ?? "This episode is locked.", 409, context.gate.code);
+        }
+        if (context.episodePlanValidation && !context.episodePlanValidation.passed) {
+          const error = context.episodePlanValidation.findings.find((finding) => finding.severity === "error");
+          throw new StudioError(
+            error?.message ?? "The episode plan conflicts with the approved Season Plan.",
+            409,
+            "plan_conflict"
+          );
+        }
       }
       if (project.status !== "planning" && !canTransition(project.status, "planning", latest?.retryCheckpoint ?? undefined)) {
         throw new StudioError("This project cannot start production", 409, "invalid_transition");
@@ -148,7 +210,18 @@ export function createPipelineService(deps: PipelineDeps) {
       if (story.status === "failed") {
         throw new StudioError("A failed story cannot be approved", 409, "story_failed");
       }
+      // CASNA Stage H: a screenplay that failed canon validation can never be
+      // approved into the story's established canon.
+      if (story.validationFindings && !story.validationFindings.passed) {
+        const error = story.validationFindings.findings.find((finding) => finding.severity === "error");
+        throw new StudioError(
+          error?.message ?? "This screenplay did not pass canon validation. Regenerate it before approving.",
+          409,
+          "story_invalid"
+        );
+      }
       if (story.status === "approved" || run.stageResults.story?.approved) {
+        await requireApprovedBible(deps, actor, projectId);
         if (story.status !== "approved") {
           const marked = await deps.stories.markApproved(actor.userId, story.id);
           if (!marked) throw new StudioError("This story cannot be approved", 409, "story_unavailable");
@@ -161,6 +234,16 @@ export function createPipelineService(deps: PipelineDeps) {
           await deps.runs.save(run);
         }
         if (run.episode && deps.episodes) await deps.episodes.updateStatus(actor.userId, projectId, run.episode.id, "story_approved", story.id);
+        // Idempotent: re-approval after a partial failure re-applies canon only
+        // when the ledger has not already caught up with this episode.
+        if (deps.casna && run.episode) {
+          await deps.casna.onEpisodeApproved({
+            clerkUserId: actor.userId,
+            projectId,
+            episodeNumber: run.episode.number,
+            story,
+          });
+        }
         const project = await deps.projects.findOwned(actor.userId, projectId);
         if (project?.status === "planning" && canTransition(project.status, "story_ready")) {
           await deps.projects.update(actor.userId, projectId, { status: "story_ready" });
@@ -173,8 +256,112 @@ export function createPipelineService(deps: PipelineDeps) {
       if (run.status !== "waiting_for_approval" || run.currentStage !== "story" || !run.stageResults.story) {
         throw new StudioError("This story is not waiting for approval", 409, "not_waiting");
       }
+      // The pacing gate runs during generation, but a story could still be
+      // persisted below its floor if a stage was bypassed or a legacy record
+      // predates the rule. Enforce it at the approval boundary too so an
+      // incomplete screenplay can never be approved into the pipeline.
+      const project = await deps.projects.findOwned(actor.userId, projectId);
+      if (!project) throw new StudioError("Project not found", 404, "not_found");
+      const targetSeconds = run.episode?.targetDurationSeconds ?? project.targetDurationSeconds;
+      const minimum = minimumScenesForDuration(targetSeconds);
+      if (story.screenplay.length < minimum) {
+        throw new StudioError(
+          `This story has ${story.screenplay.length} screenplay scene${story.screenplay.length === 1 ? "" : "s"} but a ${targetSeconds}-second episode needs at least ${minimum}. Generate the episode again before approving.`,
+          409,
+          "story_incomplete"
+        );
+      }
       const approved = await acceptStory(deps, actor, projectId, run, story);
       return { story: approved.story, job: approved.job, alreadyApproved: false as const };
+    },
+
+    /**
+     * CASNA: save a creator's manual screenplay revision before approval.
+     *
+     * The edited screenplay is revalidated against the same canon a generated
+     * one is. An approved story is immutable here; it must be regenerated as a
+     * new episode revision instead.
+     */
+    async updateStory(actor: RequestAuth, projectId: string, storyId: string, raw: unknown) {
+      requireProjectId(projectId);
+      if (!isObjectId(storyId)) throw new StudioError("That story id is not valid", 400, "invalid_id");
+      const run = await ownedRun(deps, actor, projectId);
+      const story = await deps.stories.findOwned(actor.userId, storyId);
+      if (!story || story.projectId !== projectId || story.productionRunId !== run.id) {
+        throw new StudioError("Story not found", 404, "not_found");
+      }
+      if (story.status !== "awaiting_approval") {
+        throw new StudioError(
+          "Only a screenplay awaiting approval can be edited.",
+          409,
+          "story_locked"
+        );
+      }
+      const parsed = screenplayEditSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new StudioError(parsed.error.issues[0]?.message ?? "Check the screenplay", 400, "invalid_input");
+      }
+      if (parsed.data.expectedUpdatedAt && parsed.data.expectedUpdatedAt !== story.updatedAt) {
+        throw new StudioError(
+          "This screenplay changed while you were editing it. Reload before saving.",
+          409,
+          "story_modified"
+        );
+      }
+      let validationFindings = story.validationFindings ?? null;
+      if (deps.casna && run.episode) {
+        const bibleSnapshot =
+          run.episode.baseSnapshotVersion > 0 && deps.bibles?.findApprovedVersion
+            ? await deps.bibles.findApprovedVersion(actor.userId, projectId, run.episode.baseSnapshotVersion)
+            : (await deps.bibles?.findApproved?.(actor.userId, projectId)) ?? null;
+        const context = await deps.casna.load({
+          clerkUserId: actor.userId,
+          projectId,
+          productionMode: "serialized",
+          episodeNumber: run.episode.number,
+          bibleApprovedVersion: bibleSnapshot?.version ?? run.episode.baseSnapshotVersion,
+          withScreenplays: true,
+        });
+        validationFindings = validateEpisodeScreenplay({
+          episodeNumber: run.episode.number,
+          seriesTitle: bibleSnapshot?.content?.identity.title ?? "the series",
+          story: {
+            title: parsed.data.title ?? story.title,
+            synopsis: parsed.data.synopsis ?? story.synopsis,
+            screenplay: parsed.data.screenplay,
+          },
+          targetDurationSeconds: run.episode.targetDurationSeconds,
+          bible: bibleSnapshot?.content ?? null,
+          seasonPlan: context.plan,
+          episodePlan: context.episodePlan,
+          ledger: context.ledger,
+          previousEpisodes: context.previousEpisodes,
+        });
+      }
+      if (!deps.stories.updateScreenplay) {
+        throw new StudioError("Screenplay editing is not available.", 503, "editing_unavailable");
+      }
+      const saved = await deps.stories.updateScreenplay(actor.userId, story.id, {
+        title: parsed.data.title,
+        synopsis: parsed.data.synopsis,
+        screenplay: parsed.data.screenplay,
+        validationFindings,
+        expectedUpdatedAt: parsed.data.expectedUpdatedAt,
+      });
+      if (!saved) {
+        throw new StudioError(
+          "This screenplay changed while you were editing it. Reload before saving.",
+          409,
+          "story_modified"
+        );
+      }
+      log.info("pipeline", "screenplay edited", {
+        projectId,
+        storyId: saved.id,
+        scenes: saved.screenplay.length,
+        validationPassed: saved.validationFindings?.passed ?? null,
+      });
+      return { story: saved };
     },
 
     async approve(actor: RequestAuth, projectId: string) {
@@ -184,6 +371,7 @@ export function createPipelineService(deps: PipelineDeps) {
         return result.job ?? result.story;
       }
       if (run.stageResults.story?.approved && run.currentStage === "story") {
+        await requireApprovedBible(deps, actor, projectId);
         return enqueueForRun(deps, run, "character.extract", null, {});
       }
       if (run.status !== "waiting_for_approval") {
@@ -193,6 +381,7 @@ export function createPipelineService(deps: PipelineDeps) {
       if (!project) throw new StudioError("Project not found", 404, "not_found");
 
       if (run.currentStage === "story" && run.stageResults.story) {
+        await requireApprovedBible(deps, actor, projectId);
         run.stageResults.story.approved = true;
         if (run.episode && deps.episodes && run.stageResults.story.storyId) {
           await deps.episodes.updateStatus(actor.userId, projectId, run.episode.id, "story_approved", run.stageResults.story.storyId);

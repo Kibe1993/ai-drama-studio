@@ -1,12 +1,16 @@
 import { log } from "@/lib/log";
 import { JobError } from "@/lib/pipeline/types";
+import { storyCompletionBudget } from "@/lib/providers/llm/budget";
+import { requestStoryContinuation } from "@/lib/providers/llm/continuation";
 import { classifyProviderError, safeProviderDetail } from "@/lib/providers/llm/errors";
 import { parseStory } from "@/lib/providers/llm/parse";
 import { storySystemPrompt, storyUserPrompt } from "@/lib/providers/llm/prompt";
 import {
   requestCharacters,
+  requestEpisodeSuggestion,
   requestScenes,
   type CharacterPrompt,
+  type EpisodeSuggestionPrompt,
   type ScenePrompt,
   type StageTransport,
 } from "@/lib/providers/llm/stageTasks";
@@ -15,17 +19,25 @@ import {
   type StoryBibleTaskInput,
   type StoryBibleTaskTransport,
 } from "@/lib/providers/llm/storyBibleTask";
+import { requestSeasonPlan, type SeasonPlanPrompt } from "@/lib/providers/llm/seasonPlanTask";
+import { requestSceneRepair, type RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
+import { requestStoryCritique, type StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 import type {
   CharacterModelResult,
+  EpisodeSuggestionModelResult,
   LLMProvider,
+  RepairScenesModelResult,
   SceneModelResult,
+  SeasonPlanModelResult,
   StoryBibleModelResult,
   StoryCallOptions,
+  StoryContinuationModelResult,
+  StoryCritiqueModelResult,
   StoryModelResult,
   StoryPrompt,
   TokenUsage,
 } from "@/lib/providers/llm/types";
-import { STORY_RESPONSE_SCHEMA } from "@/lib/validation/story";
+import { STORY_RESPONSE_SCHEMA, type ScreenplayScene } from "@/lib/validation/story";
 import type { StoryBibleSection } from "@/lib/validation/storyBible";
 
 export const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
@@ -96,6 +108,24 @@ const OLLAMA_SECTION_NUM_PREDICT: Record<StoryBibleSection, number> = {
   canon: 2_000,
 };
 
+const MAX_STORY_NUM_CTX = 32_768;
+const NUM_CTX_HEADROOM = 4_096;
+
+/**
+ * A complete screenplay or a full scene list can exceed the configured context
+ * window. Raise num_ctx to fit the requested output plus prompt headroom, and
+ * never lower a larger explicit setting.
+ */
+function ollamaOptionsWithBudget(
+  options: Record<string, unknown>,
+  maxCompletionTokens: number
+): Record<string, unknown> {
+  const configured = Number(options.num_ctx);
+  const base = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_OLLAMA_NUM_CTX;
+  const numCtx = Math.min(MAX_STORY_NUM_CTX, Math.max(base, maxCompletionTokens + NUM_CTX_HEADROOM));
+  return { ...options, num_predict: maxCompletionTokens, num_ctx: numCtx };
+}
+
 export function ollamaGenerationOptions(env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {
   const temperature = numberFrom(env.OLLAMA_TEMPERATURE);
   const numCtx = numberFrom(env.OLLAMA_NUM_CTX);
@@ -125,7 +155,7 @@ export type OllamaChatRequest = {
 
 export async function ollamaChat(
   request: OllamaChatRequest
-): Promise<{ text: string; usage?: TokenUsage }> {
+): Promise<{ text: string; usage?: TokenUsage; truncated?: boolean }> {
   const baseURL = (request.baseURL || ollamaBaseUrl()).replace(/\/+$/, "");
   const model = request.model || ollamaModel();
   const endpoint = request.endpoint || ollamaEndpoint();
@@ -223,6 +253,7 @@ export async function ollamaChat(
       let streamError: string | null = null;
       let inputTokens: number | undefined;
       let outputTokens: number | undefined;
+      let doneReason: string | undefined;
       const consume = (line: string) => {
         const trimmed = line.trim();
         if (!trimmed) return;
@@ -231,6 +262,7 @@ export async function ollamaChat(
           error?: string;
           prompt_eval_count?: number;
           eval_count?: number;
+          done_reason?: string;
         };
         try {
           chunk = JSON.parse(trimmed);
@@ -244,6 +276,7 @@ export async function ollamaChat(
         if (typeof chunk.message?.content === "string") text += chunk.message.content;
         if (typeof chunk.prompt_eval_count === "number") inputTokens = chunk.prompt_eval_count;
         if (typeof chunk.eval_count === "number") outputTokens = chunk.eval_count;
+        if (typeof chunk.done_reason === "string") doneReason = chunk.done_reason;
       };
       while (true) {
         const { done, value } = await reader.read();
@@ -277,13 +310,14 @@ export async function ollamaChat(
         inputTokens: inputTokens ?? "",
         outputTokens: outputTokens ?? "",
       });
-      return { text, usage };
+      return { text, usage, truncated: doneReason === "length" };
     }
 
     const data = (await res.json()) as {
       message?: { content?: string };
       prompt_eval_count?: number;
       eval_count?: number;
+      done_reason?: string;
     };
 
     const text = data.message?.content ?? "";    if (!text.trim()) {
@@ -303,7 +337,9 @@ export async function ollamaChat(
       outputTokens: outputTokens ?? "",
     });
 
-    return { text, usage };
+    // Ollama reports done_reason "length" when it hit num_predict, i.e. the
+    // output ceiling, so the response is not necessarily complete.
+    return { text, usage, truncated: data.done_reason === "length" };
   } catch (error) {
     if (error instanceof JobError) throw error;
 
@@ -374,7 +410,13 @@ export class OllamaLLMProvider implements LLMProvider {
       stream = false
     ): StoryBibleTaskTransport => ({
       label,
-      request: async (system: string, prompt: string, schema: Record<string, unknown>, signal: AbortSignal) => {
+      request: async (
+        system: string,
+        prompt: string,
+        schema: Record<string, unknown>,
+        signal: AbortSignal,
+        maxCompletionTokens?: number
+      ) => {
         const format = formatMode === "schema" ? schema : "json";
         return await ollamaChat({
           baseURL: this.baseURL,
@@ -385,7 +427,7 @@ export class OllamaLLMProvider implements LLMProvider {
           format,
           signal,
           timeoutMs,
-          options: generationOptions,
+          options: maxCompletionTokens ? ollamaOptionsWithBudget(generationOptions, maxCompletionTokens) : generationOptions,
           stream,
         });
       },
@@ -439,7 +481,7 @@ export class OllamaLLMProvider implements LLMProvider {
       format,
       signal,
       timeoutMs: this.timeoutMs,
-      options: this.options,
+      options: ollamaOptionsWithBudget(this.options, storyCompletionBudget(input.targetDurationSeconds)),
     });
     const story = parseStory("Ollama", response.text);
     log.info("ollama", "story response", {
@@ -447,7 +489,7 @@ export class OllamaLLMProvider implements LLMProvider {
       ms: Date.now() - started,
       scenes: story.screenplay.length,
     });
-    return { ...story, usage: response.usage };
+    return { ...story, usage: response.usage, truncated: response.truncated };
   }
 
   async generateCharacters(input: CharacterPrompt, options: StoryCallOptions = {}): Promise<CharacterModelResult> {
@@ -460,12 +502,40 @@ export class OllamaLLMProvider implements LLMProvider {
     return { scenes: result.scenes, usage: result.usage };
   }
 
+  async generateEpisodeSuggestion(input: EpisodeSuggestionPrompt, options: StoryCallOptions = {}): Promise<EpisodeSuggestionModelResult> {
+    const result = await requestEpisodeSuggestion(this.stageTransport, input, options);
+    return { suggestion: result.suggestion, usage: result.usage };
+  }
+
   async generateStoryBible(input: StoryBibleTaskInput, options: StoryCallOptions = {}): Promise<StoryBibleModelResult> {
     const transport = input.mode === "section" && input.section
       ? this.sectionTransports[input.section] ?? this.storyBibleTransport
       : this.storyBibleTransport;
     const result = await requestStoryBible(transport, input, options);
     return { result: result.result, usage: result.usage };
+  }
+
+  async generateSeasonPlan(input: SeasonPlanPrompt, options?: StoryCallOptions): Promise<SeasonPlanModelResult> {
+    const result = await requestSeasonPlan(this.stageTransport, input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async repairScenes(input: RepairScenesPrompt, options?: StoryCallOptions): Promise<RepairScenesModelResult> {
+    const result = await requestSceneRepair(this.stageTransport, input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async critiqueStory(input: StoryCriticPrompt, options?: StoryCallOptions): Promise<StoryCritiqueModelResult> {
+    const result = await requestStoryCritique(this.stageTransport, input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async continueStory(
+    input: StoryPrompt,
+    written: ScreenplayScene[],
+    options: StoryCallOptions = {}
+  ): Promise<StoryContinuationModelResult> {
+    return requestStoryContinuation(this.stageTransport, input, written, options);
   }
 
   async complete(input: {

@@ -4,8 +4,15 @@ import { JobError, type JobRecord, type RunRecord } from "@/lib/pipeline/types";
 import { classifyProviderError, failedGenerationOf } from "@/lib/providers/llm/errors";
 import { StoryProviderManager, type ProviderSlot } from "@/lib/providers/llm/manager";
 import { providerSequence } from "@/lib/providers/llm/registry";
+import { createGroqProvider } from "@/lib/providers/llm/groq";
+import { createOpenRouterProvider } from "@/lib/providers/llm/openrouter";
+import { createMistralProvider } from "@/lib/providers/llm/mistral";
+import { createOpenAIProvider } from "@/lib/providers/llm/openai";
+import { createDeepSeekProvider } from "@/lib/providers/llm/deepseek";
+import { createOllamaProvider } from "@/lib/providers/llm/ollama";
 import { storyBibleResponseFormat } from "@/lib/providers/llm/chatStages";
 import { parseStory } from "@/lib/providers/llm/parse";
+import type { StoryDraft } from "@/lib/repositories/storyRepository";
 import type { StoryPrompt } from "@/lib/providers/llm/types";
 import type { GeneratedStory, StoryRecord } from "@/lib/validation/story";
 
@@ -268,7 +275,7 @@ describe("language provider failover", () => {
   it("saves one story after failover and does not insert another on a second delivery", async () => {
     const rows: StoryRecord[] = [];
     const stories = {
-      async upsertAwaiting(input: Omit<StoryRecord, "id" | "status" | "version" | "createdAt" | "updatedAt">) {
+      async upsertAwaiting(input: StoryDraft) {
         const existing = rows.find((row) => row.productionRunId === input.productionRunId);
         const now = new Date().toISOString();
         if (existing) {
@@ -277,6 +284,9 @@ describe("language provider failover", () => {
         }
         const created: StoryRecord = {
           ...input,
+          provider: input.provider ?? "",
+          model: input.model ?? "",
+          fallbackFrom: input.fallbackFrom ?? null,
           id: "c".repeat(24),
           status: "awaiting_approval",
           version: 1,
@@ -355,6 +365,14 @@ describe("provider error classes", () => {
     expect(classifyProviderError("OpenAI", new Error("unknown model")).code).toBe("invalid_model");
   });
 
+  it("treats a Groq tokens-per-minute rejection as a retryable rate limit", () => {
+    const error = new Error(
+      "413 Request too large for model `openai/gpt-oss-20b` on tokens per minute (TPM): Limit 8000, Requested 866"
+    );
+    Object.assign(error, { status: 413 });
+    expect(classifyProviderError("Groq", error)).toMatchObject({ code: "rate_limited", retryable: true });
+  });
+
   it("extracts failed_generation from the OpenAI-compatible error body", () => {
     const body = {
       status: 400,
@@ -392,5 +410,23 @@ describe("Story Bible response format", () => {
     );
 
     expect(format).toEqual({ type: "json_object" });
+  });
+});
+
+describe("chat provider stage capabilities", () => {
+  it("exposes season planning, repair, and critique on every adapter", () => {
+    const providers = [
+      createGroqProvider("test-model"),
+      createOpenRouterProvider("test-model", {} as NodeJS.ProcessEnv),
+      createMistralProvider("test-model"),
+      createOpenAIProvider("test-model"),
+      createDeepSeekProvider("test-model"),
+      createOllamaProvider("test-model"),
+    ];
+    for (const provider of providers) {
+      expect(typeof provider.generateSeasonPlan).toBe("function");
+      expect(typeof provider.repairScenes).toBe("function");
+      expect(typeof provider.critiqueStory).toBe("function");
+    }
   });
 });

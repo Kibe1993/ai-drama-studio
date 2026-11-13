@@ -4,8 +4,12 @@ const ShotPlanSchema = new Schema({
   shotNumber: { type: Number, required: true, min: 1 },
   purpose: { type: String, required: true, maxlength: 240 },
   framing: { type: String, default: "", maxlength: 120 },
+  cameraAngle: { type: String, default: "", maxlength: 120 },
   cameraDirection: { type: String, default: "", maxlength: 300 },
   action: { type: String, default: "", maxlength: 500 },
+  environment: { type: String, default: "", maxlength: 300 },
+  lighting: { type: String, default: "", maxlength: 200 },
+  continuity: { type: String, default: "", maxlength: 300 },
   estimatedDurationSeconds: { type: Number, default: null },
 }, { _id: false });
 

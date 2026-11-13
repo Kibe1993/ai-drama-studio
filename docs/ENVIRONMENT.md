@@ -41,6 +41,7 @@ The app keeps one Redis connection for enqueueing. Connection timeouts are logge
 | `ADMIN_USER_IDS` | Phase 1 | Optional comma-separated Clerk ids, in addition to `publicMetadata.role === "admin"` |
 | `APP_URL` | Later, for public links | Not read in Phase 1 |
 | `LLM_FREE_ONLY` | Story generation | Default on. `false` is required before any paid provider can run |
+| `CASNA_SEMANTIC_VALIDATION` | Story generation | Optional. `1`, `true`, or `yes` runs the advisory continuity critic after a screenplay is generated. Its findings are saved as warnings and never block approval |
 | `OLLAMA_BASE_URL` | Story generation | Base URL for local Ollama daemon. Default `http://127.0.0.1:11434`. No API key required |
 | `OLLAMA_MODEL` | Story generation | Local model tag. Default `gemma3:4b` |
 | `OLLAMA_ENDPOINT` | Story generation | Ollama chat endpoint. Default `/api/chat` |

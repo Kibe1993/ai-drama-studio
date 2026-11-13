@@ -1,12 +1,16 @@
 # Database
 
-Status: The database holds `users`, `projects`, `productionRuns`, `generationJobs`, `stories`, `storyBibles`, `episodes`, persistent `productionScenes`, `canonicalEntities`, `storyEvents`, and `mediaAssets` metadata. Media bytes remain outside MongoDB.
+Status: The database holds `users`, `projects`, `productionRuns`, `generationJobs`, `stories`, `storyBibles`, `seasonPlans`, `continuityLedgers`, `episodes`, persistent `productionScenes`, `canonicalEntities`, `storyEvents`, and `mediaAssets` metadata. Media bytes remain outside MongoDB.
 
-`stories` is implemented by `lib/models/story.ts`. One document per production run (`productionRunId` is unique). A retry of `story.generate` updates that document instead of inserting another. Fields: `clerkUserId`, `projectId`, `productionRunId`, `title`, `synopsis`, `structure` (act 1 setup, act 2 conflict, act 3 resolution), `screenplay` (scenes with heading, location, time of day, characters, visual description, action, and dialogue), `status` (`awaiting_approval`, `approved`, `failed`), `provider`, `model`, `fallbackFrom`, `version`, and timestamps. Invalid screenplay JSON is not written. The story stays `awaiting_approval` until the owner approves it. The Zod schema is `lib/validation/story.ts`. `Project.currentStoryId` points at the saved story.
+`stories` is implemented by `lib/models/story.ts`. One document per production run (`productionRunId` is unique). A retry of `story.generate` updates that document instead of inserting another. Fields: `clerkUserId`, `projectId`, `productionRunId`, `title`, `synopsis`, `structure` (act 1 setup, act 2 conflict, act 3 resolution), `screenplay` (scenes with heading, location, time of day, characters, visual description, action, and dialogue), `status` (`awaiting_approval`, `approved`, `failed`), `provider`, `model`, `fallbackFrom`, `version`, `plan` (CASNA episode plan the screenplay was written from), `validationFindings` (CASNA Stage H structured findings), `canonSummary` (CASNA Stage I extraction, written on approval), `repairHistory` (bounded targeted scene-repair attempts), and timestamps. Invalid screenplay JSON is not written. The story stays `awaiting_approval` until the owner approves it. The Zod schema is `lib/validation/story.ts`. `Project.currentStoryId` points at the saved story.
+
+`SeasonPlan` is implemented in `lib/models/seasonPlan.ts` with validation in `lib/validation/seasonPlan.ts`. It is append-only per version: generation and creator edits insert a new `version` in `awaiting_approval`, and approval sets that record to `approved`. Fields: the season objective, central conflict/mystery, character objectives and development, story direction, `episodeProgression` (one entry per episode with its purpose, objective, conflict, beats, revelations, consequences, ending, threads, and continuity requirements), revelations, relationship changes, setup/payoff, unresolved questions, intended conclusion, `basedOnBibleVersion`, `basedOnBibleFingerprint`, `validationFindings`, provider/model metadata, and timestamps. See `docs/CASNA.md`.
+
+`ContinuityLedger` is implemented in `lib/models/continuityLedger.ts` with validation in `lib/validation/continuityLedger.ts`. It is an append-only version per project and is written only when an episode screenplay is approved. Fields: `events`, `characterStates`, `locationStates`, `objectStates`, `revealedSecrets`, `unresolvedThreads`, `consequences`, `timelineNotes`, `asOfEpisode`, `basedOnPlanVersion`, and `version`. Unapproved drafts never update it; their developments are returned separately by `GET /api/projects/[id]/continuity` as proposals.
 
 `StoryBible` is implemented in `lib/models/storyBible.ts` with its Zod shape in `lib/validation/storyBible.ts`. It is unique per owned project and stores an editable draft plus an immutable approval history. Each approval uses the expected approved version and draft revision as a compare-and-set guard. Serialized episodes retain the approved snapshot version they were created from. Story generation uses that exact snapshot when available. Event extraction and canonical entity records are not implemented yet.
 
-`Episode` is implemented in `lib/models/episode.ts`. Episodes are numbered within a project and retain their premise, target screenplay duration, status, current story, and starting Story Bible version. Production runs and stories reference their episode. Existing projects are supported; the first episode is created when needed.
+`Episode` is implemented in `lib/models/episode.ts`. Episodes are numbered within a project and retain their premise, target screenplay duration, status, current story, starting Story Bible version (`baseSnapshotVersion`), and the approved Season Plan version they were planned from (`basePlanVersion`). Production runs and stories reference their episode. Existing projects are supported; the first episode is created when needed.
 
 `ProductionScene` is implemented in `lib/models/productionScene.ts` with validation in `lib/validation/scene.ts`. Scene breakdowns are persisted idempotently by production run and scene number, linked to the project, episode, and approved story. Editable scene details and manually authored shot plans are saved before scene approval. Video status remains pending/mock/unavailable; a scene document is not evidence of a generated video.
 
@@ -49,6 +53,24 @@ Fields: `clerkUserId`, `projectId`, `version`, `status` (`draft`, `generated`, `
 Indexes: unique `{ projectId: 1, version: 1 }`, `{ clerkUserId: 1, projectId: 1 }`.
 
 Editing creates the next version. `Project.currentStoryId` points at the selected version.
+
+The `productionRunId` unique index is **partial**: it applies only when `productionRunId` is an ObjectId. This allows many project-level story drafts (`productionRunId: null`, one per project) while keeping one story per production run. Databases created before the partial index used a plain unique index, which treated `null` as a value and allowed only one project-level draft across the whole database; `ensureStoryIndexes` in `lib/db/ensureIndexes.ts` drops that legacy index and creates the partial one on connection startup.
+
+## SeasonPlan
+
+Fields: `clerkUserId`, `projectId`, season fields (`seasonObjective`, `centralConflictOrMystery`, `mainCharacterObjectives`, `overallCharacterDevelopment`, `majorStoryDevelopments`, `beginningDirection`, `middleDirection`, `endingDirection`, `importantRevelations`, `relationshipChanges`, `consequencesCarriedBetween`, `setupAndPayoff`, `unresolvedQuestions`, `intendedSeasonConclusion`), `episodeProgression` (array of episode plan items), `basedOnBibleVersion`, `basedOnBibleFingerprint`, `version`, `status` (`awaiting_approval`, `approved`, `failed`), `provider`, `model`, `fallbackFrom`, `validationFindings`, timestamps.
+
+Index: `{ clerkUserId: 1, projectId: 1, version: -1 }`.
+
+Versions are append-only. Approval is a conditional update from `awaiting_approval`, so two concurrent approvals cannot both succeed. Each `episodeProgression` entry also carries structured canon deltas (`characterArcChanges`, `relationshipChanges`, `objectChanges`, `locationChanges`) that are applied to the Continuity Ledger when the episode is approved.
+
+## ContinuityLedger
+
+Fields: `clerkUserId`, `projectId`, `events`, `characterStates`, `locationStates`, `objectStates`, `revealedSecrets`, `unresolvedThreads`, `consequences`, `timelineNotes`, `asOfEpisode`, `basedOnPlanVersion`, `version`, timestamps.
+
+Index: `{ clerkUserId: 1, projectId: 1, version: -1 }`.
+
+A new version is inserted only after an episode screenplay is approved. Draft episodes do not write this collection.
 
 ## Character
 

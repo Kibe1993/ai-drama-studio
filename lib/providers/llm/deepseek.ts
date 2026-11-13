@@ -1,5 +1,6 @@
 import { log } from "@/lib/log";
 import { chatJson } from "@/lib/providers/llm/chat";
+import { storyCompletionBudget } from "@/lib/providers/llm/budget";
 import { parseStory } from "@/lib/providers/llm/parse";
 import { storySystemPrompt, storyUserPrompt } from "@/lib/providers/llm/prompt";
 import { bindChatStages } from "@/lib/providers/llm/chatStages";
@@ -14,6 +15,11 @@ export class DeepSeekLLMProvider implements LLMProvider {
   readonly generateCharacters: LLMProvider["generateCharacters"];
   readonly generateScenes: LLMProvider["generateScenes"];
   readonly generateStoryBible: NonNullable<LLMProvider["generateStoryBible"]>;
+  readonly generateEpisodeSuggestion: LLMProvider["generateEpisodeSuggestion"];
+  readonly continueStory: LLMProvider["continueStory"];
+  readonly generateSeasonPlan: NonNullable<LLMProvider["generateSeasonPlan"]>;
+  readonly repairScenes: NonNullable<LLMProvider["repairScenes"]>;
+  readonly critiqueStory: NonNullable<LLMProvider["critiqueStory"]>;
 
   constructor(private readonly options: { model: string; apiKey: string | undefined }) {
     this.model = options.model;
@@ -28,6 +34,11 @@ export class DeepSeekLLMProvider implements LLMProvider {
     this.generateCharacters = stages.generateCharacters;
     this.generateScenes = stages.generateScenes;
     this.generateStoryBible = stages.generateStoryBible!;
+    this.generateEpisodeSuggestion = stages.generateEpisodeSuggestion;
+    this.continueStory = stages.continueStory;
+    this.generateSeasonPlan = stages.generateSeasonPlan!;
+    this.repairScenes = stages.repairScenes!;
+    this.critiqueStory = stages.critiqueStory!;
   }
 
   async generateStory(input: StoryPrompt, options: StoryCallOptions = {}): Promise<StoryModelResult> {
@@ -48,10 +59,11 @@ export class DeepSeekLLMProvider implements LLMProvider {
       timeoutMs: 90_000,
       responseFormat: { type: "json_object" },
       extra: { thinking: { type: "disabled" } },
+      maxCompletionTokens: storyCompletionBudget(input.targetDurationSeconds),
     });
     const story = parseStory("DeepSeek", response.text);
     log.info("deepseek", "response", { model: this.model, ms: Date.now() - started, scenes: story.screenplay.length });
-    return { ...story, usage: response.usage };
+    return { ...story, usage: response.usage, truncated: response.truncated };
   }
 }
 

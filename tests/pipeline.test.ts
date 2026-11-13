@@ -6,7 +6,12 @@ import { createMockEngines } from "@/lib/pipeline/mockEngines";
 import { processGenerationJob, reconcileOpenJobs } from "@/lib/pipeline/processJob";
 import type { PipelineDeps } from "@/lib/pipeline/ports";
 import { JobError, type JobRecord, type RunRecord } from "@/lib/pipeline/types";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { createPipelineService } from "@/lib/services/pipelineService";
+import { livePipelineDeps } from "@/lib/pipeline/live";
+import { ensureStoryIndexes } from "@/lib/db/ensureIndexes";
+import type { StoryRecord } from "@/lib/validation/story";
 
 const owner: RequestAuth = {
   userId: "user_owner",
@@ -36,6 +41,40 @@ function project(status: ProjectRecord["status"] = "draft"): ProjectRecord {
     productionMode: "standalone",
     createdAt: now,
     updatedAt: now,
+  };
+}
+
+function storyRecord(runId: string, sceneCount: number): StoryRecord {
+  const now = new Date().toISOString();
+  return {
+    id: "f".repeat(24),
+    clerkUserId: owner.userId,
+    projectId,
+    productionRunId: runId,
+    status: "awaiting_approval",
+    version: 1,
+    provider: "mock",
+    model: "mock",
+    fallbackFrom: null,
+    createdAt: now,
+    updatedAt: now,
+    title: "The courtyard",
+    synopsis: "A secret changes the family.",
+    structure: {
+      act1: { introduction: "Dusk.", mainCharacters: "Amara and Julian.", setting: "The courtyard.", initialSituation: "They meet in secret.", incitingIncident: "The family notices." },
+      act2: { risingTension: "The meetings continue.", obstacles: "The family forbids it.", characterDecisions: "They keep meeting.", turningPoint: "Julian is caught." },
+      act3: { climax: "Amara chooses.", resolution: "The family relents.", finalOutcome: "They leave together." },
+    },
+    screenplay: Array.from({ length: sceneCount }, (_, index) => ({
+      sceneNumber: index + 1,
+      heading: `INT. ROOM ${index + 1} - DAY`,
+      location: `Room ${index + 1}`,
+      timeOfDay: "Day",
+      charactersPresent: ["Amara"],
+      visualDescription: `The camera holds room ${index + 1}.`,
+      action: `Amara changes the situation in room ${index + 1}.`,
+      dialogue: [{ characterName: "Amara", line: `Line ${index + 1}.` }],
+    })),
   };
 }
 
@@ -147,6 +186,24 @@ describe("production pipeline", () => {
     await api.start(owner, projectId, "guided");
     await expect(api.generateScenes(owner, projectId)).rejects.toMatchObject({ code: "dependency" });
     expect(canTransition("draft", "completed")).toBe(false);
+  });
+
+  it("refuses to approve a story that is still below its pacing floor", async () => {
+    const { api, deps, projects } = harness();
+    await api.start(owner, projectId, "guided");
+    await api.generateStory(owner, projectId);
+    await nextQueued(deps);
+
+    const run = (await deps.runs.findLatest(owner.userId, projectId))!;
+    // A five-minute episode needs five scenes; this stored story carries one.
+    projects[0]!.targetDurationSeconds = 300;
+    const storyId = "f".repeat(24);
+    run.stageResults.story!.storyId = storyId;
+    await deps.runs.save(run);
+    deps.stories.findOwned = async (userId, id) =>
+      userId === owner.userId && id === storyId ? storyRecord(run.id, 1) : null;
+
+    await expect(api.approveStory(owner, projectId, storyId)).rejects.toMatchObject({ code: "story_incomplete" });
   });
 
   it("stops at mock video output instead of completing a guided production", async () => {
@@ -299,5 +356,48 @@ describe("production pipeline", () => {
     expect(count).toBe(1);
     expect(jobs[0]?.status).toBe("queued");
     expect(enqueued).toContain(jobs[0]?.id);
+  });
+});
+
+describe("worker dependency graph", () => {
+  it("imports the live pipeline and keeps worker modules free of the Next-only guard", () => {
+    expect(typeof livePipelineDeps).toBe("function");
+    const workerModules = [
+      "lib/services/continuityService.ts",
+      "lib/pipeline/live.ts",
+      "lib/pipeline/liveEngines.ts",
+    ];
+    for (const modulePath of workerModules) {
+      const source = readFileSync(path.join(process.cwd(), modulePath), "utf8");
+      expect(source).not.toMatch(/(^|\n)\s*import\s+["']server-only["']/);
+    }
+  });
+});
+
+describe("story index migration", () => {
+  it("drops the legacy non-partial unique index and creates the partial one", async () => {
+    const dropped: string[] = [];
+    let created: { key: unknown; options: unknown } | null = null;
+    const collection = {
+      async indexes() {
+        return [{ name: "productionRunId_1", unique: true }];
+      },
+      async dropIndex(name: string) {
+        dropped.push(name);
+      },
+      async createIndex(key: unknown, options: unknown) {
+        created = { key, options };
+      },
+    };
+    await ensureStoryIndexes({ collection: () => collection } as never);
+    expect(dropped).toEqual(["productionRunId_1"]);
+    expect(created).toMatchObject({
+      key: { productionRunId: 1 },
+      options: {
+        name: "productionRunId_1",
+        unique: true,
+        partialFilterExpression: { productionRunId: { $type: "objectId" } },
+      },
+    });
   });
 });

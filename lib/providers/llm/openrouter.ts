@@ -1,5 +1,6 @@
 import { log } from "@/lib/log";
 import { chatJson } from "@/lib/providers/llm/chat";
+import { storyCompletionBudget } from "@/lib/providers/llm/budget";
 import { DEFAULT_FREE_MODELS } from "@/lib/providers/llm/freePolicy";
 import { parseStory } from "@/lib/providers/llm/parse";
 import { storySystemPrompt, storyUserPrompt } from "@/lib/providers/llm/prompt";
@@ -22,6 +23,11 @@ export class OpenRouterLLMProvider implements LLMProvider {
   readonly generateCharacters: LLMProvider["generateCharacters"];
   readonly generateScenes: LLMProvider["generateScenes"];
   readonly generateStoryBible: NonNullable<LLMProvider["generateStoryBible"]>;
+  readonly generateEpisodeSuggestion: LLMProvider["generateEpisodeSuggestion"];
+  readonly continueStory: LLMProvider["continueStory"];
+  readonly generateSeasonPlan: NonNullable<LLMProvider["generateSeasonPlan"]>;
+  readonly repairScenes: NonNullable<LLMProvider["repairScenes"]>;
+  readonly critiqueStory: NonNullable<LLMProvider["critiqueStory"]>;
 
   constructor(private readonly options: { model: string; apiKey: string | undefined; timeoutMs?: number }) {
     this.model = options.model;
@@ -42,6 +48,11 @@ export class OpenRouterLLMProvider implements LLMProvider {
     this.generateCharacters = stages.generateCharacters;
     this.generateScenes = stages.generateScenes;
     this.generateStoryBible = stages.generateStoryBible!;
+    this.generateEpisodeSuggestion = stages.generateEpisodeSuggestion;
+    this.continueStory = stages.continueStory;
+    this.generateSeasonPlan = stages.generateSeasonPlan!;
+    this.repairScenes = stages.repairScenes!;
+    this.critiqueStory = stages.critiqueStory!;
   }
 
   async generateStory(input: StoryPrompt, options: StoryCallOptions = {}): Promise<StoryModelResult> {
@@ -63,10 +74,11 @@ export class OpenRouterLLMProvider implements LLMProvider {
         "X-Title": "AI Drama Studio",
       },
       responseFormat: { type: "json_object" },
+      maxCompletionTokens: storyCompletionBudget(input.targetDurationSeconds),
     });
     const story = parseStory("OpenRouter", response.text);
     log.info("openrouter", "response", { model: this.model, ms: Date.now() - started, scenes: story.screenplay.length });
-    return { ...story, usage: response.usage };
+    return { ...story, usage: response.usage, truncated: response.truncated };
   }
 }
 

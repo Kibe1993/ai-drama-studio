@@ -56,7 +56,7 @@ function bible(overrides: Partial<StoryBibleRecord> = {}): StoryBibleRecord {
   return {
     premise: content.identity.centralPremise, worldRules: content.world.rules, themes: content.guidelines.mainThemes, boundaries: content.guidelines.boundaries, canonFacts: content.canon.confirmedFacts,
     content, sourceIdea: project.originalStoryIdea, creativeDirection: "", creatorDecisions: [], id: "c".repeat(24), clerkUserId: "owner", projectId: project.id,
-    approvedVersion: 0, draftRevision: 2, approvedSnapshot: null, approvedSnapshots: [], generationStatus: "queued", generationJobId: "b".repeat(24), generationError: null, createdAt: "", updatedAt: "", ...overrides,
+    approvedVersion: 0, draftRevision: 2, basedOnStoryId: null, approvedSnapshot: null, approvedSnapshots: [], generationStatus: "queued", generationJobId: "b".repeat(24), generationError: null, createdAt: "", updatedAt: "", ...overrides,
   };
 }
 

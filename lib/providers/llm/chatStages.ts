@@ -1,10 +1,14 @@
 import OpenAI from "openai";
 import { chatJson } from "@/lib/providers/llm/chat";
+import { requestStoryContinuation } from "@/lib/providers/llm/continuation";
 import { ClassifiedProviderError } from "@/lib/providers/llm/errors";
-import { requestCharacters, requestScenes, type StageTransport } from "@/lib/providers/llm/stageTasks";
+import { requestCharacters, requestEpisodeSuggestion, requestScenes, type StageTransport } from "@/lib/providers/llm/stageTasks";
 import type { LLMProvider } from "@/lib/providers/llm/types";
 import { jsonSchemaFormat } from "@/lib/providers/llm/schemaFormat";
 import { requestStoryBible, type StoryBibleTaskInput } from "@/lib/providers/llm/storyBibleTask";
+import { requestSeasonPlan, type SeasonPlanPrompt } from "@/lib/providers/llm/seasonPlanTask";
+import { requestSceneRepair, type RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
+import { requestStoryCritique, type StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 
 type ChatStageOptions = {
   label: string;
@@ -48,10 +52,13 @@ export function storyBibleResponseFormat(
   return jsonSchemaFormat(options.label.toLowerCase().replace(/[^a-z0-9_]/g, "_"), schema, strict) as OpenAI.Chat.Completions.ChatCompletionCreateParams["response_format"];
 }
 
-export function bindChatStages(options: ChatStageOptions): Pick<LLMProvider, "generateCharacters" | "generateScenes" | "generateStoryBible"> {
+export function bindChatStages(options: ChatStageOptions): Pick<
+  LLMProvider,
+  "generateCharacters" | "generateScenes" | "generateStoryBible" | "generateEpisodeSuggestion" | "generateSeasonPlan" | "repairScenes" | "critiqueStory" | "continueStory"
+> {
   const transport = (): StageTransport => ({
     label: options.label,
-    async request(system, prompt, schema, signal) {
+    async request(system, prompt, schema, signal, maxCompletionTokens) {
       if (!options.apiKey) throw new Error(`${options.label.toUpperCase()}_API_KEY is not set.`);
       const responseFormat =
         options.schemaMode === "json_object"
@@ -70,6 +77,7 @@ export function bindChatStages(options: ChatStageOptions): Pick<LLMProvider, "ge
           headers: options.headers,
           responseFormat: responseFormat as OpenAI.Chat.Completions.ChatCompletionCreateParams["response_format"],
           extra: options.extra,
+          maxCompletionTokens,
         });
       } catch (error) {
         const failed = options.recoverRejected && error instanceof ClassifiedProviderError ? error.failedGeneration : "";
@@ -81,6 +89,11 @@ export function bindChatStages(options: ChatStageOptions): Pick<LLMProvider, "ge
   return {
     generateCharacters: (input, callOptions) => requestCharacters(transport(), input, callOptions),
     generateScenes: (input, callOptions) => requestScenes(transport(), input, callOptions),
+    generateEpisodeSuggestion: (input, callOptions) => requestEpisodeSuggestion(transport(), input, callOptions),
+    generateSeasonPlan: (input: SeasonPlanPrompt, callOptions) => requestSeasonPlan(transport(), input, callOptions),
+    repairScenes: (input: RepairScenesPrompt, callOptions) => requestSceneRepair(transport(), input, callOptions),
+    critiqueStory: (input: StoryCriticPrompt, callOptions) => requestStoryCritique(transport(), input, callOptions),
+    continueStory: (input, written, callOptions) => requestStoryContinuation(transport(), input, written, callOptions),
     generateStoryBible: async (input: StoryBibleTaskInput, callOptions) => {
       const maxCompletionTokens = typeof options.storyBibleMaxCompletionTokens === "function"
         ? options.storyBibleMaxCompletionTokens(input)

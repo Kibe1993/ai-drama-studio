@@ -35,6 +35,8 @@ const StoryBibleSchema = new Schema(
     generationError: { type: String, default: null, maxlength: 300 },
     approvedVersion: { type: Number, default: 0, min: 0 },
     draftRevision: { type: Number, default: 0, min: 0 },
+    /** The story draft this Bible was approved from, used to detect stale canon. */
+    basedOnStoryId: { type: Schema.Types.ObjectId, default: null },
     approvedSnapshot: { type: SnapshotSchema, default: null },
     approvedSnapshots: { type: [SnapshotSchema], default: [] },
   },

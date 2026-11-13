@@ -16,25 +16,25 @@ export const characterProfileSchema = z.object({
 });
 
 export const characterSetSchema = z.object({
-  characters: z.array(characterProfileSchema).min(1).max(12),
+  characters: z.array(characterProfileSchema).min(1).max(20),
 });
 
 export const productionSceneSchema = z.object({
-  sceneNumber: z.number().int().positive().max(20),
+  sceneNumber: z.number().int().positive().max(50),
   title: z.string().trim().min(1).max(160),
   location: z.string().trim().min(1).max(160),
   interiorExterior: z.enum(["interior", "exterior", ""]).optional().default(""),
   timeOfDay: z.string().trim().min(1).max(40),
-  charactersPresent: z.array(z.string().trim().min(1).max(80)).min(1).max(8),
-  visualDescription: z.string().trim().min(1).max(1200),
-  action: z.string().trim().min(1).max(1200),
-  dialogue: z.array(dialogueLineSchema).max(12),
-  cameraDirection: z.string().trim().max(400).optional().default(""),
-  estimatedDurationSeconds: z.number().int().positive().max(180).nullable().optional().default(null),
+  charactersPresent: z.array(z.string().trim().min(1).max(80)).min(1).max(12),
+  visualDescription: z.string().trim().min(1).max(2000),
+  action: z.string().trim().min(1).max(2000),
+  dialogue: z.array(dialogueLineSchema).max(20),
+  cameraDirection: z.string().trim().max(600).optional().default(""),
+  estimatedDurationSeconds: z.number().int().positive().max(600).nullable().optional().default(null),
 });
 
 export const sceneBreakdownSchema = z.object({
-  scenes: z.array(productionSceneSchema).min(1).max(8),
+  scenes: z.array(productionSceneSchema).min(1).max(40),
 });
 
 export type CharacterProfile = z.infer<typeof characterProfileSchema>;

@@ -3,6 +3,8 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { StoryReview } from "@/components/production/StoryReview";
+import { EpisodePlanReview } from "@/components/production/EpisodePlanReview";
+import { ScreenplayEditor } from "@/components/production/ScreenplayEditor";
 import { ScenePlanner } from "@/components/production/ScenePlanner";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/hooks/api";
@@ -47,6 +49,11 @@ function storyJobFailed(jobs: JobRecord[]): string | null {
   const storyJob = [...jobs].reverse().find((job) => job.jobType === "story.generate");
   if (storyJob?.status !== "failed") return null;
   return storyJob.error?.message ?? "Story generation failed";
+}
+
+function storyJobAttempts(jobs: JobRecord[]): number {
+  const storyJob = [...jobs].reverse().find((job) => job.jobType === "story.generate");
+  return storyJob?.attempts ?? 0;
 }
 
 function videoStatusLabel(scene: { videoStatus?: string; videoReady: boolean; videoAssetId?: string; failed: boolean }) {
@@ -115,7 +122,27 @@ export function ProductionPanel({
       )}
       {label ? <p className="mt-3 text-sm text-[#c4a574]">{label}</p> : null}
       {story ? <StoryReview story={story} /> : null}
+      {story?.plan ? <EpisodePlanReview plan={story.plan} validation={story.validationFindings ?? null} /> : null}
+      {story?.repairHistory?.length ? (
+        <p className="mt-3 text-sm text-[#a39b8f]">
+          Targeted repair: {story.repairHistory.length} round{story.repairHistory.length === 1 ? "" : "s"} rewrote
+          scene{story.repairHistory.flatMap((entry) => entry.sceneNumbers).length === 1 ? "" : "s"}{" "}
+          {[...new Set(story.repairHistory.flatMap((entry) => entry.sceneNumbers))].join(", ")} after validation.
+        </p>
+      ) : null}
+      {story?.status === "awaiting_approval" ? (
+        <ScreenplayEditor
+          key={`${story.id}:${story.updatedAt}`}
+          projectId={projectId}
+          story={story}
+        />
+      ) : null}
       {story && providerLine(story) ? <p className="mt-3 text-sm text-[#a39b8f]">{providerLine(story)}</p> : null}
+      {story && storyJobAttempts(jobs) > 1 ? (
+        <p className="mt-1 text-xs text-[#a39b8f]">
+          Generation attempt {storyJobAttempts(jobs)} of 3. A later attempt replaced the earlier output.
+        </p>
+      ) : null}
       {run?.stageResults.story && !story ? (
         <p className="mt-3 text-sm text-[#cfc6b8]">
           {run.stageResults.story.title}. {run.stageResults.story.synopsis}
@@ -174,9 +201,15 @@ export function ProductionPanel({
           </Button>
         ) : null}
         {storyWaiting && story ? (
-          <Button disabled={busy} onClick={() => approveStory.mutate(story.id)}>
-            {approveStory.isPending ? "Approving story" : "Approve story"}
-          </Button>
+          story.validationFindings && !story.validationFindings.passed ? (
+            <p className="text-sm text-[#dfc18a]">
+              This screenplay failed canon validation. Regenerate the episode before approving it.
+            </p>
+          ) : (
+            <Button disabled={busy} onClick={() => approveStory.mutate(story.id)}>
+              {approveStory.isPending ? "Approving story" : "Approve story"}
+            </Button>
+          )
         ) : null}
         {run?.status === "waiting_for_approval" && !open && !storyWaiting ? (
           <Button disabled={busy} onClick={() => action.mutate({ action: "approve" })}>

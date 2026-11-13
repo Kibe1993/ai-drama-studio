@@ -68,14 +68,36 @@ const ACT_ALIASES: Record<string, string[]> = {
   finalOutcome: ["final_outcome", "outcome"],
 };
 
-/** Coerce the loose shapes Groq emits. Empty story content stays empty so Zod can reject it. */
-export function repairStoryPayload(value: unknown): unknown {
+/** Resolve the object that actually holds the story fields, unwrapping one nesting level. */
+function storySource(value: unknown): Record<string, unknown> {
   const root = record(value);
   const nested = record(root.story ?? root.data ?? root.result);
-  const source = firstText(nested, ["title"]) && !firstText(root, ["title"]) ? nested : root;
+  return firstText(nested, ["title"]) && !firstText(root, ["title"]) ? nested : root;
+}
+
+/** The raw screenplay array a payload holds, accepting either key name. */
+export function screenplaySource(value: unknown): unknown[] {
+  const source = storySource(value);
+  const scenes = source.screenplay ?? source.scenes;
+  return Array.isArray(scenes) ? scenes : [];
+}
+
+/**
+ * How many screenplay entries the raw payload declared, before repair drops
+ * any that carried no content. A repaired count below this means the model
+ * returned scenes that were incomplete, which is how a truncated screenplay
+ * reaches us as valid JSON.
+ */
+export function screenplayEntryCount(value: unknown): number {
+  return screenplaySource(value).length;
+}
+
+/** Coerce the loose shapes Groq emits. Empty story content stays empty so Zod can reject it. */
+export function repairStoryPayload(value: unknown): unknown {
+  const source = storySource(value);
   const structure = record(source.structure ?? source.acts);
   const act1 = repairAct(structure.act1 ?? structure.act_1, ACT1, ACT_ALIASES);
-  const screenplay = repairScenes(source.screenplay ?? source.scenes);
+  const screenplay = repairScreenplayScenes(source.screenplay ?? source.scenes);
   const synopsis = firstText(source, ["synopsis", "summary", "logline", "description"]) || act1.introduction || "";
   return {
     title: firstText(source, ["title", "name"]) || synopsis.slice(0, 120),
@@ -89,7 +111,7 @@ export function repairStoryPayload(value: unknown): unknown {
   };
 }
 
-function repairScenes(value: unknown): Record<string, unknown>[] {
+export function repairScreenplayScenes(value: unknown): Record<string, unknown>[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((scene, index) => {
     const row = record(scene);

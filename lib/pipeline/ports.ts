@@ -1,10 +1,13 @@
 import type { ProjectRecord } from "@/lib/repositories/projectRepository";
 import type { ProjectStatus } from "@/lib/domain/projectCatalog";
 import type { EngineSet, JobQueue, JobRecord, RunRecord, SceneItem } from "@/lib/pipeline/types";
-import type { StoryRecord } from "@/lib/validation/story";
+import type { StoryRecord, ScreenplayScene } from "@/lib/validation/story";
 import type { EpisodeRecord } from "@/lib/validation/episode";
+import type { StoryBibleSnapshot } from "@/lib/validation/storyBible";
+import type { EpisodeValidation } from "@/lib/validation/casna";
 import type { SceneEdit, SceneRecord } from "@/lib/validation/scene";
 import type { CharacterProfile } from "@/lib/validation/productionStages";
+import type { CasnaEpisodeContext } from "@/lib/pipeline/casnaContext";
 
 export type ProjectPort = {
   findOwned(clerkUserId: string, id: string): Promise<ProjectRecord | null>;
@@ -36,6 +39,20 @@ export type StoryPort = {
   findOwned(clerkUserId: string, id: string): Promise<StoryRecord | null>;
   findForRun(clerkUserId: string, productionRunId: string): Promise<StoryRecord | null>;
   markApproved(clerkUserId: string, id: string): Promise<StoryRecord | null>;
+  /** Undo an approval when a later step in the same operation fails. */
+  revertApproval?(clerkUserId: string, id: string): Promise<StoryRecord | null>;
+  /** CASNA: save a creator's manual screenplay revision while unapproved. */
+  updateScreenplay?(
+    clerkUserId: string,
+    id: string,
+    input: {
+      title?: string;
+      synopsis?: string;
+      screenplay: ScreenplayScene[];
+      validationFindings: EpisodeValidation | null;
+      expectedUpdatedAt?: string;
+    }
+  ): Promise<StoryRecord | null>;
 };
 
 export type EpisodePort = {
@@ -59,6 +76,25 @@ export type ContinuityPort = {
   getPriorEpisodeContext(clerkUserId: string, projectId: string, beforeEpisodeNumber: number): Promise<string | undefined>;
 };
 
+export type CasnaPort = {
+  /** Stage E/F: load the approved plan, ledger, and earlier approved episodes. */
+  load(input: {
+    clerkUserId: string;
+    projectId: string;
+    productionMode: string;
+    episodeNumber: number;
+    bibleApprovedVersion: number;
+    withScreenplays?: boolean;
+  }): Promise<CasnaEpisodeContext>;
+  /** Stage I: promote an approved episode into established canon. */
+  onEpisodeApproved(input: {
+    clerkUserId: string;
+    projectId: string;
+    episodeNumber: number;
+    story: StoryRecord;
+  }): Promise<unknown>;
+};
+
 export type PipelineDeps = {
   projects: ProjectPort;
   runs: RunPort;
@@ -67,11 +103,33 @@ export type PipelineDeps = {
   episodes?: EpisodePort;
   scenes?: ProductionScenePort;
   continuity?: ContinuityPort;
+  /** Approved Story Bible gateway for production start and stage advancement. */
+  bibles?: {
+    findOwned(clerkUserId: string, projectId: string): Promise<{ approvedVersion: number } | null>;
+    findApproved?(clerkUserId: string, projectId: string): Promise<StoryBibleSnapshot | null>;
+    findApprovedVersion?(
+      clerkUserId: string,
+      projectId: string,
+      version: number
+    ): Promise<StoryBibleSnapshot | null>;
+  };
   queue: JobQueue;
   engines: EngineSet;
+  /** CASNA: season plan, continuity ledger, and sequential episode gates. */
+  casna?: CasnaPort;
+  storyDraftEngine?: {
+    run(job: JobRecord, project: ProjectRecord): Promise<Record<string, unknown>>;
+  };
   storyBibleEngine?: {
     run(job: JobRecord, project: ProjectRecord): Promise<Record<string, unknown>>;
     fail(job: JobRecord, message: string): Promise<void>;
+  };
+  episodeSuggestEngine?: {
+    run(job: JobRecord, project: ProjectRecord): Promise<Record<string, unknown>>;
+    fail(job: JobRecord, message: string): Promise<void>;
+  };
+  seasonPlanEngine?: {
+    run(job: JobRecord, project: ProjectRecord): Promise<Record<string, unknown>>;
   };
 };
 

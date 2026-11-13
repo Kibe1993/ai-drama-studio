@@ -24,6 +24,7 @@ type BibleDoc = {
   generationError?: string | null;
   approvedVersion?: number;
   draftRevision?: number;
+  basedOnStoryId?: mongoose.Types.ObjectId | null;
   approvedSnapshot?: SnapshotDoc | null;
   approvedSnapshots?: SnapshotDoc[];
   createdAt: Date;
@@ -54,6 +55,7 @@ function toRecord(doc: BibleDoc): StoryBibleRecord {
     creatorDecisions: doc.creatorDecisions ?? [],
     approvedVersion: doc.approvedVersion ?? 0,
     draftRevision: doc.draftRevision ?? 0,
+    basedOnStoryId: doc.basedOnStoryId?.toString() ?? null,
     approvedSnapshot: doc.approvedSnapshot ? parseSnapshot(doc.approvedSnapshot) : null,
     approvedSnapshots: (doc.approvedSnapshots ?? []).map(parseSnapshot),
     generationStatus: doc.generationStatus ?? "idle",
@@ -203,7 +205,10 @@ export const storyBibleRepository = {
 
   async approve(clerkUserId: string, projectId: string, expectedVersion: number, expectedDraftRevision: number): Promise<StoryBibleRecord | null> {
     const { Bible, Project } = await models();
-    if (!(await Project.exists(ownedQuery(clerkUserId, projectId)))) return null;
+    const project = await Project.findOne(ownedQuery(clerkUserId, projectId))
+      .select({ currentStoryId: 1 })
+      .lean<{ currentStoryId?: mongoose.Types.ObjectId | null } | null>();
+    if (!project) return null;
     const filter = {
       clerkUserId,
       projectId,
@@ -232,6 +237,7 @@ export const storyBibleRepository = {
         $set: {
           approvedVersion: expectedVersion + 1,
           approvedSnapshot: snapshot,
+          basedOnStoryId: project.currentStoryId ?? null,
         },
         $push: { approvedSnapshots: snapshot },
       },

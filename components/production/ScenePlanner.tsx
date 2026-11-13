@@ -59,16 +59,22 @@ export function ScenePlanner({ projectId, scenes }: { projectId: string; scenes:
                 {draft.shotPlan.map((shot, index) => (
                   <div key={`${scene.id}-shot-${index}`} className="grid gap-2 border-l border-[#6b5a3c] pl-3">
                     <input aria-label={`Scene ${scene.sceneNumber} shot ${index + 1} purpose`} className="studio-field" value={shot.purpose} onChange={(event) => updateShot(index, { purpose: event.target.value })} placeholder="Shot purpose" />
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <input aria-label={`Scene ${scene.sceneNumber} shot ${index + 1} framing`} className="studio-field" value={shot.framing} onChange={(event) => updateShot(index, { framing: event.target.value })} placeholder="Framing" />
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <input aria-label={`Scene ${scene.sceneNumber} shot ${index + 1} framing`} className="studio-field" value={shot.framing} onChange={(event) => updateShot(index, { framing: event.target.value })} placeholder="Shot type / framing" />
+                      <input aria-label={`Scene ${scene.sceneNumber} shot ${index + 1} camera angle`} className="studio-field" value={shot.cameraAngle} onChange={(event) => updateShot(index, { cameraAngle: event.target.value })} placeholder="Camera angle" />
                       <input aria-label={`Scene ${scene.sceneNumber} shot ${index + 1} duration`} className="studio-field" type="number" min={1} max={180} value={shot.estimatedDurationSeconds ?? ""} onChange={(event) => updateShot(index, { estimatedDurationSeconds: event.target.value ? Number(event.target.value) : null })} placeholder="Seconds" />
                     </div>
-                    <textarea aria-label={`Scene ${scene.sceneNumber} shot ${index + 1} camera`} className="studio-field min-h-14" value={shot.cameraDirection} onChange={(event) => updateShot(index, { cameraDirection: event.target.value })} placeholder="Camera movement or angle" />
-                    <textarea aria-label={`Scene ${scene.sceneNumber} shot ${index + 1} action`} className="studio-field min-h-14" value={shot.action} onChange={(event) => updateShot(index, { action: event.target.value })} placeholder="What this shot shows" />
+                    <textarea aria-label={`Scene ${scene.sceneNumber} shot ${index + 1} camera`} className="studio-field min-h-14" value={shot.cameraDirection} onChange={(event) => updateShot(index, { cameraDirection: event.target.value })} placeholder="Camera movement or direction" />
+                    <textarea aria-label={`Scene ${scene.sceneNumber} shot ${index + 1} action`} className="studio-field min-h-14" value={shot.action} onChange={(event) => updateShot(index, { action: event.target.value })} placeholder="Subject / character action this shot shows" />
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <input aria-label={`Scene ${scene.sceneNumber} shot ${index + 1} environment`} className="studio-field" value={shot.environment} onChange={(event) => updateShot(index, { environment: event.target.value })} placeholder="Environment / background" />
+                      <input aria-label={`Scene ${scene.sceneNumber} shot ${index + 1} lighting`} className="studio-field" value={shot.lighting} onChange={(event) => updateShot(index, { lighting: event.target.value })} placeholder="Lighting / atmosphere" />
+                    </div>
+                    <input aria-label={`Scene ${scene.sceneNumber} shot ${index + 1} continuity`} className="studio-field" value={shot.continuity} onChange={(event) => updateShot(index, { continuity: event.target.value })} placeholder="Continuity with adjacent shots" />
                     <Button size="sm" variant="quiet" onClick={() => change(scene, { shotPlan: draft.shotPlan.filter((_, shotIndex) => shotIndex !== index).map((item, shotIndex) => ({ ...item, shotNumber: shotIndex + 1 })) })}>Remove shot</Button>
                   </div>
                 ))}
-                <Button size="sm" variant="quiet" disabled={draft.shotPlan.length >= 20} onClick={() => change(scene, { shotPlan: [...draft.shotPlan, { shotNumber: draft.shotPlan.length + 1, purpose: "New shot", framing: "", cameraDirection: "", action: "", estimatedDurationSeconds: null }] })}>Add shot</Button>
+                <Button size="sm" variant="quiet" disabled={draft.shotPlan.length >= 20} onClick={() => change(scene, { shotPlan: [...draft.shotPlan, { shotNumber: draft.shotPlan.length + 1, purpose: "New shot", framing: "", cameraAngle: "", cameraDirection: "", action: "", environment: "", lighting: "", continuity: "", estimatedDurationSeconds: null }] })}>Add shot</Button>
               </div>
               <Button className="mt-3" size="sm" disabled={edit.isPending} onClick={() => void save(scene)}>{edit.isPending ? "Saving scene" : "Save scene plan"}</Button>
             </article>

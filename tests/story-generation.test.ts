@@ -7,6 +7,7 @@ import { JobError, type JobRecord, type RunRecord } from "@/lib/pipeline/types";
 import { GeminiLLMProvider } from "@/lib/providers/llm/gemini";
 import type { LlmClient } from "@/lib/providers/llm/types";
 import type { ProjectRecord } from "@/lib/repositories/projectRepository";
+import type { StoryDraft } from "@/lib/repositories/storyRepository";
 import { createPipelineService } from "@/lib/services/pipelineService";
 import type { GeneratedStory, StoryRecord } from "@/lib/validation/story";
 
@@ -83,7 +84,7 @@ function memoryStories() {
   let sequence = 0;
   return {
     rows,
-    async upsertAwaiting(input: Omit<StoryRecord, "id" | "status" | "version" | "createdAt" | "updatedAt">) {
+    async upsertAwaiting(input: StoryDraft) {
       const existing = rows.find(
         (row) => row.productionRunId === input.productionRunId && row.clerkUserId === input.clerkUserId
       );
@@ -98,6 +99,9 @@ function memoryStories() {
       sequence += 1;
       const created: StoryRecord = {
         ...input,
+        provider: input.provider ?? "",
+        model: input.model ?? "",
+        fallbackFrom: input.fallbackFrom ?? null,
         id: sequence.toString(16).padStart(24, "c"),
         status: "awaiting_approval",
         version: 1,

@@ -19,6 +19,8 @@ export type ProjectRecord = {
   workflowMode: ProjectShape["workflowMode"];
   productionType: ProjectShape["productionType"];
   productionMode: ProjectShape["productionMode"];
+  /** The story draft the project currently treats as canonical, if any. */
+  currentStoryId?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -61,6 +63,7 @@ function toRecord(doc: ProjectDoc): ProjectRecord {
     workflowMode: doc.workflowMode,
     productionType: doc.productionType ?? "fictional_drama",
     productionMode: doc.productionMode ?? "standalone",
+    currentStoryId: doc.currentStoryId?.toString() ?? null,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };

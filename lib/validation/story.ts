@@ -1,4 +1,9 @@
 import { z } from "zod";
+import type {
+  EpisodeCanonSummary,
+  EpisodePlan,
+  EpisodeValidation,
+} from "@/lib/validation/casna";
 
 export const dialogueLineSchema = z.object({
   characterName: z.string().trim().min(1).max(80),
@@ -6,14 +11,14 @@ export const dialogueLineSchema = z.object({
 });
 
 export const screenplaySceneSchema = z.object({
-  sceneNumber: z.number().int().positive().max(20),
+  sceneNumber: z.number().int().positive().max(50),
   heading: z.string().trim().min(1).max(160),
   location: z.string().trim().min(1).max(160),
   timeOfDay: z.string().trim().min(1).max(40),
-  charactersPresent: z.array(z.string().trim().min(1).max(80)).min(1).max(8),
-  visualDescription: z.string().trim().min(1).max(1200),
-  action: z.string().trim().min(1).max(1200),
-  dialogue: z.array(dialogueLineSchema).max(12),
+  charactersPresent: z.array(z.string().trim().min(1).max(80)).min(1).max(12),
+  visualDescription: z.string().trim().min(1).max(2000),
+  action: z.string().trim().min(1).max(2000),
+  dialogue: z.array(dialogueLineSchema).max(20),
 });
 
 export const storyStructureSchema = z.object({
@@ -39,30 +44,80 @@ export const storyStructureSchema = z.object({
 
 export const generatedStorySchema = z.object({
   title: z.string().trim().min(1).max(120),
-  synopsis: z.string().trim().min(1).max(1200),
+  synopsis: z.string().trim().min(1).max(2000),
   structure: storyStructureSchema,
-  screenplay: z.array(screenplaySceneSchema).min(1).max(8),
+  screenplay: z.array(screenplaySceneSchema).min(1).max(40),
 });
 
 export const STORY_STATUSES = ["awaiting_approval", "approved", "failed"] as const;
 export type StoryStatus = (typeof STORY_STATUSES)[number];
+
+/**
+ * Input for the run-less `story.draft` job that develops the project-level
+ * story draft of the guided workflow.
+ */
+export const storyDraftGenerationJobInputSchema = z.object({
+  operation: z.enum(["generate", "revise", "regenerate"]),
+  instruction: z.string().trim().max(2000).default(""),
+  creativeDirection: z.string().trim().max(2000).default(""),
+});
+export type StoryDraftGenerationJobInput = z.infer<typeof storyDraftGenerationJobInputSchema>;
+
+export const storyDraftRequestSchema = z.object({
+  operation: z.enum(["generate", "revise", "regenerate"]).default("generate"),
+  instruction: z.string().trim().max(2000).optional(),
+  creativeDirection: z.string().trim().max(2000).optional(),
+});
+export type StoryDraftRequest = z.infer<typeof storyDraftRequestSchema>;
 
 export type DialogueLine = z.infer<typeof dialogueLineSchema>;
 export type ScreenplayScene = z.infer<typeof screenplaySceneSchema>;
 export type StoryStructure = z.infer<typeof storyStructureSchema>;
 export type GeneratedStory = z.infer<typeof generatedStorySchema>;
 
+/**
+ * A creator's manual revision of an episode screenplay. The screenplay is
+ * revalidated against canon before it is saved, exactly like generated content.
+ */
+export const screenplayEditSchema = z.object({
+  title: z.string().trim().min(1).max(120).optional(),
+  synopsis: z.string().trim().min(1).max(2000).optional(),
+  screenplay: z.array(screenplaySceneSchema).min(1).max(40),
+  /** Optimistic guard: rejects an edit made against an older story revision. */
+  expectedUpdatedAt: z.string().trim().min(1).max(40).optional(),
+});
+export type ScreenplayEdit = z.infer<typeof screenplayEditSchema>;
+
+export type SceneRepairRecord = {
+  attempt: number;
+  sceneNumbers: number[];
+  findingsBefore: number;
+  findingsAfter: number;
+  resolved: boolean;
+  provider?: string;
+  model?: string;
+};
+
 export type StoryRecord = GeneratedStory & {
   id: string;
   clerkUserId: string;
   projectId: string;
-  productionRunId: string;
+  /** `null` for the project-level story draft; the run id for an episode screenplay. */
+  productionRunId: string | null;
   episodeId?: string | null;
   status: StoryStatus;
   version: number;
   provider: string;
   model: string;
   fallbackFrom: string | null;
+  /** CASNA Stage F: the episode-specific plan this screenplay was written from. */
+  plan?: EpisodePlan | null;
+  /** CASNA Stage H: structured validation findings for the screenplay. */
+  validationFindings?: EpisodeValidation | null;
+  /** CASNA Stage I: authoritative canon extracted when the episode is approved. */
+  canonSummary?: EpisodeCanonSummary | null;
+  /** CASNA Stage H: bounded targeted-repair attempts and their outcomes. */
+  repairHistory?: SceneRepairRecord[];
   createdAt: string;
   updatedAt: string;
 };

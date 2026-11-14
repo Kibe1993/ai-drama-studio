@@ -130,15 +130,23 @@ export function createWorkflowService(ports: WorkflowPorts) {
         approvedPlan && bible && bible.approvedVersion > 0 &&
         approvedPlan.basedOnBibleVersion !== bible.approvedVersion,
       );
+      const episodeInProduction = episodes.some(
+        (episode) =>
+          episode.status === "in_production" ||
+          episode.status === "story_approved" ||
+          episode.status === "completed",
+      );
       const productionActive = Boolean(
-        run &&
-          storyApproved &&
+        storyApproved &&
           bibleApproved &&
-          (run.stageResults.characters !== undefined ||
-            run.currentStage === "scenes" ||
-            run.currentStage === "media" ||
-            run.currentStage === "render" ||
-            run.currentStage === "done")
+          planApproved &&
+          (episodeInProduction ||
+            (run &&
+              (run.stageResults.characters !== undefined ||
+                run.currentStage === "scenes" ||
+                run.currentStage === "media" ||
+                run.currentStage === "render" ||
+                run.currentStage === "done"))),
       );
 
       const signals: WorkflowSignals = {

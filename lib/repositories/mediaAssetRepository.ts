@@ -10,6 +10,9 @@ type AssetDoc = MediaAssetRecord & {
   episodeId?: mongoose.Types.ObjectId | null;
   sceneId?: mongoose.Types.ObjectId | null;
   generationJobId?: mongoose.Types.ObjectId | null;
+  canonicalEntityId?: mongoose.Types.ObjectId | null;
+  previousVersionId?: mongoose.Types.ObjectId | null;
+  replacedById?: mongoose.Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -22,6 +25,9 @@ function toRecord(doc: AssetDoc): MediaAssetRecord {
     episodeId: doc.episodeId?.toString() ?? null,
     sceneId: doc.sceneId?.toString() ?? null,
     generationJobId: doc.generationJobId?.toString() ?? null,
+    canonicalEntityId: doc.canonicalEntityId?.toString() ?? null,
+    previousVersionId: doc.previousVersionId?.toString() ?? null,
+    replacedById: doc.replacedById?.toString() ?? null,
     createdAt: new Date(doc.createdAt).toISOString(),
     updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -78,5 +84,62 @@ export const mediaAssetRepository = {
     const Asset = mediaAssetModel(await connectDB());
     const docs = await Asset.find({ storageProvider }).select({ storageKey: 1 }).lean<Array<{ storageKey: string }>>();
     return docs.map((doc) => doc.storageKey);
+  },
+
+  async updateReviewStatus(
+    clerkUserId: string,
+    assetId: string,
+    reviewStatus: MediaAssetRecord["reviewStatus"]
+  ): Promise<MediaAssetRecord | null> {
+    const Asset = mediaAssetModel(await connectDB());
+    const doc = await Asset.findOneAndUpdate(
+      { clerkUserId, _id: assetId },
+      { reviewStatus },
+      { new: true }
+    ).lean<AssetDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  async setVersionChain(
+    clerkUserId: string,
+    previousAssetId: string,
+    newAssetId: string
+  ): Promise<void> {
+    const Asset = mediaAssetModel(await connectDB());
+    await Asset.updateOne(
+      { clerkUserId, _id: previousAssetId },
+      { reviewStatus: "archived", replacedById: newAssetId }
+    );
+    await Asset.updateOne(
+      { clerkUserId, _id: newAssetId },
+      { previousVersionId: previousAssetId }
+    );
+  },
+
+  async listByCanonicalEntity(
+    clerkUserId: string,
+    canonicalEntityId: string,
+    type?: MediaAssetRecord["type"]
+  ): Promise<MediaAssetRecord[]> {
+    const Asset = mediaAssetModel(await connectDB());
+    const filter: Record<string, unknown> = { clerkUserId, canonicalEntityId };
+    if (type) filter.type = type;
+    const docs = await Asset.find(filter).sort({ createdAt: -1 }).lean<AssetDoc[]>();
+    return docs.map(toRecord);
+  },
+
+  async findApprovedReference(
+    clerkUserId: string,
+    canonicalEntityId: string,
+    type: MediaAssetRecord["type"]
+  ): Promise<MediaAssetRecord | null> {
+    const Asset = mediaAssetModel(await connectDB());
+    const doc = await Asset.findOne({
+      clerkUserId,
+      canonicalEntityId,
+      type,
+      reviewStatus: "approved",
+    }).sort({ createdAt: -1 }).lean<AssetDoc | null>();
+    return doc ? toRecord(doc) : null;
   },
 };

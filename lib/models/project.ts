@@ -54,6 +54,7 @@ const ProjectSchema = new Schema(
     thumbnailAssetId: { type: Schema.Types.ObjectId, default: null },
     currentStoryId: { type: Schema.Types.ObjectId, default: null },
     idempotencyKey: { type: String, default: null },
+    costLimitCents: { type: Number, default: null, min: 0 },
   },
   { timestamps: true, collection: "projects" }
 );

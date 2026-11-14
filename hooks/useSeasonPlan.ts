@@ -5,12 +5,19 @@ import { api } from "@/hooks/api";
 import type { SeasonPlanRequest } from "@/lib/validation/seasonPlan";
 import type { SeasonPlan, SeasonPlanRecord } from "@/lib/validation/seasonPlan";
 import type { ContinuityLedgerRecord } from "@/lib/validation/continuityLedger";
+import type { SeasonPlanProgressEvent } from "@/lib/pipeline/seasonPlanEngine";
+
+export type SeasonPlanJobOutput = {
+  progressLog?: SeasonPlanProgressEvent[];
+  seasonArchitecture?: unknown;
+  episodeDetails?: unknown[];
+};
 
 export type SeasonPlanJobView = {
   id: string;
   status: string;
   progress: { stage: string; message: string };
-  output: unknown;
+  output: SeasonPlanJobOutput | null;
   error: { code: string; message: string; retryable: boolean } | null;
 };
 

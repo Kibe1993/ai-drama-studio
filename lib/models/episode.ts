@@ -13,6 +13,8 @@ const EpisodeSchema = new Schema(
     currentStoryId: { type: Schema.Types.ObjectId, default: null },
     baseSnapshotVersion: { type: Number, default: 0, min: 0 },
     basePlanVersion: { type: Number, default: 0, min: 0 },
+    timelineId: { type: Schema.Types.ObjectId, default: null },
+    renderAssetId: { type: Schema.Types.ObjectId, default: null },
   },
   { timestamps: true, collection: "episodes" }
 );

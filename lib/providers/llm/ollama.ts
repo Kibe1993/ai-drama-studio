@@ -19,7 +19,7 @@ import {
   type StoryBibleTaskInput,
   type StoryBibleTaskTransport,
 } from "@/lib/providers/llm/storyBibleTask";
-import { requestSeasonPlan, type SeasonPlanPrompt } from "@/lib/providers/llm/seasonPlanTask";
+import { requestSeasonPlan, requestSeasonArchitecture, requestEpisodeDetails, type SeasonPlanPrompt, type SeasonArchitecturePrompt, type EpisodeDetailBatchPrompt } from "@/lib/providers/llm/seasonPlanTask";
 import { requestSceneRepair, type RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
 import { requestStoryCritique, type StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 import type {
@@ -29,6 +29,8 @@ import type {
   RepairScenesModelResult,
   SceneModelResult,
   SeasonPlanModelResult,
+  SeasonArchitectureModelResult,
+  EpisodeDetailBatchModelResult,
   StoryBibleModelResult,
   StoryCallOptions,
   StoryContinuationModelResult,
@@ -43,7 +45,7 @@ import type { StoryBibleSection } from "@/lib/validation/storyBible";
 export const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
 export const DEFAULT_OLLAMA_MODEL = "gemma3:4b";
 export const DEFAULT_OLLAMA_ENDPOINT = "/api/chat";
-export const DEFAULT_OLLAMA_TIMEOUT_MS = 120_000;
+export const DEFAULT_OLLAMA_TIMEOUT_MS = 240_000;
 export const DEFAULT_OLLAMA_SECTION_TIMEOUT_MS = 300_000;
 export const DEFAULT_OLLAMA_TEMPERATURE = 0.7;
 export const DEFAULT_OLLAMA_NUM_CTX = 8192;
@@ -182,13 +184,16 @@ export async function ollamaChat(
     payload.format = request.format;
   }
 
-  const signal = AbortSignal.any([
-    AbortSignal.timeout(timeoutMs),
-    ...(request.signal ? [request.signal] : []),
-  ]);
+  const signal = request.signal
+    ? request.signal
+    : AbortSignal.timeout(timeoutMs);
 
   const started = Date.now();
-  log.info("ollama", "request", { model, url: targetUrl, stream: Boolean(request.stream) });
+  log.info("ollama", "request", {
+    model, url: targetUrl, stream: Boolean(request.stream),
+    effectiveTimeoutMs: request.signal ? "external" : timeoutMs,
+    fallbackTimeoutMs: timeoutMs,
+  });
 
   try {
     const res = await fetch(targetUrl, {
@@ -517,6 +522,16 @@ export class OllamaLLMProvider implements LLMProvider {
 
   async generateSeasonPlan(input: SeasonPlanPrompt, options?: StoryCallOptions): Promise<SeasonPlanModelResult> {
     const result = await requestSeasonPlan(this.stageTransport, input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async generateSeasonArchitecture(input: SeasonArchitecturePrompt, options?: StoryCallOptions): Promise<SeasonArchitectureModelResult> {
+    const result = await requestSeasonArchitecture(this.stageTransport, input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async generateEpisodeDetails(input: EpisodeDetailBatchPrompt, options?: StoryCallOptions): Promise<EpisodeDetailBatchModelResult> {
+    const result = await requestEpisodeDetails(this.stageTransport, input, options);
     return { ...result, provider: this.id, model: this.model };
   }
 

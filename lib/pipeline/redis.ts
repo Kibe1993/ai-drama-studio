@@ -22,7 +22,7 @@ export const QUEUE_NAMES = [
 
 export function queueNameFor(jobType: string): (typeof QUEUE_NAMES)[number] {
   if (jobType === "render.final") return "studio-render";
-  if (jobType === "video.scene") return "studio-video";
+  if (jobType === "video.scene" || jobType === "video.shot") return "studio-video";
   if (jobType.startsWith("audio.")) return "studio-audio";
   if (jobType.startsWith("image.")) return "studio-image";
   return "studio-llm";

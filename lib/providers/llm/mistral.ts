@@ -18,6 +18,8 @@ export class MistralLLMProvider implements LLMProvider {
   readonly generateEpisodeSuggestion: LLMProvider["generateEpisodeSuggestion"];
   readonly continueStory: LLMProvider["continueStory"];
   readonly generateSeasonPlan: NonNullable<LLMProvider["generateSeasonPlan"]>;
+  readonly generateSeasonArchitecture: NonNullable<LLMProvider["generateSeasonArchitecture"]>;
+  readonly generateEpisodeDetails: NonNullable<LLMProvider["generateEpisodeDetails"]>;
   readonly repairScenes: NonNullable<LLMProvider["repairScenes"]>;
   readonly critiqueStory: NonNullable<LLMProvider["critiqueStory"]>;
 
@@ -38,6 +40,8 @@ export class MistralLLMProvider implements LLMProvider {
     this.generateEpisodeSuggestion = stages.generateEpisodeSuggestion;
     this.continueStory = stages.continueStory;
     this.generateSeasonPlan = stages.generateSeasonPlan!;
+    this.generateSeasonArchitecture = stages.generateSeasonArchitecture!;
+    this.generateEpisodeDetails = stages.generateEpisodeDetails!;
     this.repairScenes = stages.repairScenes!;
     this.critiqueStory = stages.critiqueStory!;
   }

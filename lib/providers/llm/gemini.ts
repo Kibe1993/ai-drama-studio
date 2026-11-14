@@ -21,12 +21,21 @@ import type { CharacterPrompt, EpisodeSuggestionPrompt, ScenePrompt } from "@/li
 import { JobError } from "@/lib/pipeline/types";
 import { STORY_RESPONSE_SCHEMA, type ScreenplayScene } from "@/lib/validation/story";
 import { requestStoryBible, type StoryBibleTaskInput } from "@/lib/providers/llm/storyBibleTask";
-import { requestSeasonPlan, type SeasonPlanPrompt } from "@/lib/providers/llm/seasonPlanTask";
+import {
+  requestSeasonPlan,
+  requestSeasonArchitecture,
+  requestEpisodeDetails,
+  type SeasonPlanPrompt,
+  type SeasonArchitecturePrompt,
+  type EpisodeDetailBatchPrompt,
+} from "@/lib/providers/llm/seasonPlanTask";
 import { requestSceneRepair, type RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
 import { requestStoryCritique, type StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 import type {
   RepairScenesModelResult,
   SeasonPlanModelResult,
+  SeasonArchitectureModelResult,
+  EpisodeDetailBatchModelResult,
   StoryCritiqueModelResult,
 } from "@/lib/providers/llm/types";
 
@@ -130,6 +139,16 @@ export class GeminiLLMProvider implements LLMProvider {
 
   async generateSeasonPlan(input: SeasonPlanPrompt, options?: StoryCallOptions): Promise<SeasonPlanModelResult> {
     const result = await requestSeasonPlan(this.stageTransport(), input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async generateSeasonArchitecture(input: SeasonArchitecturePrompt, options?: StoryCallOptions): Promise<SeasonArchitectureModelResult> {
+    const result = await requestSeasonArchitecture(this.stageTransport(), input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async generateEpisodeDetails(input: EpisodeDetailBatchPrompt, options?: StoryCallOptions): Promise<EpisodeDetailBatchModelResult> {
+    const result = await requestEpisodeDetails(this.stageTransport(), input, options);
     return { ...result, provider: this.id, model: this.model };
   }
 

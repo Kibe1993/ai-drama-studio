@@ -10,6 +10,17 @@ const LABELS: Record<JobType, string> = {
   "scene.breakdown": "Preparing scenes",
   "video.scene": "Generating scene",
   "render.final": "Rendering final video",
+  "image.character_reference": "Generating character reference",
+  "image.environment_reference": "Generating environment reference",
+  "image.object_reference": "Generating object reference",
+  "image.shot": "Generating shot image",
+  "video.shot": "Generating shot video",
+  "audio.dialogue": "Generating dialogue",
+  "audio.narration": "Generating narration",
+  "audio.sfx": "Generating sound effect",
+  "audio.music": "Processing music",
+  "media.validate": "Validating media",
+  "assembly.generate": "Assembling timeline",
 };
 
 export function stageMessage(job: Pick<JobRecord, "jobType" | "sceneNumber">, suffix = ""): string {

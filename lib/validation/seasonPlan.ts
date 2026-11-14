@@ -78,6 +78,195 @@ export const seasonPlanSchema = z.object({
 export type EpisodePlanItem = z.infer<typeof episodePlanItemSchema>;
 export type SeasonPlan = z.infer<typeof seasonPlanSchema>;
 
+// ---------------------------------------------------------------------------
+// Two-stage generation schemas
+// ---------------------------------------------------------------------------
+
+export const episodeOutlineSchema = z.object({
+  episodeNumber: z.number().int().positive().max(100),
+  workingTitle: text(1, 120),
+  narrativePurpose: text(1, 600),
+  centralConflict: text(1, 600),
+  endingOrCliffhanger: text(1, 600),
+});
+
+export type EpisodeOutline = z.infer<typeof episodeOutlineSchema>;
+
+export const seasonArchitectureSchema = z.object({
+  seasonObjective: text(1, 1200),
+  centralConflictOrMystery: text(1, 1000),
+  mainCharacterObjectives: text(1, 1000),
+  overallCharacterDevelopment: text(1, 1000),
+  majorStoryDevelopments: list(10, 500),
+  beginningDirection: text(1, 800),
+  middleDirection: text(1, 800),
+  endingDirection: text(1, 800),
+  episodeOutlines: z.array(episodeOutlineSchema).min(1).max(24),
+  importantRevelations: list(8, 500),
+  relationshipChanges: list(8, 500),
+  consequencesCarriedBetween: list(8, 500),
+  setupAndPayoff: list(6, 500),
+  unresolvedQuestions: list(6, 500),
+  intendedSeasonConclusion: text(1, 1000),
+});
+
+export type SeasonArchitecture = z.infer<typeof seasonArchitectureSchema>;
+
+export const episodeDetailSchema = z.object({
+  episodeNumber: z.number().int().positive().max(100),
+  workingTitle: text(1, 120),
+  narrativePurpose: text(1, 600),
+  startingSituation: text(1, 800),
+  mainObjective: text(1, 600),
+  centralConflict: text(1, 600),
+  majorStoryBeats: list(10, 400),
+  informationRevealed: list(8, 400),
+  characterDevelopment: text(1, 800),
+  importantEvents: list(8, 400),
+  consequences: list(8, 400),
+  storyContribution: text(1, 600),
+  endingOrCliffhanger: text(1, 600),
+  unresolvedThreads: list(6, 400),
+  continuityRequirements: text(1, 600),
+  characterArcChanges: z.array(episodeArcChangeSchema).max(8).default([]),
+  relationshipChanges: z.array(episodeRelationshipChangeSchema).max(6).default([]),
+  objectChanges: z.array(episodeObjectChangeSchema).max(6).default([]),
+  locationChanges: z.array(episodeLocationChangeSchema).max(6).default([]),
+});
+
+export type EpisodeDetail = z.infer<typeof episodeDetailSchema>;
+
+export const episodeDetailBatchSchema = z.object({
+  episodes: z.array(episodeDetailSchema).min(1).max(6),
+});
+
+export type EpisodeDetailBatch = z.infer<typeof episodeDetailBatchSchema>;
+
+export const SEASON_ARCHITECTURE_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "seasonObjective", "centralConflictOrMystery", "mainCharacterObjectives",
+    "overallCharacterDevelopment", "majorStoryDevelopments",
+    "beginningDirection", "middleDirection", "endingDirection",
+    "episodeOutlines", "importantRevelations", "relationshipChanges",
+    "consequencesCarriedBetween", "setupAndPayoff", "unresolvedQuestions",
+    "intendedSeasonConclusion",
+  ],
+  properties: {
+    seasonObjective: { type: "string", minLength: 1, maxLength: 1200 },
+    centralConflictOrMystery: { type: "string", minLength: 1, maxLength: 1000 },
+    mainCharacterObjectives: { type: "string", minLength: 1, maxLength: 1000 },
+    overallCharacterDevelopment: { type: "string", minLength: 1, maxLength: 1000 },
+    majorStoryDevelopments: { type: "array", items: { type: "string", maxLength: 500 }, maxItems: 10 },
+    beginningDirection: { type: "string", minLength: 1, maxLength: 800 },
+    middleDirection: { type: "string", minLength: 1, maxLength: 800 },
+    endingDirection: { type: "string", minLength: 1, maxLength: 800 },
+    episodeOutlines: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["episodeNumber", "workingTitle", "narrativePurpose", "centralConflict", "endingOrCliffhanger"],
+        properties: {
+          episodeNumber: { type: "number" },
+          workingTitle: { type: "string", maxLength: 120 },
+          narrativePurpose: { type: "string", maxLength: 600 },
+          centralConflict: { type: "string", maxLength: 600 },
+          endingOrCliffhanger: { type: "string", maxLength: 600 },
+        },
+      },
+      maxItems: 24,
+    },
+    importantRevelations: { type: "array", items: { type: "string", maxLength: 500 }, maxItems: 8 },
+    relationshipChanges: { type: "array", items: { type: "string", maxLength: 500 }, maxItems: 8 },
+    consequencesCarriedBetween: { type: "array", items: { type: "string", maxLength: 500 }, maxItems: 8 },
+    setupAndPayoff: { type: "array", items: { type: "string", maxLength: 500 }, maxItems: 6 },
+    unresolvedQuestions: { type: "array", items: { type: "string", maxLength: 500 }, maxItems: 6 },
+    intendedSeasonConclusion: { type: "string", minLength: 1, maxLength: 1000 },
+  },
+} as const;
+
+export const EPISODE_DETAIL_BATCH_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["episodes"],
+  properties: {
+    episodes: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "episodeNumber", "workingTitle", "narrativePurpose", "startingSituation",
+          "mainObjective", "centralConflict", "majorStoryBeats", "informationRevealed",
+          "characterDevelopment", "importantEvents", "consequences", "storyContribution",
+          "endingOrCliffhanger", "unresolvedThreads", "continuityRequirements",
+          "characterArcChanges", "relationshipChanges", "objectChanges", "locationChanges",
+        ],
+        properties: {
+          episodeNumber: { type: "number" },
+          workingTitle: { type: "string", maxLength: 120 },
+          narrativePurpose: { type: "string", maxLength: 600 },
+          startingSituation: { type: "string", maxLength: 800 },
+          mainObjective: { type: "string", maxLength: 600 },
+          centralConflict: { type: "string", maxLength: 600 },
+          majorStoryBeats: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 10 },
+          informationRevealed: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 8 },
+          characterDevelopment: { type: "string", maxLength: 800 },
+          importantEvents: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 8 },
+          consequences: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 8 },
+          storyContribution: { type: "string", maxLength: 600 },
+          endingOrCliffhanger: { type: "string", maxLength: 600 },
+          unresolvedThreads: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 6 },
+          continuityRequirements: { type: "string", maxLength: 600 },
+          characterArcChanges: {
+            type: "array", maxItems: 8,
+            items: {
+              type: "object", additionalProperties: false,
+              required: ["name", "change"],
+              properties: { name: { type: "string", maxLength: 80 }, change: { type: "string", maxLength: 400 } },
+            },
+          },
+          relationshipChanges: {
+            type: "array", maxItems: 6,
+            items: {
+              type: "object", additionalProperties: false,
+              required: ["from", "to", "change"],
+              properties: {
+                from: { type: "string", maxLength: 80 },
+                to: { type: "string", maxLength: 80 },
+                change: { type: "string", maxLength: 300 },
+              },
+            },
+          },
+          objectChanges: {
+            type: "array", maxItems: 6,
+            items: {
+              type: "object", additionalProperties: false,
+              required: ["name", "ownership", "condition"],
+              properties: {
+                name: { type: "string", maxLength: 120 },
+                ownership: { type: "string", maxLength: 200 },
+                condition: { type: "string", maxLength: 300 },
+              },
+            },
+          },
+          locationChanges: {
+            type: "array", maxItems: 6,
+            items: {
+              type: "object", additionalProperties: false,
+              required: ["name", "change"],
+              properties: { name: { type: "string", maxLength: 120 }, change: { type: "string", maxLength: 300 } },
+            },
+          },
+        },
+      },
+      maxItems: 6,
+    },
+  },
+} as const;
+
 export const SEASON_PLAN_STATUSES = ["awaiting_approval", "approved", "failed"] as const;
 export type SeasonPlanStatus = (typeof SEASON_PLAN_STATUSES)[number];
 

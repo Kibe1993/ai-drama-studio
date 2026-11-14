@@ -62,7 +62,7 @@ export type StageTransport = {
 };
 
 function signalOf(options: StoryCallOptions): AbortSignal {
-  return options.signal ?? AbortSignal.timeout(90_000);
+  return options.signal ?? AbortSignal.timeout(300_000);
 }
 
 export function characterInstructions(input: CharacterPrompt): { system: string; prompt: string } {

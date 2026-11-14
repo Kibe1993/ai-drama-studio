@@ -20,6 +20,8 @@ export class GroqLLMProvider implements LLMProvider {
   readonly generateEpisodeSuggestion: LLMProvider["generateEpisodeSuggestion"];
   readonly continueStory: LLMProvider["continueStory"];
   readonly generateSeasonPlan: NonNullable<LLMProvider["generateSeasonPlan"]>;
+  readonly generateSeasonArchitecture: NonNullable<LLMProvider["generateSeasonArchitecture"]>;
+  readonly generateEpisodeDetails: NonNullable<LLMProvider["generateEpisodeDetails"]>;
   readonly repairScenes: NonNullable<LLMProvider["repairScenes"]>;
   readonly critiqueStory: NonNullable<LLMProvider["critiqueStory"]>;
 
@@ -38,6 +40,11 @@ export class GroqLLMProvider implements LLMProvider {
       // sequence moves to the next provider.
       storyBibleSchemaMode: "json_object",
       storyBibleMaxCompletionTokens: (input) => storyBibleCompletionBudget(input, 16_000),
+      // Groq's grammar-constrained json_schema mode rejects the large season
+      // plan schema server-side. JSON object mode plus the explicit prompt
+      // contract lets Groq answer normally; any incomplete shape is rejected by
+      // Zod and the sequence moves to the next provider.
+      seasonPlanSchemaMode: "json_object",
       recoverRejected: true,
       extra: { reasoning_effort: "low" },
     });
@@ -47,6 +54,8 @@ export class GroqLLMProvider implements LLMProvider {
     this.generateEpisodeSuggestion = stages.generateEpisodeSuggestion;
     this.continueStory = stages.continueStory;
     this.generateSeasonPlan = stages.generateSeasonPlan!;
+    this.generateSeasonArchitecture = stages.generateSeasonArchitecture!;
+    this.generateEpisodeDetails = stages.generateEpisodeDetails!;
     this.repairScenes = stages.repairScenes!;
     this.critiqueStory = stages.critiqueStory!;
   }

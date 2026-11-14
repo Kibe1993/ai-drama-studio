@@ -74,7 +74,8 @@ export function parseStructured<T>(
   text: string,
   schema: ZodType<T>,
   noun: string,
-  normalize?: (parsed: unknown) => unknown
+  normalize?: (parsed: unknown) => unknown,
+  truncated?: boolean
 ): T {
   const trimmed = storyJsonText(text);
   if (!trimmed) {
@@ -84,6 +85,15 @@ export function parseStructured<T>(
   try {
     parsed = JSON.parse(trimmed);
   } catch {
+    if (truncated) {
+      log.error("llm", "truncated output", {
+        provider: providerName,
+        chars: trimmed.length,
+        head: safeProviderDetail(trimmed.slice(0, 180)),
+        tail: safeProviderDetail(trimmed.slice(-120)),
+      });
+      throw new JobError(`${providerName} returned a truncated ${noun} (finish_reason=length). The output was cut off before JSON was complete.`, "truncated_output", false);
+    }
     log.error("llm", "invalid json", {
       provider: providerName,
       chars: trimmed.length,
@@ -91,6 +101,13 @@ export function parseStructured<T>(
       tail: safeProviderDetail(trimmed.slice(-120)),
     });
     throw new JobError(`${providerName} returned a ${noun} that was not valid JSON.`, "invalid_json", false);
+  }
+  if (truncated) {
+    log.info("llm", "output truncated but JSON parsed", {
+      provider: providerName,
+      chars: trimmed.length,
+      noun,
+    });
   }
   if (normalize) parsed = normalize(parsed);
   const result = schema.safeParse(parsed);

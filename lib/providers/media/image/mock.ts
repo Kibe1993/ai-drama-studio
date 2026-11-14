@@ -1,0 +1,40 @@
+import "server-only";
+import type { ProviderCapability } from "@/lib/providers/media/capability";
+import type { ImageProvider, ImageGenerationRequest, ImageGenerationResult } from "@/lib/providers/media/image/types";
+
+const MOCK_CAPABILITIES: ProviderCapability = {
+  supportsImageToImage: true,
+  supportsImageToVideo: false,
+  supportsReferenceGuidedVideo: false,
+  maxClipDurationSeconds: 0,
+  maxImageDimension: 1024,
+  isMock: true,
+  isPaid: false,
+  supportedModels: ["mock-image"],
+};
+
+const MINIMAL_PNG = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+  0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xde,
+  0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54,
+  0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
+  0xe2, 0x21, 0xbc, 0x33,
+  0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+]);
+
+export class MockImageProvider implements ImageProvider {
+  readonly id = "mock-image";
+  readonly capabilities = MOCK_CAPABILITIES;
+
+  async generate(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
+    const referencesUsed = request.referenceImages.length > 0;
+    return {
+      bytes: MINIMAL_PNG.slice(),
+      mimeType: "image/png",
+      mock: true,
+      referencesUsed,
+    };
+  }
+}

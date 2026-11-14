@@ -6,7 +6,7 @@ import { requestCharacters, requestEpisodeSuggestion, requestScenes, type StageT
 import type { LLMProvider } from "@/lib/providers/llm/types";
 import { jsonSchemaFormat } from "@/lib/providers/llm/schemaFormat";
 import { requestStoryBible, type StoryBibleTaskInput } from "@/lib/providers/llm/storyBibleTask";
-import { requestSeasonPlan, type SeasonPlanPrompt } from "@/lib/providers/llm/seasonPlanTask";
+import { requestSeasonPlan, requestSeasonArchitecture, requestEpisodeDetails, type SeasonPlanPrompt, type SeasonArchitecturePrompt, type EpisodeDetailBatchPrompt } from "@/lib/providers/llm/seasonPlanTask";
 import { requestSceneRepair, type RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
 import { requestStoryCritique, type StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 
@@ -24,6 +24,8 @@ type ChatStageOptions = {
   storyBibleExtra?: Record<string, unknown>;
   storyBibleMaxCompletionTokens?: number | ((input: StoryBibleTaskInput) => number | undefined);
   storyBibleTimeoutMs?: number;
+  seasonPlanSchemaMode?: "json_object" | "json_schema";
+  seasonPlanStrictSchema?: boolean;
   recoverRejected?: boolean;
 };
 
@@ -54,7 +56,7 @@ export function storyBibleResponseFormat(
 
 export function bindChatStages(options: ChatStageOptions): Pick<
   LLMProvider,
-  "generateCharacters" | "generateScenes" | "generateStoryBible" | "generateEpisodeSuggestion" | "generateSeasonPlan" | "repairScenes" | "critiqueStory" | "continueStory"
+  "generateCharacters" | "generateScenes" | "generateStoryBible" | "generateEpisodeSuggestion" | "generateSeasonPlan" | "generateSeasonArchitecture" | "generateEpisodeDetails" | "repairScenes" | "critiqueStory" | "continueStory"
 > {
   const transport = (): StageTransport => ({
     label: options.label,
@@ -73,7 +75,38 @@ export function bindChatStages(options: ChatStageOptions): Pick<
           system,
           prompt,
           signal,
-          timeoutMs: 90_000,
+          timeoutMs: 300_000,
+          headers: options.headers,
+          responseFormat: responseFormat as OpenAI.Chat.Completions.ChatCompletionCreateParams["response_format"],
+          extra: options.extra,
+          maxCompletionTokens,
+        });
+      } catch (error) {
+        const failed = options.recoverRejected && error instanceof ClassifiedProviderError ? error.failedGeneration : "";
+        if (!failed) throw error;
+        return { text: failed };
+      }
+    },
+  });
+  const seasonPlanTransport = (): StageTransport => ({
+    label: options.label,
+    async request(system, prompt, schema, signal, maxCompletionTokens) {
+      if (!options.apiKey) throw new Error(`${options.label.toUpperCase()}_API_KEY is not set.`);
+      const schemaMode = options.seasonPlanSchemaMode ?? options.schemaMode;
+      const responseFormat =
+        schemaMode === "json_object"
+          ? ({ type: "json_object" } as const)
+          : jsonSchemaFormat(options.label.toLowerCase(), schema, options.seasonPlanStrictSchema ?? options.strictSchema ?? false);
+      try {
+        return await chatJson({
+          label: options.label,
+          apiKey: options.apiKey,
+          baseURL: options.baseURL,
+          model: options.model,
+          system,
+          prompt,
+          signal,
+          timeoutMs: 300_000,
           headers: options.headers,
           responseFormat: responseFormat as OpenAI.Chat.Completions.ChatCompletionCreateParams["response_format"],
           extra: options.extra,
@@ -90,7 +123,9 @@ export function bindChatStages(options: ChatStageOptions): Pick<
     generateCharacters: (input, callOptions) => requestCharacters(transport(), input, callOptions),
     generateScenes: (input, callOptions) => requestScenes(transport(), input, callOptions),
     generateEpisodeSuggestion: (input, callOptions) => requestEpisodeSuggestion(transport(), input, callOptions),
-    generateSeasonPlan: (input: SeasonPlanPrompt, callOptions) => requestSeasonPlan(transport(), input, callOptions),
+    generateSeasonPlan: (input: SeasonPlanPrompt, callOptions) => requestSeasonPlan(seasonPlanTransport(), input, callOptions),
+    generateSeasonArchitecture: (input: SeasonArchitecturePrompt, callOptions) => requestSeasonArchitecture(seasonPlanTransport(), input, callOptions),
+    generateEpisodeDetails: (input: EpisodeDetailBatchPrompt, callOptions) => requestEpisodeDetails(seasonPlanTransport(), input, callOptions),
     repairScenes: (input: RepairScenesPrompt, callOptions) => requestSceneRepair(transport(), input, callOptions),
     critiqueStory: (input: StoryCriticPrompt, callOptions) => requestStoryCritique(transport(), input, callOptions),
     continueStory: (input, written, callOptions) => requestStoryContinuation(transport(), input, written, callOptions),
@@ -110,7 +145,7 @@ export function bindChatStages(options: ChatStageOptions): Pick<
             system,
             prompt,
             signal,
-            timeoutMs: options.storyBibleTimeoutMs ?? 90_000,
+            timeoutMs: options.storyBibleTimeoutMs ?? 300_000,
             headers: options.headers,
             responseFormat: storyBibleResponseFormat(options, schema, input.mode),
             extra: { ...options.extra, ...options.storyBibleExtra },

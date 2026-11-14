@@ -14,6 +14,12 @@ function toRecord(doc: EpisodeDoc): EpisodeRecord {
     currentStoryId: doc.currentStoryId?.toString() ?? null,
     baseSnapshotVersion: doc.baseSnapshotVersion ?? 0,
     basePlanVersion: doc.basePlanVersion ?? 0,
+    timelineId: (doc as Record<string, unknown>).timelineId != null
+      ? String((doc as Record<string, unknown>).timelineId)
+      : null,
+    renderAssetId: (doc as Record<string, unknown>).renderAssetId != null
+      ? String((doc as Record<string, unknown>).renderAssetId)
+      : null,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };
@@ -68,6 +74,22 @@ export const episodeRepository = {
     if (currentStoryId !== undefined) patch.currentStoryId = currentStoryId;
     const doc = await Episode.findOneAndUpdate(
       { clerkUserId, projectId, _id: episodeId }, patch, { new: true }
+    ).lean<EpisodeDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  async setRenderAsset(clerkUserId: string, projectId: string, episodeId: string, renderAssetId: string): Promise<EpisodeRecord | null> {
+    const { Episode } = await models();
+    const doc = await Episode.findOneAndUpdate(
+      { clerkUserId, projectId, _id: episodeId }, { renderAssetId }, { new: true }
+    ).lean<EpisodeDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  async setTimeline(clerkUserId: string, projectId: string, episodeId: string, timelineId: string): Promise<EpisodeRecord | null> {
+    const { Episode } = await models();
+    const doc = await Episode.findOneAndUpdate(
+      { clerkUserId, projectId, _id: episodeId }, { timelineId }, { new: true }
     ).lean<EpisodeDoc | null>();
     return doc ? toRecord(doc) : null;
   },

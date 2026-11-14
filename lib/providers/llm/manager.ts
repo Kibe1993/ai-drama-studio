@@ -3,6 +3,21 @@ import { JobError } from "@/lib/pipeline/types";
 import { minimumScenesForDuration } from "@/lib/providers/llm/budget";
 import { MAX_CONTINUATION_ROUNDS, mergeScreenplays } from "@/lib/providers/llm/continuation";
 import { classifyProviderError, ClassifiedProviderError, safeProviderDetail, statusOf } from "@/lib/providers/llm/errors";
+import {
+  type CostPolicy,
+  type ProviderAvailabilityManager,
+  aspoAttemptResult,
+  aspoAttemptStart,
+  aspoEligibleProviders,
+  aspoFallback,
+  aspoGenerationFailed,
+  aspoGenerationSucceeded,
+  aspoHealthUpdated,
+  classifyFailure,
+  cooldownFor as aspoCooldownFor,
+  isCostEligible,
+  recoveryFor,
+} from "@/lib/providers/llm/aspo";
 import type { CharacterPrompt, EpisodeSuggestionPrompt, ScenePrompt, SeasonPlanPrompt } from "@/lib/providers/llm/stageTasks";
 import type { RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
 import { repairScenesResultSchema } from "@/lib/providers/llm/repairScenes";
@@ -17,17 +32,21 @@ import type {
   RepairScenesModelResult,
   SceneModelResult,
   SeasonPlanModelResult,
+  SeasonArchitectureModelResult,
+  EpisodeDetailBatchModelResult,
   StoryCallOptions,
+
   StoryCritiqueModelResult,
   StoryModelResult,
   StoryPrompt,
   TokenUsage,
 } from "@/lib/providers/llm/types";
+import type { SeasonArchitecturePrompt, EpisodeDetailBatchPrompt } from "@/lib/providers/llm/seasonPlanTask";
 import { episodeSuggestionSchema, type EpisodeSuggestion } from "@/lib/validation/episode";
 import type { CharacterProfile, ProductionScene } from "@/lib/validation/productionStages";
 import { generatedStorySchema, type GeneratedStory, type ScreenplayScene } from "@/lib/validation/story";
 import { validateStoryBibleTaskResult, type StoryBibleTaskInput, type StoryBibleTaskResult } from "@/lib/providers/llm/storyBibleTask";
-import { seasonPlanSchema, type SeasonPlan } from "@/lib/validation/seasonPlan";
+import { seasonPlanSchema, type SeasonPlan, seasonArchitectureSchema, type SeasonArchitecture, episodeDetailBatchSchema, type EpisodeDetailBatch } from "@/lib/validation/seasonPlan";
 
 export const DEFAULT_SEQUENCE_TIMEOUT_MS = 300_000;
 export const DEFAULT_PROVIDER_TIMEOUT_MS = 90_000;
@@ -37,15 +56,86 @@ export const FAILOVER_CODES = new Set([
   "rate_limited",
   "timeout",
   "provider_unavailable",
+  "provider_failed",
   "empty_response",
   "invalid_json",
   "invalid_schema",
   "invalid_request",
   "quota_exhausted",
   "invalid_model",
+  "truncated_output",
+  "content_validation_error",
+  "provider_overloaded",
+  "billing_error",
+  "authentication_error",
+  "permission_error",
+  "connection_error",
 ]);
 
-const TRANSPORT_CODES = new Set(["rate_limited", "timeout", "provider_unavailable", "quota_exhausted"]);
+const TRANSPORT_CODES = new Set(["rate_limited", "timeout", "provider_unavailable", "quota_exhausted", "connection_error", "provider_overloaded"]);
+
+const COOLDOWN_MS: Record<string, number> = {
+  rate_limited: 30_000,
+  timeout: 60_000,
+  provider_unavailable: 60_000,
+  quota_exhausted: 300_000,
+  provider_failed: 15_000,
+  empty_response: 15_000,
+  invalid_json: 5_000,
+  invalid_schema: 5_000,
+  invalid_request: 5_000,
+  invalid_model: 300_000,
+  truncated_output: 5_000,
+  content_validation_error: 5_000,
+  provider_overloaded: 15_000,
+  billing_error: 300_000,
+  authentication_error: 300_000,
+  permission_error: 300_000,
+  connection_error: 15_000,
+};
+
+function cooldownFor(code: string): number {
+  return COOLDOWN_MS[code] ?? 15_000;
+}
+
+export class ProviderHealthTracker {
+  private failures = new Map<string, number>();
+
+  recordFailure(providerId: string, code: string): void {
+    const cooldown = cooldownFor(code);
+    const until = Date.now() + cooldown;
+    const existing = this.failures.get(providerId);
+    if (existing === undefined || existing < until) {
+      this.failures.set(providerId, until);
+    }
+  }
+
+  isHealthy(providerId: string): boolean {
+    const until = this.failures.get(providerId);
+    if (until === undefined) return true;
+    if (Date.now() >= until) {
+      this.failures.delete(providerId);
+      return true;
+    }
+    return false;
+  }
+
+  clear(): void {
+    this.failures.clear();
+  }
+}
+
+const FAST_PROVIDERS = new Set(["groq", "openrouter", "mistral"]);
+const STRUCTURED_TASKS = new Set(["characters", "scenes", "episode_suggestion", "scene_repair", "story_critic", "season_architecture", "episode_details"]);
+
+function routeByTask(task: string, slots: ProviderSlot[]): ProviderSlot[] {
+  if (slots.length <= 2 || !STRUCTURED_TASKS.has(task)) return slots;
+  const [primary, ...fallbacks] = slots;
+  if (!primary) return slots;
+  const fast = fallbacks.filter((s) => FAST_PROVIDERS.has(s.id));
+  const slow = fallbacks.filter((s) => !FAST_PROVIDERS.has(s.id));
+  return [primary, ...fast, ...slow];
+}
 
 export type ProviderSlot = {
   id: string;
@@ -83,6 +173,14 @@ export type ProviderSlot = {
     input: SeasonPlanPrompt,
     options: { signal: AbortSignal }
   ): Promise<{ plan: SeasonPlan; usage?: TokenUsage }>;
+  generateSeasonArchitecture?(
+    input: SeasonArchitecturePrompt,
+    options: { signal: AbortSignal }
+  ): Promise<{ architecture: SeasonArchitecture; usage?: TokenUsage }>;
+  generateEpisodeDetails?(
+    input: EpisodeDetailBatchPrompt,
+    options: { signal: AbortSignal }
+  ): Promise<{ batch: EpisodeDetailBatch; usage?: TokenUsage }>;
   repairScenes?(
     input: RepairScenesPrompt,
     options: { signal: AbortSignal }
@@ -138,6 +236,10 @@ export class StoryProviderManager implements LLMProvider {
       sequenceTimeoutMs?: number;
       providerTimeoutMs?: number;
       freeOnly?: boolean;
+      healthTracker?: ProviderHealthTracker;
+      taskRouting?: boolean;
+      availabilityManager?: ProviderAvailabilityManager;
+      costPolicy?: CostPolicy;
     }
   ) {
     this.id = options.slots[0]?.id ?? "llm";
@@ -275,6 +377,58 @@ export class StoryProviderManager implements LLMProvider {
     };
   }
 
+  async generateSeasonArchitecture(input: SeasonArchitecturePrompt, context: StoryCallOptions = {}): Promise<SeasonArchitectureModelResult> {
+    const result = await this.runSequence(context, "season_architecture", "Developing season architecture", async (slot, signal) => {
+      if (!slot.generateSeasonArchitecture) {
+        throw new JobError(`${providerLabel(slot.id)} cannot develop a season architecture.`, "configuration", false);
+      }
+      const generated = await slot.generateSeasonArchitecture(input, { signal });
+      const parsed = seasonArchitectureSchema.safeParse(generated.architecture);
+      if (!parsed.success) {
+        throw new JobError(
+          `${providerLabel(slot.id)} returned a season architecture that did not match the schema.`,
+          "invalid_schema",
+          false
+        );
+      }
+      return { value: parsed.data, usage: generated.usage };
+    }, (slot) => Boolean(slot.generateSeasonArchitecture));
+    return {
+      architecture: result.value,
+      provider: result.provider,
+      model: result.model,
+      fallbackFrom: result.fallbackFrom,
+      attempts: result.attempts,
+      usage: result.usage,
+    };
+  }
+
+  async generateEpisodeDetails(input: EpisodeDetailBatchPrompt, context: StoryCallOptions = {}): Promise<EpisodeDetailBatchModelResult> {
+    const result = await this.runSequence(context, "episode_details", "Developing episode details", async (slot, signal) => {
+      if (!slot.generateEpisodeDetails) {
+        throw new JobError(`${providerLabel(slot.id)} cannot develop episode details.`, "configuration", false);
+      }
+      const generated = await slot.generateEpisodeDetails(input, { signal });
+      const parsed = episodeDetailBatchSchema.safeParse(generated.batch);
+      if (!parsed.success) {
+        throw new JobError(
+          `${providerLabel(slot.id)} returned episode details that did not match the schema.`,
+          "invalid_schema",
+          false
+        );
+      }
+      return { value: parsed.data, usage: generated.usage };
+    }, (slot) => Boolean(slot.generateEpisodeDetails));
+    return {
+      batch: result.value,
+      provider: result.provider,
+      model: result.model,
+      fallbackFrom: result.fallbackFrom,
+      attempts: result.attempts,
+      usage: result.usage,
+    };
+  }
+
   async repairScenes(input: RepairScenesPrompt, context: StoryCallOptions = {}): Promise<RepairScenesModelResult> {
     const result = await this.runSequence(context, "scene_repair", "Repairing scenes", async (slot, signal) => {
       if (!slot.repairScenes) {
@@ -341,7 +495,29 @@ export class StoryProviderManager implements LLMProvider {
     attempts: AttemptRecord[];
     usage?: TokenUsage;
   }> {
-    const slots = supports ? this.options.slots.filter(supports) : this.options.slots;
+    const baseSlots = supports ? this.options.slots.filter(supports) : this.options.slots;
+    const aspo = this.options.availabilityManager;
+    const costPolicy = this.options.costPolicy;
+    let slots: ProviderSlot[];
+    if (aspo) {
+      for (const s of baseSlots) {
+        aspo.registerProvider(s.id, s.model, s.configured);
+      }
+      const candidates = baseSlots.map((s) => ({
+        providerId: s.id,
+        configured: s.configured,
+        supported: s.supported !== false,
+        costEligible: costPolicy ? isCostEligible(s.id, s.model, costPolicy) : true,
+      }));
+      const order = aspo.selectOrder(task, candidates);
+      const ordered = order
+        .map((id) => baseSlots.find((s) => s.id === id))
+        .filter((s): s is ProviderSlot => Boolean(s));
+      slots = ordered.length > 0 ? ordered : baseSlots;
+      aspoEligibleProviders(task, slots.map((s) => s.id));
+    } else {
+      slots = this.options.taskRouting ? routeByTask(task, baseSlots) : baseSlots;
+    }
     if (slots.length === 0) {
       throw new LlmSequenceError(
         supports
@@ -403,6 +579,17 @@ export class StoryProviderManager implements LLMProvider {
         attempts.push(record(slot, 0, false, "configuration", null, true));
         continue;
       }
+      if (aspo && !aspo.isAvailable(slot.id)) {
+        const cooldown = aspo.getCooldownRemaining(slot.id);
+        log.info("llm", "provider skipped (aspo unavailable)", { provider: slot.id, task, cooldownMs: cooldown });
+        attempts.push(record(slot, 0, false, "circuit_breaker", null, index > 0));
+        continue;
+      }
+      if (!aspo && this.options.healthTracker && !this.options.healthTracker.isHealthy(slot.id)) {
+        log.info("llm", "provider skipped (circuit breaker)", { provider: slot.id, task });
+        attempts.push(record(slot, 0, false, "circuit_breaker", null, index > 0));
+        continue;
+      }
 
       // Share the remaining bounded sequence budget with configured providers
       // still eligible in the chain. A slow first provider must not consume the
@@ -426,6 +613,8 @@ export class StoryProviderManager implements LLMProvider {
         jobId: context.jobId ?? "",
       });
       const started = Date.now();
+      const attemptId = `${task}-${slot.id}-${started}`;
+      if (aspo) aspoAttemptStart(attemptId, slot.id, slot.model, task, budget);
       try {
         const result = await call(slot, signal);
         const durationMs = Date.now() - started;
@@ -443,6 +632,12 @@ export class StoryProviderManager implements LLMProvider {
           inputTokens: result.usage?.inputTokens ?? "",
           outputTokens: result.usage?.outputTokens ?? "",
         });
+        if (aspo) {
+          aspo.recordSuccess(slot.id, task, durationMs);
+          aspoAttemptResult(attemptId, slot.id, true, durationMs, null);
+          aspoHealthUpdated(slot.id, task, "ok", 0);
+          aspoGenerationSucceeded(task, slot.id, slot.model, durationMs);
+        }
         return {
           value: result.value,
           provider: slot.id,
@@ -456,9 +651,6 @@ export class StoryProviderManager implements LLMProvider {
           ? signal.reason.name
           : "";
         const timeoutAbort = signal.aborted && reasonName === "TimeoutError";
-        // SDKs can wrap a manager-triggered AbortSignal timeout as a generic
-        // non-retryable provider_failed JobError. The signal deadline is the
-        // authoritative cause, so classify it before honoring that wrapper.
         const failure = timeoutAbort
           ? new JobError(`${providerLabel(slot.id)} timed out. The next provider will be tried.`, "timeout", true)
           : error instanceof JobError
@@ -476,18 +668,44 @@ export class StoryProviderManager implements LLMProvider {
           ms: durationMs,
           fallback: index > 0,
         });
-        if (!FAILOVER_CODES.has(failure.code)) {
-          throw new LlmSequenceError(failure.message, failure.code, false, attempts);
+        if (aspo) {
+          const classified = classifyFailure(slot.id, error, timeoutAbort || undefined);
+          const category = classified.category;
+          const strategy = recoveryFor(category);
+          aspo.recordFailure(slot.id, task, category, durationMs);
+          aspoAttemptResult(attemptId, slot.id, false, durationMs, category, classified.detail);
+          aspoHealthUpdated(slot.id, task, category, aspoCooldownFor(category));
+          if (strategy === "abort") {
+            aspoGenerationFailed(task, attempts.length, category);
+            throw new LlmSequenceError(failure.message, failure.code, false, attempts);
+          }
+          const next = slots[index + 1];
+          if (next) {
+            aspoFallback(task, slot.id, next.id);
+            log.info("llm", "fallback starting", {
+              task, from: slot.id, fromModel: slot.model, to: next.id, toModel: next.model,
+              runId: context.runId ?? "", jobId: context.jobId ?? "",
+            });
+          }
+        } else {
+          if (!FAILOVER_CODES.has(failure.code)) {
+            throw new LlmSequenceError(failure.message, failure.code, false, attempts);
+          }
+          this.options.healthTracker?.recordFailure(slot.id, failure.code);
+          const next = slots[index + 1];
+          if (next) log.info("llm", "fallback starting", {
+            task, from: slot.id, fromModel: slot.model, to: next.id, toModel: next.model,
+            runId: context.runId ?? "", jobId: context.jobId ?? "",
+          });
         }
-        const next = slots[index + 1];
-        if (next) log.info("llm", "fallback starting", {
-          task, from: slot.id, fromModel: slot.model, to: next.id, toModel: next.model,
-          runId: context.runId ?? "", jobId: context.jobId ?? "",
-        });
       }
     }
 
     const transportFailed = attempts.some((attempt) => !attempt.success && TRANSPORT_CODES.has(attempt.category));
+    if (aspo) {
+      const lastFailed = [...attempts].reverse().find((a) => !a.success);
+      aspoGenerationFailed(task, attempts.length, (lastFailed?.category ?? "unknown_error") as Parameters<typeof aspoGenerationFailed>[2]);
+    }
     throw new LlmSequenceError(
       this.options.freeOnly
         ? "No free language provider is currently available."

@@ -10,6 +10,17 @@ export const JOB_TYPES = [
   "scene.breakdown",
   "video.scene",
   "render.final",
+  "image.character_reference",
+  "image.environment_reference",
+  "image.object_reference",
+  "image.shot",
+  "video.shot",
+  "audio.dialogue",
+  "audio.narration",
+  "audio.sfx",
+  "audio.music",
+  "media.validate",
+  "assembly.generate",
 ] as const;
 
 export type JobType = (typeof JOB_TYPES)[number];

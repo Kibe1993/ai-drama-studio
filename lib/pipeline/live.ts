@@ -79,10 +79,11 @@ function buildLivePipelineDeps(): PipelineDeps {
       current.progress = { stage: current.jobType, message };
       await generationJobRepository.save(current);
     }, seasonPlanRepository, continuityLedgerRepository, casnaContext),
-    seasonPlanEngine: createSeasonPlanEngine(llm, seasonPlanRepository, storyBibleRepository, storyRepository, async (job, message) => {
+    seasonPlanEngine: createSeasonPlanEngine(llm, seasonPlanRepository, storyBibleRepository, storyRepository, async (job, message, output) => {
       const current = await generationJobRepository.findById(job.id);
       if (!current || current.status !== "processing") return;
       current.progress = { stage: current.jobType, message };
+      if (output !== undefined) current.output = output;
       await generationJobRepository.save(current);
     }, episodeRepository, continuityLedgerRepository),
     engines: createLiveEngines({

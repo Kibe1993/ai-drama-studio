@@ -112,7 +112,7 @@ describe("Ollama LLM Provider", () => {
     it("uses default values when environment variables are unset", () => {
       expect(ollamaBaseUrl(env())).toBe(DEFAULT_OLLAMA_BASE_URL);
       expect(ollamaModel(env())).toBe(DEFAULT_OLLAMA_MODEL);
-      expect(ollamaTimeoutMs(env())).toBe(120_000);
+      expect(ollamaTimeoutMs(env())).toBe(240_000);
       const opts = ollamaGenerationOptions(env());
       expect(opts.temperature).toBe(0.7);
       expect(opts.num_ctx).toBe(8192);
@@ -150,7 +150,7 @@ describe("Ollama LLM Provider", () => {
 
       expect(ollamaBaseUrl(blank)).toBe(DEFAULT_OLLAMA_BASE_URL);
       expect(ollamaModel(blank)).toBe(DEFAULT_OLLAMA_MODEL);
-      expect(ollamaTimeoutMs(blank)).toBe(120_000);
+      expect(ollamaTimeoutMs(blank)).toBe(240_000);
       const opts = ollamaGenerationOptions(blank);
       expect(opts.temperature).toBe(0.7);
       expect(opts.top_p).toBe(0.9);
@@ -666,9 +666,9 @@ describe("Provider priority and failover", () => {
     });
   }
 
-  it("has Ollama as primary with fallback order Groq, OpenRouter, Mistral", () => {
+  it("has Ollama as primary with all configured providers as fallbacks", () => {
     const sequence = providerSequence({});
-    expect(sequence).toEqual(["ollama", "groq", "openrouter", "mistral"]);
+    expect(sequence).toEqual(["ollama", "groq", "openrouter", "mistral", "gemini", "openai", "anthropic", "deepseek"]);
   });
 
   it("builds slots with Ollama as primary and configured without API key", () => {

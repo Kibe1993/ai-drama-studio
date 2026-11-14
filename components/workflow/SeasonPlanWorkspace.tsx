@@ -12,6 +12,7 @@ import {
 } from "@/hooks/useSeasonPlan";
 import { SeasonPlanView } from "@/components/workflow/SeasonPlanView";
 import { SeasonPlanEditor } from "@/components/workflow/SeasonPlanEditor";
+import { SeasonPlanProgressTimeline } from "@/components/workflow/SeasonPlanProgressTimeline";
 import { useWorkflow } from "@/hooks/useWorkflow";
 import type { Project } from "@/hooks/useProjects";
 import type { SeasonPlan, SeasonPlanRequest } from "@/lib/validation/seasonPlan";
@@ -88,11 +89,15 @@ export function SeasonPlanWorkspace({ project }: { project: Project }) {
       ) : null}
 
       {isGenerating && job ? (
-        <div className="rounded border border-[#39342d] p-4">
-          <p role="status" className="text-sm text-[#dfc18a]">
-            {job.progress?.message ?? "Generating season plan…"}
-          </p>
-        </div>
+        job.output?.progressLog && job.output.progressLog.length > 0 ? (
+          <SeasonPlanProgressTimeline events={job.output.progressLog} />
+        ) : (
+          <div className="rounded border border-[#39342d] p-4">
+            <p role="status" className="text-sm text-[#dfc18a]">
+              {job.progress?.message ?? "Generating season plan…"}
+            </p>
+          </div>
+        )
       ) : null}
 
       {isFailed ? (

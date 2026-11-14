@@ -1,11 +1,12 @@
 import type { CharacterPrompt, EpisodeSuggestionPrompt, ScenePrompt, SeasonPlanPrompt } from "@/lib/providers/llm/stageTasks";
+import type { SeasonArchitecturePrompt, EpisodeDetailBatchPrompt } from "@/lib/providers/llm/seasonPlanTask";
 import type { RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
 import type { StoryCriticFinding, StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 import type { CharacterProfile, ProductionScene } from "@/lib/validation/productionStages";
 import type { EpisodeSuggestion } from "@/lib/validation/episode";
 import type { GeneratedStory, ScreenplayScene } from "@/lib/validation/story";
 import type { StoryBibleTaskInput, StoryBibleTaskResult } from "@/lib/providers/llm/storyBibleTask";
-import type { SeasonPlan } from "@/lib/validation/seasonPlan";
+import type { SeasonPlan, SeasonArchitecture, EpisodeDetailBatch } from "@/lib/validation/seasonPlan";
 
 export type StoryPrompt = {
   title: string;
@@ -118,6 +119,24 @@ export type SeasonPlanModelResult = {
   usage?: TokenUsage;
 };
 
+export type SeasonArchitectureModelResult = {
+  architecture: SeasonArchitecture;
+  provider?: string;
+  model?: string;
+  fallbackFrom?: string | null;
+  attempts?: AttemptRecord[];
+  usage?: TokenUsage;
+};
+
+export type EpisodeDetailBatchModelResult = {
+  batch: EpisodeDetailBatch;
+  provider?: string;
+  model?: string;
+  fallbackFrom?: string | null;
+  attempts?: AttemptRecord[];
+  usage?: TokenUsage;
+};
+
 export type RepairScenesModelResult = {
   screenplay: ScreenplayScene[];
   provider?: string;
@@ -145,6 +164,8 @@ export type LLMProvider = {
   generateStoryBible?(input: StoryBibleTaskInput, options?: StoryCallOptions): Promise<StoryBibleModelResult>;
   generateEpisodeSuggestion?(input: EpisodeSuggestionPrompt, options?: StoryCallOptions): Promise<EpisodeSuggestionModelResult>;
   generateSeasonPlan?(input: SeasonPlanPrompt, options?: StoryCallOptions): Promise<SeasonPlanModelResult>;
+  generateSeasonArchitecture?(input: SeasonArchitecturePrompt, options?: StoryCallOptions): Promise<SeasonArchitectureModelResult>;
+  generateEpisodeDetails?(input: EpisodeDetailBatchPrompt, options?: StoryCallOptions): Promise<EpisodeDetailBatchModelResult>;
   /** CASNA Stage H: rewrite only the scenes a validation finding points at. */
   repairScenes?(input: RepairScenesPrompt, options?: StoryCallOptions): Promise<RepairScenesModelResult>;
   /** CASNA Stage H: optional advisory continuity critique. */
@@ -162,6 +183,7 @@ export type LLMProvider = {
 };
 
 export type { CharacterPrompt, EpisodeSuggestionPrompt, ScenePrompt, SeasonPlanPrompt };
+export type { SeasonArchitecturePrompt, EpisodeDetailBatchPrompt } from "@/lib/providers/llm/seasonPlanTask";
 
 export type LlmCompletionRequest = {
   model: string;

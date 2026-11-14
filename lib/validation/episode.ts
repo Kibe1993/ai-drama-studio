@@ -47,6 +47,8 @@ export type EpisodeRecord = EpisodeInput & {
   baseSnapshotVersion: number;
   /** The approved Season Plan version the episode was planned from (CASNA). */
   basePlanVersion: number;
+  timelineId: string | null;
+  renderAssetId: string | null;
   createdAt: string;
   updatedAt: string;
 };

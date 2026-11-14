@@ -9,7 +9,7 @@ import {
 } from "@/lib/providers/llm/freePolicy";
 import { createGeminiProvider, DEFAULT_LLM_MODEL } from "@/lib/providers/llm/gemini";
 import { createGroqProvider } from "@/lib/providers/llm/groq";
-import { StoryProviderManager, type ProviderSlot } from "@/lib/providers/llm/manager";
+import { StoryProviderManager, type ProviderSlot, ProviderHealthTracker } from "@/lib/providers/llm/manager";
 import { createMistralProvider } from "@/lib/providers/llm/mistral";
 import {
   DEFAULT_OLLAMA_MODEL,
@@ -22,8 +22,9 @@ import {
 } from "@/lib/providers/llm/ollama";
 import { createOpenAIProvider, DEFAULT_OPENAI_MODEL } from "@/lib/providers/llm/openai";
 import { createOpenRouterProvider, openRouterTimeoutMs } from "@/lib/providers/llm/openrouter";
+import { ProviderAvailabilityManager, parseCostPolicy } from "@/lib/providers/llm/aspo";
 import type { LLMProvider } from "@/lib/providers/llm/types";
-import type { SeasonPlanPrompt } from "@/lib/providers/llm/seasonPlanTask";
+import type { SeasonPlanPrompt, SeasonArchitecturePrompt, EpisodeDetailBatchPrompt } from "@/lib/providers/llm/seasonPlanTask";
 import type { RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
 import type { StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 
@@ -71,7 +72,7 @@ export function providerSequence(env?: {
 }): string[] {
   const source = env ?? process.env;
   const primary = source.LLM_PROVIDER?.trim().toLowerCase() || "ollama";
-  const defaultFallbacks = "groq,openrouter,mistral";
+  const defaultFallbacks = "groq,openrouter,mistral,gemini,openai,anthropic,deepseek";
   const rawFallbacks = source.LLM_FALLBACK_PROVIDERS !== undefined
     ? source.LLM_FALLBACK_PROVIDERS
     : defaultFallbacks;
@@ -209,6 +210,22 @@ export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[]
             },
           }
         : {}),
+      ...(provider && "generateSeasonArchitecture" in provider && provider.generateSeasonArchitecture
+        ? {
+            async generateSeasonArchitecture(input: SeasonArchitecturePrompt, options: { signal: AbortSignal }) {
+              const result = await provider!.generateSeasonArchitecture!(input, { signal: options.signal });
+              return { architecture: result.architecture, usage: result.usage };
+            },
+          }
+        : {}),
+      ...(provider && "generateEpisodeDetails" in provider && provider.generateEpisodeDetails
+        ? {
+            async generateEpisodeDetails(input: EpisodeDetailBatchPrompt, options: { signal: AbortSignal }) {
+              const result = await provider!.generateEpisodeDetails!(input, { signal: options.signal });
+              return { batch: result.batch, usage: result.usage };
+            },
+          }
+        : {}),
       ...(provider && "repairScenes" in provider && provider.repairScenes
         ? {
             async repairScenes(input: RepairScenesPrompt, options: { signal: AbortSignal }) {
@@ -229,8 +246,36 @@ export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[]
   });
 }
 
+const sharedHealthTracker = new ProviderHealthTracker();
+
+const BASE_INITIAL_PRIORITY: Record<string, number> = {
+  groq: 100,
+  openrouter: 90,
+  mistral: 85,
+  gemini: 80,
+  ollama: 70,
+  openai: 60,
+  anthropic: 55,
+  deepseek: 50,
+};
+
+function initialPriorityFor(primary: string): Record<string, number> {
+  return { ...BASE_INITIAL_PRIORITY, [primary]: 110 };
+}
+
 export function createStoryProvider(env: NodeJS.ProcessEnv = process.env): LLMProvider {
-  return new StoryProviderManager({ slots: buildSlots(env), freeOnly: isFreeOnly(env) });
+  const primary = env.LLM_PROVIDER?.trim().toLowerCase() || "ollama";
+  const availabilityManager = new ProviderAvailabilityManager({
+    initialPriority: initialPriorityFor(primary),
+  });
+  return new StoryProviderManager({
+    slots: buildSlots(env),
+    freeOnly: isFreeOnly(env),
+    healthTracker: sharedHealthTracker,
+    taskRouting: true,
+    availabilityManager,
+    costPolicy: parseCostPolicy(env),
+  });
 }
 
 export function describeLlmSetup(env: NodeJS.ProcessEnv = process.env) {

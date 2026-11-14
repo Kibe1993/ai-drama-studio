@@ -35,6 +35,8 @@ const ProductionSceneSchema = new Schema({
   videoStatus: { type: String, enum: ["pending", "processing", "mock", "completed", "failed", "unavailable"], default: "pending" },
   videoAssetId: { type: Schema.Types.ObjectId, default: null },
   failed: { type: Boolean, default: false },
+  productionStatus: { type: String, enum: ["pending", "in_progress", "complete"], default: "pending" },
+  approvedAt: { type: Date, default: null },
 }, { timestamps: true, collection: "productionScenes" });
 
 ProductionSceneSchema.index({ clerkUserId: 1, productionRunId: 1, sceneNumber: 1 }, { unique: true });

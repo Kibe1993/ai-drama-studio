@@ -7,16 +7,55 @@ const AppearanceSchema = new Schema({
   storyId: { type: Schema.Types.ObjectId, required: true },
 }, { _id: false });
 
+const CharacterVisualProfileSchema = new Schema({
+  appearance: { type: String, default: "", maxlength: 600 },
+  facial: { type: String, default: "", maxlength: 400 },
+  hair: { type: String, default: "", maxlength: 300 },
+  clothing: { type: String, default: "", maxlength: 400 },
+  distinguishingFeatures: { type: String, default: "", maxlength: 400 },
+  bodyType: { type: String, default: "", maxlength: 300 },
+  voiceNotes: { type: String, default: "", maxlength: 400 },
+  continuityNotes: { type: String, default: "", maxlength: 600 },
+  defaultPresentation: { type: String, default: "", maxlength: 400 },
+}, { _id: false });
+
+const LocationVisualProfileSchema = new Schema({
+  geography: { type: String, default: "", maxlength: 500 },
+  architecture: { type: String, default: "", maxlength: 500 },
+  materials: { type: String, default: "", maxlength: 400 },
+  colourPalette: { type: String, default: "", maxlength: 300 },
+  lighting: { type: String, default: "", maxlength: 400 },
+  weather: { type: String, default: "", maxlength: 300 },
+  atmosphere: { type: String, default: "", maxlength: 400 },
+  continuityNotes: { type: String, default: "", maxlength: 600 },
+}, { _id: false });
+
+const ObjectVisualProfileSchema = new Schema({
+  description: { type: String, default: "", maxlength: 600 },
+  materials: { type: String, default: "", maxlength: 400 },
+  colourPalette: { type: String, default: "", maxlength: 300 },
+  continuityNotes: { type: String, default: "", maxlength: 600 },
+}, { _id: false });
+
+const VisualProfileSchema = new Schema({
+  character: { type: CharacterVisualProfileSchema, default: {} },
+  location: { type: LocationVisualProfileSchema, default: {} },
+  object: { type: ObjectVisualProfileSchema, default: {} },
+}, { _id: false });
+
 const CanonicalEntitySchema = new Schema({
   clerkUserId: { type: String, required: true },
   projectId: { type: Schema.Types.ObjectId, required: true },
-  entityType: { type: String, enum: ["character", "location"], required: true },
+  entityType: { type: String, enum: ["character", "location", "object"], required: true },
   normalizedName: { type: String, required: true },
   name: { type: String, required: true, maxlength: 160 },
   profile: { type: Schema.Types.Mixed, default: {} },
+  visualProfile: { type: VisualProfileSchema, default: {} },
   description: { type: String, default: "", maxlength: 1200 },
   status: { type: String, enum: ["pending_review", "approved"], default: "pending_review" },
   appearances: { type: [AppearanceSchema], default: [] },
+  defaultReferenceAssetId: { type: Schema.Types.ObjectId, default: null },
+  voiceProfileId: { type: Schema.Types.ObjectId, default: null },
 }, { timestamps: true, collection: "canonicalEntities" });
 
 CanonicalEntitySchema.index({ clerkUserId: 1, projectId: 1, entityType: 1, normalizedName: 1 }, { unique: true });

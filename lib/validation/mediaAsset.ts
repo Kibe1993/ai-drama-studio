@@ -6,7 +6,7 @@ export const MEDIA_ASSET_TYPES = [
   "music", "sound_effect", "subtitle", "final_render",
 ] as const;
 export const MEDIA_VALIDATION_STATUSES = ["signature_verified", "metadata_verified", "playable"] as const;
-export const MEDIA_REVIEW_STATUSES = ["pending", "approved", "rejected"] as const;
+export const MEDIA_REVIEW_STATUSES = ["pending", "approved", "rejected", "archived"] as const;
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i);
 
@@ -16,6 +16,7 @@ export const createMediaAssetSchema = z.object({
   sceneId: objectId.nullable().optional(),
   shotId: z.string().trim().min(1).max(120).nullable().optional(),
   generationJobId: objectId.nullable().optional(),
+  canonicalEntityId: objectId.nullable().optional(),
   type: z.enum(MEDIA_ASSET_TYPES),
   provider: z.string().trim().min(1).max(80),
   model: z.string().trim().max(160).default(""),
@@ -40,6 +41,9 @@ export type MediaAssetRecord = CreateMediaAssetInput & {
   validationStatus: (typeof MEDIA_VALIDATION_STATUSES)[number];
   storageVerified: boolean;
   reviewStatus: (typeof MEDIA_REVIEW_STATUSES)[number];
+  canonicalEntityId?: string | null;
+  previousVersionId?: string | null;
+  replacedById?: string | null;
   createdAt: string;
   updatedAt: string;
 };

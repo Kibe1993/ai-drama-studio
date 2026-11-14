@@ -10,11 +10,13 @@ export const FREE_GEMINI_MODELS = ["gemini-3.8-flash", "gemini-3.6-flash"] as co
 export const FREE_GROQ_MODELS = ["openai/gpt-oss-20b"] as const;
 
 /**
- * The default free OpenRouter model must actually support `response_format`
- * and produce a full Story Bible. The `openrouter/free` router can select a
- * tiny model that reports support but returns empty constrained output, so the
- * verified default is pinned to a specific free model. Any id ending in
- * `:free` is still accepted.
+ * The default free OpenRouter model must actually be available and support
+ * structured JSON generation. `meta-llama/llama-3.3-8b-instruct:free` was
+ * removed from OpenRouter (HTTP 404 as of Nov 2026).
+ * `baidu/ernie-5.5-flash-preview:free` is confirmed available with a 1M-token
+ * context window. It may return empty content with finishReason=length on
+ * very large outputs, so ASPO failover to the next provider is important.
+ * Any id ending in `:free` is still accepted.
  */
 export const FREE_OPENROUTER_MODELS = ["baidu/ernie-5.5-flash-preview:free"] as const;
 

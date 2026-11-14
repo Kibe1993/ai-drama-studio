@@ -47,13 +47,18 @@ export function createEpisodeSuggestEngine(
       }
       const startedAt = Date.now();
       log.info("episode-suggest", "engine started", { projectId: job.projectId, jobId: job.id });
-      const latestRun = await runs.findLatest(job.clerkUserId, job.projectId);
+      const [latestRun, existing, bible, approvedPlan, latestPlan, ledger] = await Promise.all([
+        runs.findLatest(job.clerkUserId, job.projectId),
+        episodes.listOwned(job.clerkUserId, job.projectId),
+        bibles.findOwned(job.clerkUserId, job.projectId),
+        plans ? plans.findApproved(job.clerkUserId, job.projectId) : Promise.resolve(null),
+        plans ? plans.findLatest(job.clerkUserId, job.projectId) : Promise.resolve(null),
+        ledgers ? ledgers.findLatest(job.clerkUserId, job.projectId) : Promise.resolve(null),
+      ]);
       if (latestRun && ACTIVE_RUNS.has(latestRun.status)) {
         throw new JobError("A production is active; episode proposals wait until it is idle.", "episode_run_active", false);
       }
-      const existing = await episodes.listOwned(job.clerkUserId, job.projectId);
       if (!existing) throw new JobError("The project for this episode request was not found.", "not_found", false);
-      const bible = await bibles.findOwned(job.clerkUserId, job.projectId);
       const snapshotVersion = bible?.approvedVersion ?? 0;
       // An AI-proposed episode is still an episode: approved canon is required
       // before one is written, in every production mode.
@@ -68,10 +73,7 @@ export function createEpisodeSuggestEngine(
         throw new JobError("No configured AI provider can propose an episode.", "configuration", false);
       }
 
-      // CASNA: Load Season Plan and Continuity Ledger for sequential generation
-      const approvedPlan = plans ? await plans.findApproved(job.clerkUserId, job.projectId) : null;
-      const latestPlan = plans ? await plans.findLatest(job.clerkUserId, job.projectId) : null;
-      const ledger = ledgers ? await ledgers.findLatest(job.clerkUserId, job.projectId) : null;
+      // CASNA: Season Plan and Continuity Ledger loaded in parallel above.
       const targetEpisodeNumber = nextEpisodeNumber(existing);
       // The service checked this gate when the job was queued; check it again so
       // a plan revision or a newly approved episode cannot be overtaken by a

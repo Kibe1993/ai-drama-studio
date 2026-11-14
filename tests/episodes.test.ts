@@ -55,6 +55,8 @@ function episodeRepo(episodes: EpisodeRecord[]) {
         currentStoryId: null,
         baseSnapshotVersion,
         basePlanVersion,
+        timelineId: null,
+        renderAssetId: null,
         createdAt: now,
         updatedAt: now,
       };
@@ -280,7 +282,7 @@ describe("AI episode engine — generation logic", () => {
 
   it("lists existing episodes so AI does not repeat plots", async () => {
     const episodes: EpisodeRecord[] = [
-      { id: "ep1", clerkUserId: actor.userId, projectId, episodeNumber: 1, title: "Arrival", premise: "The secret surfaces.", targetDurationSeconds: 300, status: "draft", currentStoryId: null, baseSnapshotVersion: 0, basePlanVersion: 0, createdAt: now, updatedAt: now },
+      { id: "ep1", clerkUserId: actor.userId, projectId, episodeNumber: 1, title: "Arrival", premise: "The secret surfaces.", targetDurationSeconds: 300, status: "draft", currentStoryId: null, baseSnapshotVersion: 0, basePlanVersion: 0, timelineId: null, renderAssetId: null, createdAt: now, updatedAt: now },
     ];
     const engine = createEpisodeSuggestEngine(
       { async generateEpisodeSuggestion(input) {
@@ -289,7 +291,7 @@ describe("AI episode engine — generation logic", () => {
       {
         async listOwned() { return episodes; },
         async create(_u, _p, input, snap) {
-          const row = { ...input, id: "ep2", clerkUserId: actor.userId, projectId, episodeNumber: 2, status: "draft" as const, currentStoryId: null, baseSnapshotVersion: snap, basePlanVersion: 0, createdAt: now, updatedAt: now };
+          const row = { ...input, id: "ep2", clerkUserId: actor.userId, projectId, episodeNumber: 2, status: "draft" as const, currentStoryId: null, baseSnapshotVersion: snap, basePlanVersion: 0, timelineId: null, renderAssetId: null, createdAt: now, updatedAt: now };
           episodes.push(row);
           return row;
         },
@@ -309,7 +311,7 @@ describe("AI episode engine — generation logic", () => {
 
   it("requires an approved bible before generating the next serialized episode", async () => {
     const episodes: EpisodeRecord[] = [
-      { id: "ep1", clerkUserId: actor.userId, projectId, episodeNumber: 1, title: "Arrival", premise: "", targetDurationSeconds: 300, status: "draft", currentStoryId: null, baseSnapshotVersion: 0, basePlanVersion: 0, createdAt: now, updatedAt: now },
+      { id: "ep1", clerkUserId: actor.userId, projectId, episodeNumber: 1, title: "Arrival", premise: "", targetDurationSeconds: 300, status: "draft", currentStoryId: null, baseSnapshotVersion: 0, basePlanVersion: 0, timelineId: null, renderAssetId: null, createdAt: now, updatedAt: now },
     ];
     const engine = createEpisodeSuggestEngine(
       { async generateEpisodeSuggestion(input) { return { suggestion: { title: "X", premise: "Y" }, input }; } },

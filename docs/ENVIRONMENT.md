@@ -58,7 +58,7 @@ The app keeps one Redis connection for enqueueing. Connection timeouts are logge
 | `GROQ_API_KEY` | Story generation | Server and worker only. Create a key in the [Groq console](https://console.groq.com/). The Free plan is $0. The published rate-limit table is the Developer plan, which bills per token |
 | `GROQ_MODEL` | Story generation | Free-only default `openai/gpt-oss-20b` |
 | `OPENROUTER_API_KEY` | Story generation | Server and worker only. Create a key at [OpenRouter](https://openrouter.ai/). Only a model id ending in `:free` is allowed |
-| `OPENROUTER_MODEL` | Story generation | Free-only default `baidu/ernie-5.5-flash-preview:free`. This verified free model supports structured output and can complete a full Story Bible. The `openrouter/free` router may pick a tiny model that returns empty output, so it is not the default |
+| `OPENROUTER_MODEL` | Story generation | Free-only default `baidu/ernie-5.5-flash-preview:free`. This verified free model has a 1M-token context window. `meta-llama/llama-3.3-8b-instruct:free` was removed from OpenRouter (Nov 2026). Any id ending in `:free` is accepted |
 | `OPENROUTER_TIMEOUT_MS` | Story generation | One OpenRouter attempt cap. Default `150000` (2.5 minutes), clamped between `15000` and `300000`. Section requests are smaller than a whole bible, but a whole-bible regenerate makes six sequential calls |
 | `MISTRAL_API_KEY` | Story generation | Server and worker only. Create a key in [Mistral Studio](https://console.mistral.ai/). Free mode includes limited monthly usage and needs no card. Extra usage requires pay-as-you-go, which this mode does not request |
 | `MISTRAL_MODEL` | Story generation | Free-only default `mistral-small-latest`, the model in Mistral's free-mode setup example |

@@ -24,6 +24,8 @@ const JobSchema = new Schema(
     bullJobId: { type: String, default: null },
     startedAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
+    failureClassification: { type: String, enum: ["transient", "permanent", null], default: null },
+    costEventId: { type: Schema.Types.ObjectId, default: null },
   },
   { timestamps: true, collection: "generationJobs" }
 );
@@ -32,6 +34,7 @@ JobSchema.index({ idempotencyKey: 1 }, { unique: true });
 JobSchema.index({ clerkUserId: 1, projectId: 1, createdAt: -1 });
 JobSchema.index({ runId: 1, status: 1 });
 JobSchema.index({ status: 1 });
+JobSchema.index({ clerkUserId: 1, projectId: 1, jobType: 1, status: 1 });
 
 export function generationJobModel(connection: Connection): Model<Record<string, never>> {
   return connection.models.GenerationJob ?? connection.model("GenerationJob", JobSchema);

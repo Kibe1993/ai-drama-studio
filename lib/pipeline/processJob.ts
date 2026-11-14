@@ -17,6 +17,29 @@ import {
 
 const OPEN = new Set(["queued", "processing"]);
 
+const NON_TRANSIENT_CODES = new Set([
+  "configuration",
+  "authentication",
+  "forbidden",
+  "ownership",
+  "dependency",
+  "bible_required",
+  "story_required",
+  "invalid_input",
+  "invalid_job",
+  "not_found",
+  "invalid_model",
+  "ffmpeg_not_configured",
+  "media_unavailable",
+  "render_failed",
+]);
+
+export function llmSequenceRetryAllowed(error: unknown, job: JobRecord): boolean {
+  if (!(error instanceof LlmSequenceError)) return true;
+  if (NON_TRANSIENT_CODES.has(error.code)) return false;
+  return job.attempts < 2;
+}
+
 function scenesOf(run: RunRecord): SceneItem[] {
   return run.stageResults.scenes?.items ?? [];
 }
@@ -332,7 +355,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       }
       const detail = error instanceof Error ? error.message : String(error);
       const failure = error instanceof JobError ? error : new JobError("Story draft generation failed.", "stage_failed", true);
-      const retry = failure.retryable && job.attempts < job.maxAttempts;
+      const retry = failure.retryable && job.attempts < job.maxAttempts && llmSequenceRetryAllowed(error, job);
       if (retry) {
         job.status = "queued";
         job.error = { code: failure.code, message: failure.message, retryable: true };
@@ -395,6 +418,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       // because completed sections live in job.output. Without preserved
       // sections, replaying an exhausted provider chain is still avoided.
       const retry = failure.retryable && job.attempts < job.maxAttempts
+        && llmSequenceRetryAllowed(error, job)
         && (!(error instanceof LlmSequenceError) || preservedCount > 0);
       if (retry) {
         job.status = "queued";
@@ -457,7 +481,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       const failure = error instanceof JobError ? error : new JobError("Episode suggestion failed.", "stage_failed", true);
       // Gate failures (busy project, missing canon, no reference) will not heal
       // on a retry; only transient provider failures requeue.
-      const retry = failure.retryable && job.attempts < job.maxAttempts;
+      const retry = failure.retryable && job.attempts < job.maxAttempts && llmSequenceRetryAllowed(error, job);
       if (retry) {
         job.status = "queued";
         job.error = { code: failure.code, message: failure.message, retryable: true };
@@ -509,7 +533,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
         job.output = { ...(job.output ?? {}), attempts: error.attempts };
       }
       const failure = error instanceof JobError ? error : new JobError("Season plan generation failed.", "stage_failed", true);
-      const retry = failure.retryable && job.attempts < job.maxAttempts;
+      const retry = failure.retryable && job.attempts < job.maxAttempts && llmSequenceRetryAllowed(error, job);
       if (retry) {
         job.status = "queued";
         job.error = { code: failure.code, message: failure.message, retryable: true };
@@ -524,6 +548,196 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       job.progress = { stage: job.jobType, message: failure.message };
       await deps.jobs.save(job);
       log.error("worker", "season plan job failed", { jobId: job.id, projectId: job.projectId, code: failure.code, attempt: job.attempts, ms: Date.now() - started });
+      throw new JobError(failure.message, failure.code, false);
+    }
+  }
+  if (job.jobType === "assembly.generate") {
+    const started = Date.now();
+    if (job.runId !== null) {
+      throw new JobError("Assembly jobs are standalone and must not reference a run.", "ownership", false);
+    }
+    job.status = "processing";
+    job.attempts += 1;
+    job.startedAt = job.startedAt ?? new Date().toISOString();
+    job.progress = { stage: job.jobType, message: stageMessage(job) };
+    await deps.jobs.save(job);
+    log.info("worker", "assembly job started", { jobId: job.id, projectId: job.projectId, attempt: job.attempts });
+    try {
+      const { createTimelineAssemblyService } = await import("@/lib/services/timelineAssemblyService");
+      const service = createTimelineAssemblyService();
+      const input = job.input as {
+        episodeId: string;
+        projectId: string;
+        videoClips: { assetId: string; durationSeconds: number; sceneNumber: number; shotNumber: number }[];
+        dialogueClips?: { assetId: string; durationSeconds: number; startSeconds: number }[];
+        musicClips?: { assetId: string; durationSeconds: number; startSeconds: number; volume: number; optional?: boolean }[];
+        sfxClips?: { assetId: string; durationSeconds: number; startSeconds: number }[];
+        subtitleClips?: { assetId: string; durationSeconds: number; startSeconds: number }[];
+        aspectRatio?: string;
+        outputResolution?: string;
+        frameRate?: number;
+        episodeTargetDurationSeconds?: number;
+        knownAssetIds?: string[];
+      };
+      const knownAssetIds = Array.isArray(input.knownAssetIds)
+        ? new Set(input.knownAssetIds)
+        : undefined;
+      const timeline = await service.autoGenerate(
+        { userId: job.clerkUserId },
+        {
+          episodeId: input.episodeId,
+          projectId: input.projectId,
+          videoClips: input.videoClips,
+          dialogueClips: input.dialogueClips,
+          musicClips: input.musicClips,
+          sfxClips: input.sfxClips,
+          subtitleClips: input.subtitleClips,
+          aspectRatio: input.aspectRatio,
+          outputResolution: input.outputResolution,
+          frameRate: input.frameRate,
+          episodeTargetDurationSeconds: input.episodeTargetDurationSeconds,
+          knownAssetIds,
+        }
+      );
+      job.status = "completed";
+      job.output = {
+        timelineId: timeline.id,
+        status: timeline.status,
+        validation: timeline.validation,
+      };
+      job.error = null;
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: "Timeline assembled and validated" };
+      await deps.jobs.save(job);
+      log.info("worker", "assembly job completed", { jobId: job.id, timelineId: timeline.id, ms: Date.now() - started });
+      return;
+    } catch (error) {
+      const failure = error instanceof JobError ? error : new JobError("Timeline assembly failed.", "stage_failed", true);
+      const retry = failure.retryable && job.attempts < job.maxAttempts;
+      if (retry) {
+        job.status = "queued";
+        job.error = { code: failure.code, message: failure.message, retryable: true };
+        job.progress = { stage: job.jobType, message: "Assembling timeline. Retrying" };
+        await deps.jobs.save(job);
+        log.error("worker", "assembly job retry", { jobId: job.id, code: failure.code, attempt: job.attempts });
+        throw failure;
+      }
+      job.status = "failed";
+      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: failure.message };
+      await deps.jobs.save(job);
+      log.error("worker", "assembly job failed", { jobId: job.id, code: failure.code, attempt: job.attempts, ms: Date.now() - started });
+      throw new JobError(failure.message, failure.code, false);
+    }
+  }
+  if (job.jobType === "render.final" && typeof job.input?.renderJobId === "string") {
+    const started = Date.now();
+    const renderJobId = job.input.renderJobId as string;
+    job.status = "processing";
+    job.attempts += 1;
+    job.startedAt = job.startedAt ?? new Date().toISOString();
+    job.progress = { stage: job.jobType, message: "Rendering with FFmpeg" };
+    await deps.jobs.save(job);
+    log.info("worker", "render job started", { jobId: job.id, renderJobId, attempt: job.attempts });
+
+    try {
+      const { getFfmpegPath } = await import("@/lib/providers/media/ffmpeg/config");
+      const ffmpegPath = getFfmpegPath();
+      if (!ffmpegPath) throw new JobError("FFmpeg is not configured on this server.", "ffmpeg_not_configured", false);
+
+      const { renderJobRepository } = await import("@/lib/repositories/renderJobRepository");
+      const { timelineRepository } = await import("@/lib/repositories/timelineRepository");
+      const { createRenderService } = await import("@/lib/services/renderService");
+      const { createStorageProvider } = await import("@/lib/providers/storage/registry");
+      const { createMediaAssetService } = await import("@/lib/services/mediaAssetService");
+      const { mediaAssetRepository } = await import("@/lib/repositories/mediaAssetRepository");
+      const { getPreset } = await import("@/lib/providers/media/ffmpeg/presets");
+      const { FFmpegRenderEngine } = await import("@/lib/providers/media/ffmpeg/engine");
+
+      const renderJob = await renderJobRepository.findOwned(job.clerkUserId, renderJobId);
+      if (!renderJob) throw new JobError("Render job not found.", "not_found", false);
+
+      const timeline = await timelineRepository.findOwned(job.clerkUserId, renderJob.timelineId);
+      if (!timeline) throw new JobError("Timeline not found.", "not_found", false);
+
+      const preset = getPreset(renderJob.presetId);
+      if (!preset) throw new JobError("Unknown render preset.", "invalid_preset", false);
+
+      const storage = createStorageProvider();
+      const engine = new FFmpegRenderEngine(storage, ffmpegPath);
+      const renderService = createRenderService();
+
+      const videoAssets: { storageKey: string; durationSeconds: number }[] = [];
+      const audioAssets: { storageKey: string; volume: number; kind: "dialogue" | "music" | "sfx" | "narration" }[] = [];
+
+      for (const track of timeline.tracks) {
+        for (const clip of track.clips) {
+          if (track.kind === "video") {
+            videoAssets.push({ storageKey: clip.assetId, durationSeconds: clip.durationSeconds });
+          } else if (track.kind === "dialogue" || track.kind === "music" || track.kind === "sfx" || track.kind === "narration") {
+            audioAssets.push({
+              storageKey: clip.assetId,
+              volume: 1,
+              kind: track.kind as "dialogue" | "music" | "sfx" | "narration",
+            });
+          }
+        }
+      }
+
+      const result = await engine.render({ preset, videoAssets, audioAssets });
+
+      const mediaAssetService = createMediaAssetService(storage, mediaAssetRepository);
+      const outputAsset = await mediaAssetService.storeVerified(job.clerkUserId, {
+        projectId: renderJob.projectId,
+        assetType: "final_render",
+        sourceJobId: job.id,
+        mimeType: result.mimeType,
+        byteSize: result.bytes.byteLength,
+        storageKey: "",
+        idempotencyKey: `render-output:${renderJob.id}`,
+        metadata: { renderJobId: renderJob.id, presetId: renderJob.presetId },
+      }, result.bytes);
+
+      await renderService.recordCompletion({ userId: job.clerkUserId }, renderJobId, {
+        outputAssetId: outputAsset.id,
+        ffmpegVersion: result.ffmpegVersion,
+        renderDurationSeconds: result.renderDurationSeconds,
+      });
+
+      job.status = "completed";
+      job.output = {
+        renderJobId,
+        outputAssetId: outputAsset.id,
+        ffmpegVersion: result.ffmpegVersion,
+        renderDurationSeconds: result.renderDurationSeconds,
+      };
+      job.error = null;
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: "Render completed" };
+      await deps.jobs.save(job);
+      log.info("worker", "render job completed", { jobId: job.id, renderJobId, outputAssetId: outputAsset.id, ms: Date.now() - started });
+      return;
+    } catch (error) {
+      const failure = error instanceof JobError ? error : new JobError("Render failed.", "render_failed", false);
+      job.status = "failed";
+      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: failure.message };
+      await deps.jobs.save(job);
+
+      try {
+        const { renderJobRepository } = await import("@/lib/repositories/renderJobRepository");
+        await renderJobRepository.markFailed(job.clerkUserId, renderJobId, {
+          code: failure.code,
+          message: failure.message,
+          retryable: false,
+        });
+      } catch {
+        // best-effort
+      }
+
+      log.error("worker", "render job failed", { jobId: job.id, renderJobId, code: failure.code, ms: Date.now() - started });
       throw new JobError(failure.message, failure.code, false);
     }
   }
@@ -578,7 +792,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
     }
     const failure =
       error instanceof JobError ? error : new JobError("The stage failed", "stage_failed", true);
-    const retry = failure.retryable && job.attempts < job.maxAttempts;
+    const retry = failure.retryable && job.attempts < job.maxAttempts && llmSequenceRetryAllowed(error, job);
     if (retry) {
       job.status = "queued";
       job.error = { code: failure.code, message: failure.message, retryable: true };

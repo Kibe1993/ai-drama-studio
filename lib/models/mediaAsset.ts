@@ -26,12 +26,16 @@ const MediaAssetSchema = new Schema({
   validationStatus: { type: String, enum: MEDIA_VALIDATION_STATUSES, required: true },
   storageVerified: { type: Boolean, required: true, default: false },
   reviewStatus: { type: String, enum: MEDIA_REVIEW_STATUSES, default: "pending" },
+  canonicalEntityId: { type: Schema.Types.ObjectId, default: null },
+  previousVersionId: { type: Schema.Types.ObjectId, default: null },
+  replacedById: { type: Schema.Types.ObjectId, default: null },
 }, { timestamps: true, collection: "mediaAssets" });
 
 MediaAssetSchema.index({ clerkUserId: 1, idempotencyKey: 1 }, { unique: true });
 MediaAssetSchema.index({ clerkUserId: 1, projectId: 1, type: 1, createdAt: -1 });
 MediaAssetSchema.index({ clerkUserId: 1, generationJobId: 1, type: 1 });
 MediaAssetSchema.index({ clerkUserId: 1, sceneId: 1 });
+MediaAssetSchema.index({ clerkUserId: 1, canonicalEntityId: 1, type: 1, reviewStatus: 1 });
 
 export function mediaAssetModel(connection: Connection): Model<Record<string, unknown>> {
   const existing = connection.models.MediaAsset;

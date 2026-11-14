@@ -20,7 +20,7 @@ export function createBullQueue(connection: ConnectionOptions): JobQueue {
         {
           jobId: job.id,
           attempts: job.maxAttempts,
-          backoff: { type: "exponential", delay: 1000 },
+          backoff: { type: "exponential", delay: 1000, jitter: 1 },
           removeOnComplete: 200,
           removeOnFail: 200,
         }

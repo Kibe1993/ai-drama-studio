@@ -52,8 +52,10 @@ export function useApproveStory(projectId: string) {
       api<unknown>(`/api/projects/${projectId}/stories/${storyId}/approve`, { method: "POST" }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: key(projectId) });
+      void client.invalidateQueries({ queryKey: ["episodes", projectId] });
       void client.invalidateQueries({ queryKey: ["projects", projectId] });
       void client.invalidateQueries({ queryKey: ["summary"] });
+      void client.invalidateQueries({ queryKey: ["workflow", projectId] });
     },
   });
 }

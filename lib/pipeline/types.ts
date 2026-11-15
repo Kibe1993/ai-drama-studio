@@ -1,4 +1,5 @@
 import type { ProjectStatus, WorkflowMode } from "@/lib/domain/projectCatalog";
+import type { CharacterProfile } from "@/lib/validation/productionStages";
 
 export const JOB_TYPES = [
   "story.draft",
@@ -60,17 +61,7 @@ export type StoryResult = {
 
 export type CharacterResult = {
   names: string[];
-  profiles?: {
-    name: string;
-    role: string;
-    ageRange: string;
-    gender: string;
-    personality: string;
-    physicalDescription: string;
-    clothing: string;
-    distinguishingFeatures: string;
-    background: string;
-  }[];
+  profiles?: CharacterProfile[];
   approved: boolean;
   provider?: string;
   model?: string;

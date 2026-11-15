@@ -23,6 +23,7 @@ function toRecord(doc: SceneDoc): SceneRecord {
     episodeId: doc.episodeId?.toString() ?? null,
     storyId: doc.storyId.toString(),
     videoAssetId: doc.videoAssetId?.toString() ?? null,
+    approvedAt: doc.approvedAt ? new Date(doc.approvedAt).toISOString() : null,
     createdAt: new Date(doc.createdAt).toISOString(),
     updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -65,6 +66,26 @@ export const productionSceneRepository = {
     const doc = await Scene.findOneAndUpdate(
       { clerkUserId, projectId, productionRunId: runId, sceneNumber },
       { $set: input },
+      { new: true, runValidators: true }
+    ).lean<SceneDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  async findById(clerkUserId: string, sceneId: string): Promise<SceneRecord | null> {
+    const Scene = await model();
+    const doc = await Scene.findOne({ clerkUserId, _id: sceneId }).lean<SceneDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  async approveShotPlan(clerkUserId: string, sceneId: string, shotPlan?: SceneEdit["shotPlan"]): Promise<SceneRecord | null> {
+    const Scene = await model();
+    const setFields: Record<string, unknown> = { approvedAt: new Date() };
+    if (shotPlan) {
+      setFields.shotPlan = shotPlan;
+    }
+    const doc = await Scene.findOneAndUpdate(
+      { clerkUserId, _id: sceneId },
+      { $set: setFields },
       { new: true, runValidators: true }
     ).lean<SceneDoc | null>();
     return doc ? toRecord(doc) : null;

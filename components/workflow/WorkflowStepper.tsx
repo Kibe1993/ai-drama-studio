@@ -1,71 +1,83 @@
 "use client";
 
 import Link from "next/link";
-import { useWorkflow } from "@/hooks/useWorkflow";
-import type { WorkflowStepState } from "@/lib/domain/workflow";
-import { WORKFLOW_STAGE_LABELS, WORKFLOW_STAGE_PATH, WORKFLOW_STAGES } from "@/lib/domain/workflow";
+import { Check, Lock } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  WORKFLOW_STAGE_PATH,
+  type WorkflowStep,
+  type WorkflowStepState,
+} from "@/lib/domain/workflow";
 
-const STATE_STYLES: Record<WorkflowStepState, { dot: string; text: string; label: string }> = {
-  completed: { dot: "bg-[#c4a574] text-[#1a1815]", text: "text-[#cfc6b8]", label: "Completed" },
-  awaiting_approval: { dot: "bg-[#dfc18a] text-[#1a1815]", text: "text-[#dfc18a]", label: "Needs your approval" },
-  current: { dot: "bg-[#f3efe6] text-[#1a1815]", text: "text-[#f3efe6]", label: "Current stage" },
-  upcoming: { dot: "bg-[#39342d] text-[#6f675d]", text: "text-[#6f675d]", label: "Upcoming" },
-};
+function stateLabel(state: WorkflowStepState): string | null {
+  if (state === "awaiting_approval") return "Needs approval";
+  if (state === "upcoming") return "Locked";
+  return null;
+}
 
-export function WorkflowStepper({ projectId }: { projectId: string }) {
-  const query = useWorkflow(projectId);
-  const workflow = query.data;
-
-  if (!workflow) {
-    return (
-      <nav className="mt-6 flex flex-wrap gap-2 text-sm text-[#6f675d]">
-        {WORKFLOW_STAGES.map((stage) => (
-          <span key={stage} className="rounded border border-[#2e2a25] px-3 py-1.5">
-            {WORKFLOW_STAGE_LABELS[stage]}
-          </span>
-        ))}
-      </nav>
-    );
-  }
-
+/**
+ * The guided progression: Story draft → Story Bible → Episodes → Production.
+ * Completed and current stages link; upcoming stages are shown but locked.
+ */
+export function WorkflowStepper({
+  projectId,
+  steps,
+  activeStage,
+}: {
+  projectId: string;
+  steps: WorkflowStep[];
+  activeStage: string;
+}) {
   return (
-    <nav className="mt-6" aria-label="Workflow progress">
-      <ol className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
-        {workflow.steps.map((step, index) => {
-          const style = STATE_STYLES[step.state];
-          const href = `/projects/${projectId}/${WORKFLOW_STAGE_PATH[step.stage]}`;
-          const isUpcoming = step.state === "upcoming";
-          return (
-            <li key={step.stage} className="flex items-center gap-2">
-              {index > 0 ? <span className="text-[#39342d]" aria-hidden="true">→</span> : null}
+    <ol className="mt-6 flex flex-wrap items-stretch gap-2 text-sm">
+      {steps.map((step, index) => {
+        const href = `/projects/${projectId}/${WORKFLOW_STAGE_PATH[step.stage]}`;
+        const reachable = step.state !== "upcoming";
+        const active = step.stage === activeStage;
+        const note = stateLabel(step.state);
+        const content = (
+          <>
+            <span className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px]",
+                  step.state === "completed" && "border-[#6f8f6a] bg-[#26301f] text-[#bcd8b1]",
+                  step.state === "current" && "border-[#c4a574] text-[#f3efe6]",
+                  step.state === "awaiting_approval" && "border-[#dfc18a] text-[#dfc18a]",
+                  step.state === "upcoming" && "border-[#4a453d] text-[#6f675d]"
+                )}
+              >
+                {step.state === "completed" ? <Check size={12} strokeWidth={2.5} /> : step.state === "upcoming" ? <Lock size={11} strokeWidth={2} /> : index + 1}
+              </span>
+              <span className={cn("text-[#cfc6b8]", active && "text-[#f3efe6]")}>{step.label}</span>
+            </span>
+            {note ? (
+              <span className={cn("mt-1 block text-xs", step.state === "awaiting_approval" ? "text-[#dfc18a]" : "text-[#6f675d]")}>
+                {note}
+              </span>
+            ) : null}
+          </>
+        );
+        return (
+          <li key={step.stage} className="min-w-[150px] flex-1">
+            {reachable ? (
               <Link
                 href={href}
-                className={`flex items-center gap-2 rounded border px-3 py-1.5 transition-colors ${
-                  isUpcoming
-                    ? "border-[#2e2a25] opacity-60 hover:opacity-100"
-                    : "border-[#39342d] hover:border-[#c4a574]"
-                } ${style.text}`}
+                className={cn(
+                  "block h-full border px-3 py-2",
+                  active ? "border-[#c4a574] bg-[#241f19]" : "border-[#2e2a25] hover:border-[#4a453d]"
+                )}
               >
-                <span
-                  className={`flex h-5 w-5 items-center justify-center rounded-full text-xs font-medium ${style.dot}`}
-                  aria-hidden="true"
-                >
-                  {step.state === "completed" ? "✓" : index + 1}
-                </span>
-                <span>{step.label}</span>
+                {content}
               </Link>
-              {step.state === "awaiting_approval" ? (
-                <span className="text-xs text-[#dfc18a]" title={style.label}>
-                  ●
-                </span>
-              ) : null}
-            </li>
-          );
-        })}
-      </ol>
-      {workflow.blockedReason ? (
-        <p className="mt-3 text-sm text-[#dfc18a]">{workflow.blockedReason}</p>
-      ) : null}
-    </nav>
+            ) : (
+              <div aria-disabled className="block h-full border border-[#2e2a25] px-3 py-2 opacity-70">
+                {content}
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ol>
   );
 }

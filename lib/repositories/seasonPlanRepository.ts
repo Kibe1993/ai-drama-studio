@@ -12,6 +12,10 @@ import {
   type SeasonPlanStatus,
   type SeasonPlanValidationFindings,
 } from "@/lib/validation/seasonPlan";
+import {
+  seasonPlanValidationResultSchema,
+  type SeasonPlanValidationResult,
+} from "@/lib/validation/seasonPlanValidation";
 
 type PlanDoc = {
   _id: mongoose.Types.ObjectId;
@@ -40,6 +44,7 @@ type PlanDoc = {
   model: string;
   fallbackFrom: string | null;
   validationFindings: unknown;
+  validationResult: unknown;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -75,6 +80,7 @@ function toRecord(doc: PlanDoc): SeasonPlanRecord {
     model: doc.model || "",
     fallbackFrom: doc.fallbackFrom ?? null,
     validationFindings: parseValidationFindings(doc.validationFindings),
+    validationResult: parseValidationResult(doc.validationResult),
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };
@@ -83,6 +89,12 @@ function toRecord(doc: PlanDoc): SeasonPlanRecord {
 function parseValidationFindings(raw: unknown): SeasonPlanValidationFindings | null {
   if (!raw || typeof raw !== "object") return null;
   const parsed = seasonPlanValidationFindingsSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+function parseValidationResult(raw: unknown): SeasonPlanValidationResult | null {
+  if (!raw || typeof raw !== "object") return null;
+  const parsed = seasonPlanValidationResultSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
 }
 
@@ -185,6 +197,21 @@ export const seasonPlanRepository = {
     const doc = await Plan.findOneAndUpdate(
       { clerkUserId, _id: planId },
       { $set: { validationFindings: findings } },
+      { new: true }
+    ).lean<PlanDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  /** Save the rich validation result on a plan. */
+  async saveValidationResult(
+    clerkUserId: string,
+    planId: string,
+    result: SeasonPlanValidationResult
+  ): Promise<SeasonPlanRecord | null> {
+    const { Plan } = await models();
+    const doc = await Plan.findOneAndUpdate(
+      { clerkUserId, _id: planId },
+      { $set: { validationResult: result } },
       { new: true }
     ).lean<PlanDoc | null>();
     return doc ? toRecord(doc) : null;

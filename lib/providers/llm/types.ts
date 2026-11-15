@@ -7,6 +7,7 @@ import type { EpisodeSuggestion } from "@/lib/validation/episode";
 import type { GeneratedStory, ScreenplayScene } from "@/lib/validation/story";
 import type { StoryBibleTaskInput, StoryBibleTaskResult } from "@/lib/providers/llm/storyBibleTask";
 import type { SeasonPlan, SeasonArchitecture, EpisodeDetailBatch } from "@/lib/validation/seasonPlan";
+import type { SeasonPlanReasoningPrompt, AIReasoningResult } from "@/lib/providers/llm/seasonPlanReasoning";
 
 export type StoryPrompt = {
   title: string;
@@ -170,6 +171,8 @@ export type LLMProvider = {
   repairScenes?(input: RepairScenesPrompt, options?: StoryCallOptions): Promise<RepairScenesModelResult>;
   /** CASNA Stage H: optional advisory continuity critique. */
   critiqueStory?(input: StoryCriticPrompt, options?: StoryCallOptions): Promise<StoryCritiqueModelResult>;
+  /** Season Plan Validation Engine: AI-assisted narrative reasoning. */
+  reasonSeasonPlan?(input: SeasonPlanReasoningPrompt, options?: StoryCallOptions): Promise<SeasonPlanReasoningModelResult>;
   /**
    * Extend a screenplay that stopped short by asking the same provider for the
    * scenes that follow the ones already written. Optional: a provider that
@@ -184,6 +187,16 @@ export type LLMProvider = {
 
 export type { CharacterPrompt, EpisodeSuggestionPrompt, ScenePrompt, SeasonPlanPrompt };
 export type { SeasonArchitecturePrompt, EpisodeDetailBatchPrompt } from "@/lib/providers/llm/seasonPlanTask";
+export type { SeasonPlanReasoningPrompt, AIReasoningResult } from "@/lib/providers/llm/seasonPlanReasoning";
+
+export type SeasonPlanReasoningModelResult = {
+  result: AIReasoningResult;
+  provider?: string;
+  model?: string;
+  fallbackFrom?: string | null;
+  attempts?: AttemptRecord[];
+  usage?: TokenUsage;
+};
 
 export type LlmCompletionRequest = {
   model: string;

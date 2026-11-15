@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { SeasonPlanValidationResult } from "@/lib/validation/seasonPlanValidation";
 
 const text = (min: number, max: number) => z.string().trim().min(min).max(max);
 const list = (maxItems: number, maxLen: number) => z.array(text(1, maxLen)).max(maxItems);
@@ -285,6 +286,8 @@ export type SeasonPlanRecord = SeasonPlan & {
   fallbackFrom: string | null;
   /** Structured validation findings from the last validation pass. */
   validationFindings: SeasonPlanValidationFindings | null;
+  /** Rich validation result from the Season Plan Validation and Continuity Engine. */
+  validationResult?: SeasonPlanValidationResult | null;
   createdAt: string;
   updatedAt: string;
 };

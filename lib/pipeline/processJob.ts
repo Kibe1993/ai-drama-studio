@@ -5,6 +5,7 @@ import { stageMessage } from "@/lib/pipeline/messages";
 import type { PipelineDeps } from "@/lib/pipeline/ports";
 import { readStoredVideoEvidence, sceneHasStoredVideo } from "@/lib/pipeline/mediaEvidence";
 import { LlmSequenceError } from "@/lib/providers/llm/manager";
+import { StudioError } from "@/lib/http/errors";
 import {
   JobError,
   type CharacterResult,
@@ -741,6 +742,96 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       throw new JobError(failure.message, failure.code, false);
     }
   }
+  if (job.jobType === "audio.dialogue" || job.jobType === "audio.narration") {
+    const started = Date.now();
+    const segmentId = job.input.segmentId as string | undefined;
+    log.info("audio", "audio.job.received", { jobId: job.id, jobType: job.jobType, segmentId, attempt: job.attempts + 1 });
+    if (!segmentId || typeof segmentId !== "string") {
+      throw new JobError("Audio job missing segmentId.", "invalid_input", false);
+    }
+    job.status = "processing";
+    job.attempts += 1;
+    job.startedAt = job.startedAt ?? new Date().toISOString();
+    job.progress = { stage: job.jobType, message: "Generating audio with Kokoro TTS" };
+    await deps.jobs.save(job);
+    log.info("worker", "audio job started", { jobId: job.id, segmentId, attempt: job.attempts });
+    try {
+      const { KokoroAudioProvider } = await import("@/lib/providers/media/audio/kokoro");
+      const { createStorageProvider } = await import("@/lib/providers/storage/registry");
+      const { createTtsOrchestrationService } = await import("@/lib/services/ttsOrchestrationService");
+      const audioProvider = new KokoroAudioProvider();
+      const storage = createStorageProvider();
+      const ttsService = createTtsOrchestrationService({ audioProvider, storage });
+      const segment = await ttsService.generateSegmentAudio(
+        { userId: job.clerkUserId },
+        segmentId,
+        {
+          projectId: job.projectId,
+          episodeId: (job.input.episodeId as string | null) ?? null,
+          sceneId: (job.input.sceneId as string | null) ?? null,
+        }
+      );
+      job.status = "completed";
+      job.output = {
+        segmentId: segment.id,
+        status: segment.status,
+        mediaAssetId: segment.mediaAssetId,
+        durationSeconds: segment.durationSeconds,
+      };
+      job.provider = "kokoro";
+      job.model = "kokoro-82m";
+      job.error = null;
+      job.completedAt = new Date().toISOString();
+      job.progress = {
+        stage: job.jobType,
+        message: segment.status === "completed"
+          ? `Audio generated (${segment.durationSeconds?.toFixed(1)}s)`
+          : `Segment status: ${segment.status}`,
+      };
+      await deps.jobs.save(job);
+      log.info("worker", "audio job completed", {
+        jobId: job.id,
+        segmentId,
+        status: segment.status,
+        durationSeconds: segment.durationSeconds,
+        ms: Date.now() - started,
+      });
+      return;
+    } catch (error) {
+      const isJobError = error instanceof JobError;
+      const isStudioError = error instanceof StudioError;
+      const errorCode = isJobError ? error.code : isStudioError ? error.code : "stage_failed";
+      const errorMessage = error instanceof Error ? error.message : "Audio generation failed.";
+      const failure = isJobError ? error : new JobError(errorMessage, errorCode, true);
+      const retry = failure.retryable && job.attempts < job.maxAttempts;
+      log.error("worker", "audio job error", {
+        jobId: job.id,
+        segmentId,
+        code: failure.code,
+        attempt: job.attempts,
+        retry,
+        errorName: error instanceof Error ? error.name : "unknown",
+        errorMessage: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+        errorStack: error instanceof Error ? error.stack?.slice(0, 500) : undefined,
+      });
+      if (retry) {
+        job.status = "queued";
+        job.error = { code: failure.code, message: failure.message, retryable: true };
+        job.progress = { stage: job.jobType, message: "Generating audio. Retrying" };
+        await deps.jobs.save(job);
+        log.error("worker", "audio job retry", { jobId: job.id, segmentId, code: failure.code, attempt: job.attempts });
+        throw failure;
+      }
+      job.status = "failed";
+      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: failure.message };
+      await deps.jobs.save(job);
+      log.error("worker", "audio job failed", { jobId: job.id, segmentId, code: failure.code, ms: Date.now() - started });
+      throw new JobError(failure.message, failure.code, false);
+    }
+  }
+
   if (job.runId === null) throw new JobError("The job does not match a production run.", "ownership", false);
   const run = await deps.runs.findOwned(job.clerkUserId, job.runId);
   const project = await deps.projects.findOwned(job.clerkUserId, job.projectId);

@@ -20,6 +20,7 @@ import {
   type EpisodeDetailBatchPrompt,
 } from "@/lib/providers/llm/seasonPlanTask";
 import { validateSeasonPlan } from "@/lib/domain/seasonPlanValidation";
+import { validateSeasonPlanRich } from "@/lib/domain/planValidation";
 import { bibleFingerprint } from "@/lib/domain/seasonPlanVersion";
 import { storyFoundation } from "@/lib/domain/workflow";
 import type { SeasonPlanDraft } from "@/lib/repositories/seasonPlanRepository";
@@ -391,6 +392,21 @@ export function createSeasonPlanEngine(
 
       // Save validation findings on the persisted record
       await plans.saveValidationFindings(job.clerkUserId, saved.id, findings);
+
+      // Also save the rich validation result from the Validation and Continuity Engine
+      const richResult = validateSeasonPlanRich(plan, bibleContent, {
+        bibleVersion: bible.approvedVersion,
+        planVersion: saved.version,
+      });
+      if ("saveValidationResult" in plans && typeof plans.saveValidationResult === "function") {
+        await plans.saveValidationResult(job.clerkUserId, saved.id, richResult);
+      }
+      log.info("season-plan", "rich validation saved", {
+        projectId: job.projectId, planId: saved.id,
+        overallSeverity: richResult.overallSeverity,
+        deterministicFindings: richResult.deterministicFindingCount,
+        passed: richResult.passed,
+      });
 
       log.info("season-plan", "saved", {
         projectId: job.projectId, jobId: job.id, planId: saved.id, version: saved.version,

@@ -10,6 +10,70 @@ const validationFindingSchema = new Schema(
   { _id: false }
 );
 
+const richValidationFindingSchema = new Schema(
+  {
+    findingId: { type: String, required: true, maxlength: 80 },
+    category: { type: String, required: true },
+    severity: { type: String, enum: ["blocking", "high", "medium", "low"], required: true },
+    episodeNumber: { type: Number, min: 1, max: 100 },
+    affectedField: { type: String, maxlength: 200 },
+    affectedEvent: { type: String, maxlength: 200 },
+    message: { type: String, required: true, maxlength: 600 },
+    explanation: { type: String, maxlength: 1000 },
+    evidence: { type: [String], default: [] },
+    whyItMatters: { type: String, maxlength: 500 },
+    recommendation: { type: String, maxlength: 600 },
+    requiresHumanReview: { type: Boolean, default: false },
+    source: { type: String, enum: ["deterministic", "ai_reasoning"], default: "deterministic" },
+    canonIssueType: { type: String },
+  },
+  { _id: false }
+);
+
+const repairAttemptSchema = new Schema(
+  {
+    attempt: { type: Number, required: true, min: 1, max: 5 },
+    findingId: { type: String, required: true, maxlength: 80 },
+    episodeNumber: { type: Number, min: 1, max: 100 },
+    provider: { type: String, default: "" },
+    model: { type: String, default: "" },
+    status: { type: String, enum: ["success", "failed", "skipped"], default: "failed" },
+    message: { type: String, required: true, maxlength: 500 },
+    repairedAt: { type: String, required: true },
+  },
+  { _id: false }
+);
+
+const aiReasoningMetadataSchema = new Schema(
+  {
+    available: { type: Boolean, required: true },
+    provider: { type: String, default: "" },
+    model: { type: String, default: "" },
+    fallbackFrom: { type: String, default: null },
+    findingCount: { type: Number, default: 0 },
+    error: { type: String, maxlength: 300 },
+    latencyMs: { type: Number, min: 0 },
+  },
+  { _id: false }
+);
+
+const validationResultSchema = new Schema(
+  {
+    passed: { type: Boolean, required: true },
+    overallSeverity: { type: String, enum: ["blocking", "high", "medium", "low"], default: "low" },
+    findings: { type: [richValidationFindingSchema], default: [] },
+    deterministicFindingCount: { type: Number, default: 0 },
+    aiFindingCount: { type: Number, default: 0 },
+    aiReasoning: { type: aiReasoningMetadataSchema, default: null },
+    repairHistory: { type: [repairAttemptSchema], default: [] },
+    validatorVersion: { type: String, default: "2.0" },
+    validatedAt: { type: String, required: true },
+    bibleVersion: { type: Number, min: 0 },
+    planVersion: { type: Number, min: 1 },
+  },
+  { _id: false }
+);
+
 const episodePlanItemSchema = new Schema(
   {
     episodeNumber: { type: Number, required: true, min: 1, max: 100 },
@@ -91,6 +155,10 @@ const SeasonPlanSchema = new Schema(
         findings: { type: [validationFindingSchema], default: [] },
         validatedAt: { type: String, required: true },
       },
+      default: null,
+    },
+    validationResult: {
+      type: validationResultSchema,
       default: null,
     },
   },

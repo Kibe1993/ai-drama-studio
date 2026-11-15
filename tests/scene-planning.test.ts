@@ -18,7 +18,8 @@ function makeScene(): SceneRecord {
     charactersPresent: ["Amara"], visualDescription: "Warm lamplight on a folded letter.",
     action: "Amara opens the letter.", dialogue: [], cameraDirection: "Slow push in",
     estimatedDurationSeconds: 45, shotPlan: [], videoReady: false, videoStatus: "pending",
-    videoAssetId: null, failed: false, createdAt: now, updatedAt: now,
+    videoAssetId: null, failed: false, productionStatus: "pending", approvedAt: null,
+    createdAt: now, updatedAt: now,
   };
 }
 

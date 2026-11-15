@@ -1,3 +1,3 @@
-6f376167e75926ab400cf32c630964301a4617ad91327e8a133a2b66866b31a1  AI-Drama-Studio-Developer-Handbook.pdf
+ee1dfcc7d455417300d45df91d2698446fbc0daecea545495338f18d03ac36b4  AI-Drama-Studio-Developer-Handbook.pdf
 e684174307f31180ca8c779b1973a11bfa51dace629c828e2ff737d5389645c1  AI-Drama-Studio-Developer-Handbook-Edition2.docx
-efb559c93ffec3a1c5d18abfc9dbe841fb9bbebcb68caa0ee52be3dad5dba8e0  ai-drama-studio-source.zip
+faa7b065f854fac76479c897c02741d043e8596c0cb09cdbd531c2d517a45f15  ai-drama-studio-source.zip

@@ -7,12 +7,21 @@ import type { AudioProvider } from "@/lib/providers/media/audio/types";
 import { MockImageProvider } from "@/lib/providers/media/image/mock";
 import { MockVideoProvider } from "@/lib/providers/media/video/mock";
 import { MockAudioProvider } from "@/lib/providers/media/audio/mock";
+import { KokoroAudioProvider } from "@/lib/providers/media/audio/kokoro";
 
 export type ProviderRegistryDeps = {
   imageProviders?: ImageProvider[];
   videoProviders?: VideoProvider[];
   audioProviders?: AudioProvider[];
 };
+
+function autoAudioProviders(): AudioProvider[] {
+  const provider = process.env.AUDIO_PROVIDER?.trim().toLowerCase();
+  if (provider === "kokoro") {
+    return [new KokoroAudioProvider()];
+  }
+  return [];
+}
 
 export class ProviderRegistry {
   private readonly image: ImageProvider[];
@@ -25,7 +34,7 @@ export class ProviderRegistry {
     const mockAudio = new MockAudioProvider();
     this.image = [...(deps.imageProviders ?? []), mockImage];
     this.video = [...(deps.videoProviders ?? []), mockVideo];
-    this.audio = [...(deps.audioProviders ?? []), mockAudio];
+    this.audio = [...(deps.audioProviders ?? []), ...autoAudioProviders(), mockAudio];
   }
 
   selectImage(

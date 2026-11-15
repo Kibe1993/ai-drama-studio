@@ -77,6 +77,26 @@ export function characterInstructions(input: CharacterPrompt): { system: string;
       "Do not omit anyone from that list.",
       "If age, gender, appearance, clothing, personality, or background is not stated, use an empty string.",
       "Do not invent those details.",
+      "",
+      "ALIASES AND IDENTITY:",
+      "If a character appears under a different name (disguise, code name, phone voice, nickname),",
+      "list that alternate name in their aliases array. Do NOT create a separate character for the alias.",
+      "For example, if 'Phone Voice' is revealed to be Amara, create one character 'Amara' with",
+      "alias { name: 'Phone Voice', type: 'phone_voice' } — do NOT create a second character named 'Phone Voice'.",
+      "If a character uses a disguise or codename, record it the same way.",
+      "Each alias must have a type: disguise, codename, phone_voice, nickname, or alias.",
+      "",
+      "RELATIONSHIPS:",
+      "For each character, list their relationships with other characters in the story.",
+      "Each relationship must have: characterName, type (ally, enemy, family, romantic, rival, mentor, colleague, unknown),",
+      "and a brief description of the relationship dynamic.",
+      "Only include relationships that are evident from the screenplay or story context.",
+      "",
+      "VOICE MANIFESTATIONS:",
+      "If a character has distinct voice variations (e.g., disguised voice, phone voice, altered voice),",
+      "list each in voiceManifestations with: name, description, and distinguishingFeatures.",
+      "This is for voice direction only — the character is still one person, not multiple characters.",
+      "",
       input.continuityContext ? `Approved prior-episode character canon. Keep these established traits consistent where names match; do not add details absent from this canon or screenplay:\n${input.continuityContext}` : "",
       "Approved screenplay:",
       JSON.stringify(input.screenplay),
@@ -123,7 +143,7 @@ export async function requestCharacters(
     stageCompletionBudget(input.screenplay.length)
   );
   const parsed = parseStructured(transport.label, response.text, characterSetSchema, "character list");
-  const characters = parsed.characters.map((character) => ({
+  const characters: CharacterProfile[] = parsed.characters.map((character) => ({
     name: character.name,
     role: character.role ?? "",
     ageRange: character.ageRange ?? "",
@@ -133,6 +153,21 @@ export async function requestCharacters(
     clothing: character.clothing ?? "",
     distinguishingFeatures: character.distinguishingFeatures ?? "",
     background: character.background ?? "",
+    relationships: (character.relationships ?? []).map((r) => ({
+      characterName: r.characterName,
+      type: r.type ?? "unknown",
+      description: r.description ?? "",
+    })),
+    aliases: (character.aliases ?? []).map((a) => ({
+      name: a.name,
+      type: a.type ?? "alias",
+      description: a.description ?? "",
+    })),
+    voiceManifestations: (character.voiceManifestations ?? []).map((v) => ({
+      name: v.name,
+      description: v.description ?? "",
+      distinguishingFeatures: v.distinguishingFeatures ?? "",
+    })),
   }));
   assertCharacters(input.screenplay, characters);
   return { characters, usage: response.usage };
@@ -209,18 +244,40 @@ function normalize(name: string): string {
 
 export function assertCharacters(screenplay: ScreenplayScene[], characters: CharacterProfile[]): void {
   const expected = new Set(screenplayCharacterNames(screenplay).map(normalize));
-  const got = characters.map((character) => normalize(character.name));
-  if (new Set(got).size !== got.length) {
+  const charNames = characters.map((character) => normalize(character.name));
+  if (new Set(charNames).size !== charNames.length) {
     throw new JobError("The character list repeats a name.", "invalid_schema", false);
   }
+
+  const charNameSet = new Set(charNames);
+  const aliasToChar = new Map<string, string>();
+  for (const character of characters) {
+    for (const alias of character.aliases ?? []) {
+      const aliasKey = normalize(alias.name);
+      if (charNameSet.has(aliasKey)) {
+        throw new JobError(`Alias "${alias.name}" duplicates a character name. Merge them into one character.`, "invalid_schema", false);
+      }
+      if (aliasToChar.has(aliasKey)) {
+        throw new JobError(`Alias "${alias.name}" is shared by two characters. Only one character can own each alias.`, "invalid_schema", false);
+      }
+      aliasToChar.set(aliasKey, normalize(character.name));
+    }
+  }
+
+  const allKnownNames = new Set([...charNames, ...aliasToChar.keys()]);
   for (const name of expected) {
-    if (!got.includes(name)) {
+    if (!allKnownNames.has(name)) {
       throw new JobError("The character list omitted someone from the screenplay.", "invalid_schema", false);
     }
   }
-  for (const name of got) {
+  for (const name of charNames) {
     if (!expected.has(name)) {
       throw new JobError("The character list added someone who is not in the screenplay.", "invalid_schema", false);
+    }
+  }
+  for (const [aliasKey] of aliasToChar) {
+    if (!expected.has(aliasKey)) {
+      throw new JobError("An alias references a name that is not in the screenplay.", "invalid_schema", false);
     }
   }
 }

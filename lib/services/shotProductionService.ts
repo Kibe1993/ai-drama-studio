@@ -2,22 +2,12 @@ import "server-only";
 import { StudioError } from "@/lib/http/errors";
 import { connectDB } from "@/lib/db/connect";
 import { productionSceneModel } from "@/lib/models/productionScene";
+import { productionSceneRepository } from "@/lib/repositories/productionSceneRepository";
 import { shotProductionRepository } from "@/lib/repositories/shotProductionRepository";
 import type { ShotProductionRecord } from "@/lib/validation/shotProduction";
 import type { ProviderCapability } from "@/lib/providers/media/capability";
+import type { ShotPlan } from "@/lib/validation/scene";
 
-type ShotPlan = {
-  shotNumber: number;
-  purpose: string;
-  framing?: string;
-  cameraAngle?: string;
-  cameraDirection?: string;
-  action?: string;
-  environment?: string;
-  lighting?: string;
-  continuity?: string;
-  estimatedDurationSeconds?: number | null;
-};
 
 function assertObjectId(value: string): void {
   if (!/^[a-f\d]{24}$/i.test(value)) {
@@ -36,6 +26,34 @@ export function createShotProductionService() {
       if (!scene.approvedAt || scene.shotPlan.length === 0) {
         throw new StudioError("Shot plan must be approved before production", 409, "gates_not_met");
       }
+    },
+
+    async approveShotPlan(actor: { userId: string }, sceneId: string, shotPlan?: ShotPlan[]): Promise<{ id: string; approvedAt: string; shotPlanLength: number }> {
+      assertObjectId(sceneId);
+      const existing = await productionSceneRepository.findById(actor.userId, sceneId);
+      if (!existing) throw new StudioError("Scene not found", 404, "not_found");
+      const planToSet = shotPlan ?? existing.shotPlan;
+      if (!planToSet || planToSet.length === 0) {
+        throw new StudioError("Cannot approve an empty shot plan", 409, "empty_shot_plan");
+      }
+      const updated = await productionSceneRepository.approveShotPlan(actor.userId, sceneId, shotPlan);
+      if (!updated) throw new StudioError("Scene not found", 404, "not_found");
+      return { id: updated.id, approvedAt: updated.approvedAt ?? new Date().toISOString(), shotPlanLength: (shotPlan ?? existing.shotPlan).length };
+    },
+
+    async setShotPlan(actor: { userId: string }, sceneId: string, shotPlan: ShotPlan[]): Promise<{ id: string; shotPlanLength: number }> {
+      assertObjectId(sceneId);
+      if (shotPlan.length === 0) {
+        throw new StudioError("Cannot set an empty shot plan", 409, "empty_shot_plan");
+      }
+      const Scene = productionSceneModel(await connectDB());
+      const doc = await Scene.findOneAndUpdate(
+        { clerkUserId: actor.userId, _id: sceneId },
+        { $set: { shotPlan } },
+        { new: true, runValidators: true }
+      ).lean<{ _id: import("mongoose").Types.ObjectId; shotPlan: ShotPlan[] } | null>();
+      if (!doc) throw new StudioError("Scene not found", 404, "not_found");
+      return { id: doc._id.toString(), shotPlanLength: doc.shotPlan.length };
     },
 
     async createRecordsFromPlan(actor: { userId: string }, sceneId: string): Promise<ShotProductionRecord[]> {

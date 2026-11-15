@@ -42,6 +42,8 @@ export type SceneRecord = SceneEdit & {
   videoStatus: "pending" | "processing" | "mock" | "completed" | "failed" | "unavailable";
   videoAssetId: string | null;
   failed: boolean;
+  productionStatus: "pending" | "in_progress" | "complete";
+  approvedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };

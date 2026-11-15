@@ -33,6 +33,9 @@ const characters: CharacterProfile[] = [
     clothing: "",
     distinguishingFeatures: "",
     background: "",
+    relationships: [],
+    aliases: [],
+    voiceManifestations: [],
   },
   {
     name: "Father",
@@ -44,6 +47,9 @@ const characters: CharacterProfile[] = [
     clothing: "",
     distinguishingFeatures: "",
     background: "",
+    relationships: [],
+    aliases: [],
+    voiceManifestations: [],
   },
 ];
 

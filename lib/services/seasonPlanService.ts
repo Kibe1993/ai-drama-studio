@@ -4,6 +4,7 @@ import type { RequestAuth } from "@/lib/auth/session";
 import { isBusyStatus } from "@/lib/domain/projectCatalog";
 import { bibleFingerprint } from "@/lib/domain/seasonPlanVersion";
 import { validateSeasonPlan } from "@/lib/domain/seasonPlanValidation";
+import { validateSeasonPlanRich } from "@/lib/domain/planValidation";
 import { isObjectId } from "@/lib/repositories/ownership";
 import { projectRepository } from "@/lib/repositories/projectRepository";
 import { storyBibleRepository } from "@/lib/repositories/storyBibleRepository";
@@ -192,10 +193,19 @@ export function createSeasonPlanService(deps = {
         fallbackFrom: latest.fallbackFrom,
       });
       const withFindings = await deps.plans.saveValidationFindings(actor.userId, saved.id, findings);
+      const richResult = validateSeasonPlanRich(parsed.data.plan, bible.approvedSnapshot.content, {
+        bibleVersion: bible.approvedVersion,
+        planVersion: saved.version,
+      });
+      let withRich = withFindings ?? saved;
+      if ("saveValidationResult" in deps.plans && typeof deps.plans.saveValidationResult === "function") {
+        withRich = await deps.plans.saveValidationResult(actor.userId, saved.id, richResult) ?? withFindings ?? saved;
+      }
       log.info("season-plan", "creator edit saved", {
         projectId, planId: saved.id, version: saved.version, passed: findings.passed,
+        overallSeverity: richResult.overallSeverity,
       });
-      return withFindings ?? saved;
+      return withRich;
     },
 
     /** Approve a season plan (Stage D). */
@@ -228,6 +238,16 @@ export function createSeasonPlanService(deps = {
       // Gate: validation must have passed (no error-severity findings)
       if (plan.validationFindings && !plan.validationFindings.passed) {
         throw new StudioError("The season plan has validation errors. Revise it before approving.", 409, "plan_validation_failed");
+      }
+      // Gate: rich validation result must also have passed
+      if (plan.validationResult && !plan.validationResult.passed) {
+        const blocking = plan.validationResult.findings.filter(
+          (f) => f.severity === "blocking" || f.severity === "high"
+        );
+        const detail = blocking.length > 0
+          ? blocking[0]!.message
+          : "The season plan has validation errors.";
+        throw new StudioError(detail, 409, "plan_validation_failed");
       }
       const saved = await deps.plans.markApproved(actor.userId, planId);
       if (!saved || saved.status !== "approved") {

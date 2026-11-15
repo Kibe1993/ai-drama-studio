@@ -3,6 +3,24 @@ import { dialogueLineSchema, type ScreenplayScene } from "@/lib/validation/story
 
 const blank = z.string().trim().max(800).optional().default("");
 
+export const characterRelationshipSchema = z.object({
+  characterName: z.string().trim().min(1).max(80),
+  type: z.enum(["ally", "enemy", "family", "romantic", "rival", "mentor", "colleague", "unknown"]).default("unknown"),
+  description: z.string().trim().max(400).default(""),
+});
+
+export const characterAliasSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  type: z.enum(["disguise", "codename", "phone_voice", "nickname", "alias"]).default("alias"),
+  description: z.string().trim().max(400).default(""),
+});
+
+export const voiceManifestationSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(400).default(""),
+  distinguishingFeatures: z.string().trim().max(400).default(""),
+});
+
 export const characterProfileSchema = z.object({
   name: z.string().trim().min(1).max(80),
   role: z.string().trim().max(200).optional().default(""),
@@ -13,6 +31,9 @@ export const characterProfileSchema = z.object({
   clothing: z.string().trim().max(400).optional().default(""),
   distinguishingFeatures: z.string().trim().max(400).optional().default(""),
   background: blank,
+  relationships: z.array(characterRelationshipSchema).max(20).default([]),
+  aliases: z.array(characterAliasSchema).max(10).default([]),
+  voiceManifestations: z.array(voiceManifestationSchema).max(6).default([]),
 });
 
 export const characterSetSchema = z.object({
@@ -61,6 +82,45 @@ export const CHARACTER_RESPONSE_SCHEMA = {
           clothing: { type: "string" },
           distinguishingFeatures: { type: "string" },
           background: { type: "string" },
+          relationships: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["characterName"],
+              properties: {
+                characterName: { type: "string" },
+                type: { type: "string", enum: ["ally", "enemy", "family", "romantic", "rival", "mentor", "colleague", "unknown"] },
+                description: { type: "string" },
+              },
+            },
+          },
+          aliases: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["name"],
+              properties: {
+                name: { type: "string" },
+                type: { type: "string", enum: ["disguise", "codename", "phone_voice", "nickname", "alias"] },
+                description: { type: "string" },
+              },
+            },
+          },
+          voiceManifestations: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["name"],
+              properties: {
+                name: { type: "string" },
+                description: { type: "string" },
+                distinguishingFeatures: { type: "string" },
+              },
+            },
+          },
         },
       },
     },
@@ -128,4 +188,33 @@ export function screenplayCharacterNames(screenplay: ScreenplayScene[]): string[
     }
   }
   return names;
+}
+/**
+ * Resolve a name (which might be an alias) to the canonical character name.
+ * Returns the original name if no match is found.
+ */
+export function resolveCharacterName(name: string, characters: CharacterProfile[]): string {
+  const key = name.trim().toLowerCase();
+  for (const character of characters) {
+    if (character.name.trim().toLowerCase() === key) return character.name;
+    for (const alias of character.aliases ?? []) {
+      if (alias.name.trim().toLowerCase() === key) return character.name;
+    }
+  }
+  return name;
+}
+
+/**
+ * Build a map from every name (canonical + alias) to the canonical character name.
+ */
+export function buildCharacterNameResolver(characters: CharacterProfile[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const character of characters) {
+    const canonical = character.name.trim().toLowerCase();
+    map.set(canonical, character.name);
+    for (const alias of character.aliases ?? []) {
+      map.set(alias.name.trim().toLowerCase(), character.name);
+    }
+  }
+  return map;
 }

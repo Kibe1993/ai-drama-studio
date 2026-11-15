@@ -64,7 +64,14 @@ function planContent(): SeasonPlan {
     beginningDirection: "Ada returns and finds the house changed.",
     middleDirection: "Allies split as the search for the deed escalates.",
     endingDirection: "Ada chooses between the house and her brother.",
-    episodeProgression: [episodeItem(1), episodeItem(2), episodeItem(3)],
+    episodeProgression: [
+      episodeItem(1),
+      episodeItem(2),
+      episodeItem(3, {
+        centralConflict: "Ada confronts Elias about who hid the deed.",
+        endingOrCliffhanger: "Ada keeps the house and offers Elias a place in it.",
+      }),
+    ],
     importantRevelations: ["Elias signed the deed."],
     relationshipChanges: ["Ada and Elias move from allies to rivals."],
     consequencesCarriedBetween: ["Elias is exposed."],

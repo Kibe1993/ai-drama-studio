@@ -17,10 +17,12 @@ import {
   useProject,
   useRestoreProject,
 } from "@/hooks/useProjects";
+import { useWorkflow } from "@/hooks/useWorkflow";
 
 export function ProjectHeader({ projectId }: { projectId: string }) {
   const router = useRouter();
   const query = useProject(projectId);
+  const workflow = useWorkflow(projectId);
   const archive = useArchiveProject(projectId);
   const restore = useRestoreProject(projectId);
   const duplicate = useDuplicateProject(projectId);
@@ -71,7 +73,15 @@ export function ProjectHeader({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      <WorkflowStepper projectId={project.id} />
+      {workflow.isError ? (
+        <p className="mt-6 text-sm text-[#e7b2a8]">The workflow status could not be loaded.</p>
+      ) : workflow.data ? (
+        <WorkflowStepper
+          projectId={project.id}
+          steps={workflow.data.steps}
+          activeStage={workflow.data.stage}
+        />
+      ) : null}
 
       {confirmDelete ? (
         <div className="mt-6 flex flex-wrap items-center gap-3 border border-[#6b3a32] px-4 py-3">

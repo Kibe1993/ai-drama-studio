@@ -73,6 +73,18 @@ function unavailableMessage(run: RunRecord): string {
   return "UNAVAILABLE - the video stage is MOCK; no real scene clips were generated.";
 }
 
+function audioJobSummary(jobs: JobRecord[]): string {
+  const audioJobs = jobs.filter((job) => job.jobType === "audio.dialogue" || job.jobType === "audio.narration");
+  if (audioJobs.length === 0) return "not started";
+  const completed = audioJobs.filter((job) => job.status === "completed").length;
+  const failed = audioJobs.filter((job) => job.status === "failed").length;
+  const processing = audioJobs.filter((job) => job.status === "queued" || job.status === "processing").length;
+  if (processing > 0) return `generating (${completed}/${audioJobs.length} done)`;
+  if (failed > 0) return `${completed}/${audioJobs.length} done · ${failed} failed`;
+  if (completed === audioJobs.length) return `${completed} segments generated`;
+  return `${completed}/${audioJobs.length} done`;
+}
+
 export function ProductionPanel({
   projectId,
   status,
@@ -189,6 +201,20 @@ export function ProductionPanel({
               {run.stageResults.scenes.model ? ` (${run.stageResults.scenes.model})` : ""}.
             </p>
           ) : null}
+        </div>
+      ) : null}
+      {story?.status === "approved" || run?.stageResults.story?.approved ? (
+        <div className="mt-3 text-sm text-[#a39b8f]">
+          <p>
+            <a href={`/projects/${projectId}/video`} className="text-[#c4a574] underline">
+              Open video production
+            </a>
+            {" · "}
+            <a href={`/projects/${projectId}/audio`} className="text-[#c4a574] underline">
+              Open audio production
+            </a>
+          </p>
+          <p className="mt-1">Audio: {audioJobSummary(jobs)}</p>
         </div>
       ) : null}
       {run?.status === "waiting_for_approval" && run.currentStage === "scenes" ? (

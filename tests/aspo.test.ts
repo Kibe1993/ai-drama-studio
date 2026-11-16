@@ -214,7 +214,7 @@ describe("ASPO: adaptive sequential provider orchestration", () => {
     ]).generateStory(prompt);
     expect(result.provider).toBe("ollama");
     expect(result.fallbackFrom).toBeTruthy();
-    expect(result.attempts?.filter((a) => !a.success).length).toBe(3);
+    expect(result.attempts?.filter((a) => !a.success).length).toBe(6);
   });
 
   it("9. all providers fail", async () => {

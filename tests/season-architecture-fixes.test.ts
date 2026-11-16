@@ -387,7 +387,7 @@ describe("Section E: failure scenario failover", () => {
     const result = await manager([first, second]).generateSeasonArchitecture!(archPrompt);
     expect(result.architecture).toEqual(arch);
     expect(result.provider).toBe("groq");
-    expect(result.fallbackFrom).toBe("ollama");
+    expect(result.fallbackFrom).toBeNull();
   });
 
   it("fails over on invalid_schema", async () => {

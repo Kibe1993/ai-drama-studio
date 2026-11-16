@@ -107,6 +107,93 @@ export const seasonPlanValidationResultSchema = z.object({
 });
 export type SeasonPlanValidationResult = z.infer<typeof seasonPlanValidationResultSchema>;
 
+// ---------------------------------------------------------------------------
+// Finding classification — used by the intelligent revision system to
+// distinguish genuine story defects from false positives, missing canon,
+// intentional creative decisions, and ambiguous findings.
+// ---------------------------------------------------------------------------
+
+export const FINDING_CLASSIFICATIONS = [
+  "genuine_continuity_error",
+  "genuine_narrative_problem",
+  "validator_false_positive",
+  "missing_canon_information",
+  "intentional_creative_decision",
+  "ambiguous_requires_investigation",
+] as const;
+export type FindingClassification = (typeof FINDING_CLASSIFICATIONS)[number];
+
+// ---------------------------------------------------------------------------
+// Finding domains — the 13 high-level categories the revision system groups
+// findings into. These are broader than the 25 granular ValidationCategory
+// values and map the existing validators to the revision system's vocabulary.
+// ---------------------------------------------------------------------------
+
+export const FINDING_DOMAINS = [
+  "character_continuity",
+  "character_identity_aliases",
+  "relationship_continuity",
+  "location_continuity",
+  "timeline_chronology",
+  "character_knowledge_motivations",
+  "narrative_progression",
+  "repeated_narrative_functions",
+  "missing_setup",
+  "missing_payoff",
+  "unresolved_plot_threads",
+  "episode_contradictions",
+  "story_bible_inconsistencies",
+] as const;
+export type FindingDomain = (typeof FINDING_DOMAINS)[number];
+
+export function toFindingDomain(category: ValidationCategory): FindingDomain {
+  const map: Record<ValidationCategory, FindingDomain> = {
+    structural: "story_bible_inconsistencies",
+    reference_integrity: "character_identity_aliases",
+    relationship_integrity: "relationship_continuity",
+    episode_indexing: "episode_contradictions",
+    canon_contradiction: "story_bible_inconsistencies",
+    unknown_entity_reference: "character_identity_aliases",
+    world_rule_violation: "story_bible_inconsistencies",
+    character_history_contradiction: "character_continuity",
+    unexplained_status_change: "character_continuity",
+    temporal_continuity: "timeline_chronology",
+    cyclic_dependency: "timeline_chronology",
+    character_state: "character_knowledge_motivations",
+    knowledge_chronology: "character_knowledge_motivations",
+    episode_progression: "narrative_progression",
+    narrative_progression: "narrative_progression",
+    conflict_escalation: "narrative_progression",
+    episode_differentiation: "repeated_narrative_functions",
+    setup_payoff: "missing_setup",
+    climax_resolution: "narrative_progression",
+    premature_climax: "narrative_progression",
+    narrative_integrity: "unresolved_plot_threads",
+    continuity: "character_continuity",
+    progression: "narrative_progression",
+    repetition: "repeated_narrative_functions",
+    character_development: "character_knowledge_motivations",
+    narrative_structure: "narrative_progression",
+  };
+  return map[category];
+}
+
+// ---------------------------------------------------------------------------
+// Finding group — related findings that share the same underlying problem.
+// The revision system treats a group as one unit to avoid redundant fixes.
+// ---------------------------------------------------------------------------
+
+export interface FindingGroup {
+  groupId: string;
+  findingIds: string[];
+  domain: FindingDomain;
+  category: ValidationCategory;
+  severity: ValidationSeverity;
+  affectedEpisodes: number[];
+  sharedEntity: string | null;
+  findings: RichValidationFinding[];
+}
+
 export const VALIDATOR_VERSION = "2.0";
 
 export function severityRank(s: ValidationSeverity): number {

@@ -6,8 +6,11 @@ import { isObjectId } from "@/lib/repositories/ownership";
 import { seasonPlanRepository } from "@/lib/repositories/seasonPlanRepository";
 import { storyBibleRepository } from "@/lib/repositories/storyBibleRepository";
 import { validateSeasonPlanRich } from "@/lib/domain/planValidation";
-import { selectFindingsForRepair, shouldAttemptRepair, createRepairAttempt } from "@/lib/domain/planValidation/repairEngine";
 import { buildValidationReport } from "@/lib/services/seasonPlanValidationService";
+import { runRevalidationLoop } from "@/lib/domain/planValidation/revalidationLoop";
+import { createRevisionLLMCallerFromProvider } from "@/lib/domain/planValidation/revisionExecutor";
+import { createRevisionHistoryEntry } from "@/lib/domain/planValidation/revisionHistory";
+import { createStoryProvider } from "@/lib/providers/llm/registry";
 import { log } from "@/lib/log";
 
 type Context = { params: Promise<{ projectId: string; planId: string }> };
@@ -35,50 +38,103 @@ export function POST(request: Request, context: Context) {
       planVersion: plan.version,
     });
 
-    const repairableFindings = selectFindingsForRepair(result.findings);
-    if (repairableFindings.length === 0) {
+    const actionableFindings = result.findings.filter(
+      (f) => f.severity === "blocking" || f.severity === "high" || f.severity === "medium",
+    );
+    if (actionableFindings.length === 0) {
       return jsonData({
         repaired: false,
-        message: "No repairable findings (blocking or high severity) detected.",
+        message: "No actionable findings (blocking, high, or medium severity) detected.",
         report: buildValidationReport(result),
       });
     }
 
-    const repairHistory = result.repairHistory;
-    let attemptCount = repairHistory.length;
-    const attempts: typeof repairHistory = [];
+    const llm = createStoryProvider();
+    const revisionCaller = createRevisionLLMCallerFromProvider(llm);
 
-    for (const finding of repairableFindings) {
-      if (!shouldAttemptRepair(finding, attemptCount)) {
-        attempts.push(createRepairAttempt(
-          attemptCount + 1, finding, "skipped",
-          "Maximum repair attempts reached or finding not repairable."
-        ));
-        continue;
-      }
-      attemptCount += 1;
-      attempts.push(createRepairAttempt(
-        attemptCount, finding, "skipped",
-        "Automated repair requires LLM provider configuration. Use the season plan editor to manually revise the affected episode.",
-      ));
-      log.info("season-plan-repair", "repair attempt recorded", {
-        projectId, planId, findingId: finding.findingId,
-        episode: finding.episodeNumber, severity: finding.severity,
+    const loopResult = await runRevalidationLoop({
+      initialFindings: actionableFindings,
+      plan,
+      bible: bibleContent,
+      ledger: null,
+      seriesTitle: bibleContent?.identity.title ?? "Untitled Series",
+      llm: revisionCaller,
+    });
+
+    if (loopResult.totalRevisionsApplied === 0) {
+      const updatedResult = {
+        ...result,
+        repairHistory: [...result.repairHistory, {
+          attempt: 1,
+          findingId: "loop",
+          episodeNumber: undefined as unknown as number,
+          provider: "revision-engine",
+          model: "revalidation-loop",
+          status: "skipped" as const,
+          message: `Revision loop stopped: ${loopResult.stopReason}. No changes applied.`,
+          repairedAt: new Date().toISOString(),
+        }],
+      };
+      await seasonPlanRepository.saveValidationResult(actor.userId, planId, updatedResult);
+
+      return jsonData({
+        repaired: false,
+        message: `Revision loop completed without applying changes. Stop reason: ${loopResult.stopReason}.`,
+        stopReason: loopResult.stopReason,
+        totalRounds: loopResult.totalRounds,
+        report: buildValidationReport(updatedResult),
       });
     }
 
-    const updatedResult = {
-      ...result,
-      repairHistory: [...repairHistory, ...attempts],
-    };
-    await seasonPlanRepository.saveValidationResult(actor.userId, planId, updatedResult);
+    const newPlan = await seasonPlanRepository.insert({
+      ...loopResult.finalPlan,
+      clerkUserId: actor.userId,
+      projectId,
+      basedOnBibleVersion: plan.basedOnBibleVersion,
+      basedOnBibleFingerprint: plan.basedOnBibleFingerprint,
+      provider: "revision-engine",
+      model: "revalidation-loop",
+    });
+
+    const newValidation = validateSeasonPlanRich(newPlan, bibleContent, {
+      bibleVersion: bible?.approvedVersion,
+      planVersion: newPlan.version,
+    });
+    await seasonPlanRepository.saveValidationResult(actor.userId, newPlan.id, newValidation);
+
+    const historyEntry = createRevisionHistoryEntry(
+      loopResult,
+      "auto_revalidation",
+      plan.version,
+      newPlan.version,
+      `Automatic revision via revalidation loop (${loopResult.stopReason}).`,
+      actionableFindings.length,
+      plan,
+    );
+    await seasonPlanRepository.appendRevisionHistoryEntry(actor.userId, newPlan.id, historyEntry);
+
+    log.info("season-plan-repair", "revision loop completed", {
+      projectId,
+      fromVersion: plan.version,
+      toVersion: newPlan.version,
+      stopReason: loopResult.stopReason,
+      totalRounds: loopResult.totalRounds,
+      revisionsApplied: loopResult.totalRevisionsApplied,
+      revisionsRejected: loopResult.totalRevisionsRejected,
+    });
 
     return jsonData({
-      repaired: false,
-      message: "Repair requires manual review. See the validation findings for recommendations.",
-      findings: repairableFindings,
-      attempts,
-      report: buildValidationReport(updatedResult),
+      repaired: true,
+      message: `Revision loop applied ${loopResult.totalRevisionsApplied} correction(s) across ${loopResult.totalRounds} round(s).`,
+      stopReason: loopResult.stopReason,
+      totalRounds: loopResult.totalRounds,
+      totalRevisionsApplied: loopResult.totalRevisionsApplied,
+      totalRevisionsRejected: loopResult.totalRevisionsRejected,
+      newPlanId: newPlan.id,
+      newVersion: newPlan.version,
+      finalPassed: loopResult.finalPassed,
+      reviewStatus: "pending",
+      report: buildValidationReport(newValidation),
     });
   });
 }

@@ -21,12 +21,14 @@ import {
 } from "@/lib/providers/llm/storyBibleTask";
 import { requestSeasonPlan, requestSeasonArchitecture, requestEpisodeDetails, type SeasonPlanPrompt, type SeasonArchitecturePrompt, type EpisodeDetailBatchPrompt } from "@/lib/providers/llm/seasonPlanTask";
 import { requestSceneRepair, type RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
+import { requestEpisodeRevision, type EpisodeRevisionPrompt } from "@/lib/providers/llm/episodeRevision";
 import { requestStoryCritique, type StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 import type {
   CharacterModelResult,
   EpisodeSuggestionModelResult,
   LLMProvider,
   RepairScenesModelResult,
+  EpisodeRevisionModelResult,
   SceneModelResult,
   SeasonPlanModelResult,
   SeasonArchitectureModelResult,
@@ -537,6 +539,11 @@ export class OllamaLLMProvider implements LLMProvider {
 
   async repairScenes(input: RepairScenesPrompt, options?: StoryCallOptions): Promise<RepairScenesModelResult> {
     const result = await requestSceneRepair(this.stageTransport, input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async reviseEpisode(input: EpisodeRevisionPrompt, options?: StoryCallOptions): Promise<EpisodeRevisionModelResult> {
+    const result = await requestEpisodeRevision(this.stageTransport, input, options);
     return { ...result, provider: this.id, model: this.model };
   }
 

@@ -21,6 +21,7 @@ import {
 import type { CharacterPrompt, EpisodeSuggestionPrompt, ScenePrompt, SeasonPlanPrompt } from "@/lib/providers/llm/stageTasks";
 import type { RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
 import { repairScenesResultSchema } from "@/lib/providers/llm/repairScenes";
+import type { EpisodeRevisionPrompt } from "@/lib/providers/llm/episodeRevision";
 import type { StoryCriticFinding, StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 import { storyCritiqueSchema } from "@/lib/providers/llm/storyCritic";
 import { assertScreenplayPacing } from "@/lib/providers/llm/stageTasks";
@@ -30,6 +31,7 @@ import type {
   EpisodeSuggestionModelResult,
   LLMProvider,
   RepairScenesModelResult,
+  EpisodeRevisionModelResult,
   SceneModelResult,
   SeasonPlanModelResult,
   SeasonArchitectureModelResult,
@@ -46,7 +48,7 @@ import { episodeSuggestionSchema, type EpisodeSuggestion } from "@/lib/validatio
 import type { CharacterProfile, ProductionScene } from "@/lib/validation/productionStages";
 import { generatedStorySchema, type GeneratedStory, type ScreenplayScene } from "@/lib/validation/story";
 import { validateStoryBibleTaskResult, type StoryBibleTaskInput, type StoryBibleTaskResult } from "@/lib/providers/llm/storyBibleTask";
-import { seasonPlanSchema, type SeasonPlan, seasonArchitectureSchema, type SeasonArchitecture, episodeDetailBatchSchema, type EpisodeDetailBatch } from "@/lib/validation/seasonPlan";
+import { seasonPlanSchema, type SeasonPlan, type EpisodePlanItem, seasonArchitectureSchema, type SeasonArchitecture, episodeDetailBatchSchema, type EpisodeDetailBatch } from "@/lib/validation/seasonPlan";
 
 export const DEFAULT_SEQUENCE_TIMEOUT_MS = 300_000;
 export const DEFAULT_PROVIDER_TIMEOUT_MS = 90_000;
@@ -185,6 +187,10 @@ export type ProviderSlot = {
     input: RepairScenesPrompt,
     options: { signal: AbortSignal }
   ): Promise<{ screenplay: ScreenplayScene[]; usage?: TokenUsage }>;
+  reviseEpisode?(
+    input: EpisodeRevisionPrompt,
+    options: { signal: AbortSignal }
+  ): Promise<{ episode: EpisodePlanItem; usage?: TokenUsage }>;
   critiqueStory?(
     input: StoryCriticPrompt,
     options: { signal: AbortSignal }
@@ -455,6 +461,24 @@ export class StoryProviderManager implements LLMProvider {
     };
   }
 
+  async reviseEpisode(input: EpisodeRevisionPrompt, context: StoryCallOptions = {}): Promise<EpisodeRevisionModelResult> {
+    const result = await this.runSequence(context, "episode_revision", "Revising episode", async (slot, signal) => {
+      if (!slot.reviseEpisode) {
+        throw new JobError(`${providerLabel(slot.id)} cannot revise episodes.`, "configuration", false);
+      }
+      const generated = await slot.reviseEpisode(input, { signal });
+      return { value: generated.episode, usage: generated.usage };
+    }, (slot) => Boolean(slot.reviseEpisode));
+    return {
+      episode: result.value,
+      provider: result.provider,
+      model: result.model,
+      fallbackFrom: result.fallbackFrom,
+      attempts: result.attempts,
+      usage: result.usage,
+    };
+  }
+
   async critiqueStory(input: StoryCriticPrompt, context: StoryCallOptions = {}): Promise<StoryCritiqueModelResult> {
     const result = await this.runSequence(context, "story_critic", "Reviewing continuity", async (slot, signal) => {
       if (!slot.critiqueStory) {
@@ -518,6 +542,19 @@ export class StoryProviderManager implements LLMProvider {
     } else {
       slots = this.options.taskRouting ? routeByTask(task, baseSlots) : baseSlots;
     }
+    // Ollama is a slow local provider. Use it only as a last-resort
+    // fallback after every other provider has been retried once (two
+    // passes total). This avoids spending the sequence budget on Ollama
+    // when a faster cloud provider may recover on a second attempt.
+    const ollamaSlots = slots.filter((s) => s.id === "ollama");
+    const nonOllamaSlots = slots.filter((s) => s.id !== "ollama");
+    let retryStartIndex = -1;
+    let ollamaStartIndex = -1;
+    if (ollamaSlots.length > 0 && nonOllamaSlots.length > 0) {
+      retryStartIndex = nonOllamaSlots.length;
+      ollamaStartIndex = nonOllamaSlots.length * 2;
+      slots = [...nonOllamaSlots, ...nonOllamaSlots, ...ollamaSlots];
+    }
     if (slots.length === 0) {
       throw new LlmSequenceError(
         supports
@@ -537,6 +574,7 @@ export class StoryProviderManager implements LLMProvider {
       task,
       primary: slots[0]?.id ?? "",
       providers: slots.map((slot) => slot.id).join(","),
+      retryStrategy: retryStartIndex >= 0 ? "ollama_last_resort" : "standard",
       sequenceMs,
       runId: context.runId ?? "",
       jobId: context.jobId ?? "",
@@ -544,6 +582,21 @@ export class StoryProviderManager implements LLMProvider {
 
     for (let index = 0; index < slots.length; index += 1) {
       const slot = slots[index]!;
+      if (retryStartIndex >= 0 && index === retryStartIndex) {
+        log.info("llm", "retry pass starting (non-Ollama providers retried)", {
+          task,
+          providers: nonOllamaSlots.map((s) => s.id).join(","),
+          runId: context.runId ?? "",
+          jobId: context.jobId ?? "",
+        });
+      }
+      if (ollamaStartIndex >= 0 && index === ollamaStartIndex) {
+        log.info("llm", "Ollama last-resort fallback starting", {
+          task,
+          runId: context.runId ?? "",
+          jobId: context.jobId ?? "",
+        });
+      }
       const remaining = deadline - Date.now();
       if (remaining < MINIMUM_ATTEMPT_MS) {
         last = new JobError("The language provider sequence timed out.", "timeout", true);
@@ -579,16 +632,25 @@ export class StoryProviderManager implements LLMProvider {
         attempts.push(record(slot, 0, false, "configuration", null, true));
         continue;
       }
+      const isRetryPass = retryStartIndex >= 0 && index >= retryStartIndex && index < ollamaStartIndex;
       if (aspo && !aspo.isAvailable(slot.id)) {
-        const cooldown = aspo.getCooldownRemaining(slot.id);
-        log.info("llm", "provider skipped (aspo unavailable)", { provider: slot.id, task, cooldownMs: cooldown });
-        attempts.push(record(slot, 0, false, "circuit_breaker", null, index > 0));
-        continue;
+        if (isRetryPass) {
+          log.info("llm", "retry pass bypasses circuit breaker", { provider: slot.id, task });
+        } else {
+          const cooldown = aspo.getCooldownRemaining(slot.id);
+          log.info("llm", "provider skipped (aspo unavailable)", { provider: slot.id, task, cooldownMs: cooldown });
+          attempts.push(record(slot, 0, false, "circuit_breaker", null, index > 0));
+          continue;
+        }
       }
       if (!aspo && this.options.healthTracker && !this.options.healthTracker.isHealthy(slot.id)) {
-        log.info("llm", "provider skipped (circuit breaker)", { provider: slot.id, task });
-        attempts.push(record(slot, 0, false, "circuit_breaker", null, index > 0));
-        continue;
+        if (isRetryPass) {
+          log.info("llm", "retry pass bypasses circuit breaker", { provider: slot.id, task });
+        } else {
+          log.info("llm", "provider skipped (circuit breaker)", { provider: slot.id, task });
+          attempts.push(record(slot, 0, false, "circuit_breaker", null, index > 0));
+          continue;
+        }
       }
 
       // Share the remaining bounded sequence budget with configured providers

@@ -30,9 +30,11 @@ import {
   type EpisodeDetailBatchPrompt,
 } from "@/lib/providers/llm/seasonPlanTask";
 import { requestSceneRepair, type RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
+import { requestEpisodeRevision, type EpisodeRevisionPrompt } from "@/lib/providers/llm/episodeRevision";
 import { requestStoryCritique, type StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 import type {
   RepairScenesModelResult,
+  EpisodeRevisionModelResult,
   SeasonPlanModelResult,
   SeasonArchitectureModelResult,
   EpisodeDetailBatchModelResult,
@@ -154,6 +156,11 @@ export class GeminiLLMProvider implements LLMProvider {
 
   async repairScenes(input: RepairScenesPrompt, options?: StoryCallOptions): Promise<RepairScenesModelResult> {
     const result = await requestSceneRepair(this.stageTransport(), input, options);
+    return { ...result, provider: this.id, model: this.model };
+  }
+
+  async reviseEpisode(input: EpisodeRevisionPrompt, options?: StoryCallOptions): Promise<EpisodeRevisionModelResult> {
+    const result = await requestEpisodeRevision(this.stageTransport(), input, options);
     return { ...result, provider: this.id, model: this.model };
   }
 

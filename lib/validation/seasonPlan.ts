@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { SeasonPlanValidationResult } from "@/lib/validation/seasonPlanValidation";
+import type { RevisionHistoryEntry } from "@/lib/validation/revisionHistory";
 
 const text = (min: number, max: number) => z.string().trim().min(min).max(max);
 const list = (maxItems: number, maxLen: number) => z.array(text(1, maxLen)).max(maxItems);
@@ -268,7 +269,7 @@ export const EPISODE_DETAIL_BATCH_RESPONSE_SCHEMA = {
   },
 } as const;
 
-export const SEASON_PLAN_STATUSES = ["awaiting_approval", "approved", "failed"] as const;
+export const SEASON_PLAN_STATUSES = ["awaiting_approval", "approved", "failed", "rejected"] as const;
 export type SeasonPlanStatus = (typeof SEASON_PLAN_STATUSES)[number];
 
 export type SeasonPlanRecord = SeasonPlan & {
@@ -288,6 +289,8 @@ export type SeasonPlanRecord = SeasonPlan & {
   validationFindings: SeasonPlanValidationFindings | null;
   /** Rich validation result from the Season Plan Validation and Continuity Engine. */
   validationResult?: SeasonPlanValidationResult | null;
+  /** Revision history entries from the Intelligent Revision Engine. */
+  revisionHistory?: RevisionHistoryEntry[] | null;
   createdAt: string;
   updatedAt: string;
 };

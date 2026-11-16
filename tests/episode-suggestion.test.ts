@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { JobError } from "@/lib/pipeline/types";
 import { StoryProviderManager, type ProviderSlot } from "@/lib/providers/llm/manager";
 import { requestEpisodeSuggestion, type EpisodeSuggestionPrompt, type StageTransport } from "@/lib/providers/llm/stageTasks";
@@ -100,12 +100,15 @@ describe("generateEpisodeSuggestion failover", () => {
       supported: true,
       async generate() { throw new Error("unused"); },
     };
+    const mistralGenerate = vi.fn(async () => ({ suggestion: { title: "Arrival", premise: "The keeper arrives." } }));
     const slots: ProviderSlot[] = [
       withoutCapability,
-      slot("mistral", async () => ({ suggestion: { title: "Arrival", premise: "The keeper arrives." } })),
+      slot("mistral", mistralGenerate),
     ];
     const manager = new StoryProviderManager({ slots, sequenceTimeoutMs: 5_000 });
-    await expect(manager.generateEpisodeSuggestion(input)).rejects.toMatchObject({ code: "configuration" });
+    const result = await manager.generateEpisodeSuggestion(input);
+    expect(result.provider).toBe("mistral");
+    expect(mistralGenerate).toHaveBeenCalledOnce();
   });
 
   it("fails when every provider fails", async () => {

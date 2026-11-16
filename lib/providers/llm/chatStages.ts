@@ -8,6 +8,7 @@ import { jsonSchemaFormat } from "@/lib/providers/llm/schemaFormat";
 import { requestStoryBible, type StoryBibleTaskInput } from "@/lib/providers/llm/storyBibleTask";
 import { requestSeasonPlan, requestSeasonArchitecture, requestEpisodeDetails, type SeasonPlanPrompt, type SeasonArchitecturePrompt, type EpisodeDetailBatchPrompt } from "@/lib/providers/llm/seasonPlanTask";
 import { requestSceneRepair, type RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
+import { requestEpisodeRevision, type EpisodeRevisionPrompt } from "@/lib/providers/llm/episodeRevision";
 import { requestStoryCritique, type StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 
 type ChatStageOptions = {
@@ -56,7 +57,7 @@ export function storyBibleResponseFormat(
 
 export function bindChatStages(options: ChatStageOptions): Pick<
   LLMProvider,
-  "generateCharacters" | "generateScenes" | "generateStoryBible" | "generateEpisodeSuggestion" | "generateSeasonPlan" | "generateSeasonArchitecture" | "generateEpisodeDetails" | "repairScenes" | "critiqueStory" | "continueStory"
+  "generateCharacters" | "generateScenes" | "generateStoryBible" | "generateEpisodeSuggestion" | "generateSeasonPlan" | "generateSeasonArchitecture" | "generateEpisodeDetails" | "repairScenes" | "reviseEpisode" | "critiqueStory" | "continueStory"
 > {
   const transport = (): StageTransport => ({
     label: options.label,
@@ -127,6 +128,7 @@ export function bindChatStages(options: ChatStageOptions): Pick<
     generateSeasonArchitecture: (input: SeasonArchitecturePrompt, callOptions) => requestSeasonArchitecture(seasonPlanTransport(), input, callOptions),
     generateEpisodeDetails: (input: EpisodeDetailBatchPrompt, callOptions) => requestEpisodeDetails(seasonPlanTransport(), input, callOptions),
     repairScenes: (input: RepairScenesPrompt, callOptions) => requestSceneRepair(transport(), input, callOptions),
+    reviseEpisode: (input: EpisodeRevisionPrompt, callOptions) => requestEpisodeRevision(transport(), input, callOptions),
     critiqueStory: (input: StoryCriticPrompt, callOptions) => requestStoryCritique(transport(), input, callOptions),
     continueStory: (input, written, callOptions) => requestStoryContinuation(transport(), input, written, callOptions),
     generateStoryBible: async (input: StoryBibleTaskInput, callOptions) => {

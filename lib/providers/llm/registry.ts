@@ -26,6 +26,7 @@ import { ProviderAvailabilityManager, parseCostPolicy } from "@/lib/providers/ll
 import type { LLMProvider } from "@/lib/providers/llm/types";
 import type { SeasonPlanPrompt, SeasonArchitecturePrompt, EpisodeDetailBatchPrompt } from "@/lib/providers/llm/seasonPlanTask";
 import type { RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
+import type { EpisodeRevisionPrompt } from "@/lib/providers/llm/episodeRevision";
 import type { StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 
 export const LLM_PROVIDER_IDS = [
@@ -231,6 +232,14 @@ export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[]
             async repairScenes(input: RepairScenesPrompt, options: { signal: AbortSignal }) {
               const result = await provider!.repairScenes!(input, { signal: options.signal });
               return { screenplay: result.screenplay, usage: result.usage };
+            },
+          }
+        : {}),
+      ...(provider && "reviseEpisode" in provider && provider.reviseEpisode
+        ? {
+            async reviseEpisode(input: EpisodeRevisionPrompt, options: { signal: AbortSignal }) {
+              const result = await provider!.reviseEpisode!(input, { signal: options.signal });
+              return { episode: result.episode, usage: result.usage };
             },
           }
         : {}),

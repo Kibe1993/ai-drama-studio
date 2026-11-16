@@ -21,6 +21,7 @@ export class MistralLLMProvider implements LLMProvider {
   readonly generateSeasonArchitecture: NonNullable<LLMProvider["generateSeasonArchitecture"]>;
   readonly generateEpisodeDetails: NonNullable<LLMProvider["generateEpisodeDetails"]>;
   readonly repairScenes: NonNullable<LLMProvider["repairScenes"]>;
+  readonly reviseEpisode: NonNullable<LLMProvider["reviseEpisode"]>;
   readonly critiqueStory: NonNullable<LLMProvider["critiqueStory"]>;
 
   constructor(private readonly options: { model: string; apiKey: string | undefined }) {
@@ -43,6 +44,7 @@ export class MistralLLMProvider implements LLMProvider {
     this.generateSeasonArchitecture = stages.generateSeasonArchitecture!;
     this.generateEpisodeDetails = stages.generateEpisodeDetails!;
     this.repairScenes = stages.repairScenes!;
+    this.reviseEpisode = stages.reviseEpisode!;
     this.critiqueStory = stages.critiqueStory!;
   }
 

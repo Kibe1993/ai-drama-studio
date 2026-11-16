@@ -211,21 +211,21 @@ describe("sectioned Story Bible generation", () => {
       model: "gemma3:4b",
       configured: true,
       timeoutMs: 10_000,
-      generateStoryBible: vi.fn(async (input: StoryBibleTaskInput) => {
-        if (input.section === "characters") {
-          throw new JobError("Ollama is temporarily busy.", "provider_unavailable", true);
-        }
-        return { result: { mode: "section" as const, section: input.section!, value: content[input.section!] } };
-      }),
+      generateStoryBible: vi.fn(async (input: StoryBibleTaskInput) => ({
+        result: { mode: "section" as const, section: input.section!, value: content[input.section!] },
+      })),
     } as unknown as ProviderSlot;
     const groqSlot = {
       id: "groq",
       model: "llama-free",
       configured: true,
       timeoutMs: 10_000,
-      generateStoryBible: vi.fn(async (input: StoryBibleTaskInput) => ({
-        result: { mode: "section" as const, section: input.section!, value: content[input.section!] },
-      })),
+      generateStoryBible: vi.fn(async (input: StoryBibleTaskInput) => {
+        if (input.section === "characters") {
+          throw new JobError("Groq is temporarily busy.", "provider_unavailable", true);
+        }
+        return { result: { mode: "section" as const, section: input.section!, value: content[input.section!] } };
+      }),
     } as unknown as ProviderSlot;
     const manager = new StoryProviderManager({
       slots: [ollamaSlot, groqSlot],
@@ -240,11 +240,11 @@ describe("sectioned Story Bible generation", () => {
     expect(complete).toHaveBeenCalledOnce();
     expect(output.provider).toBe("mixed");
     const sections = (output as { sections?: Partial<Record<StoryBibleSection, StoryBibleSectionRun>> }).sections ?? {};
-    expect(sections.identity?.provider).toBe("ollama");
-    expect(sections.characters?.provider).toBe("groq");
-    expect(sections.characters?.fallbackFrom).toBe("ollama");
-    expect(sections.narrative?.provider).toBe("ollama");
-    expect(groqSlot.generateStoryBible).toHaveBeenCalledOnce();
+    expect(sections.identity?.provider).toBe("groq");
+    expect(sections.characters?.provider).toBe("ollama");
+    expect(sections.characters?.fallbackFrom).toBe("groq");
+    expect(sections.narrative?.provider).toBe("groq");
+    expect(ollamaSlot.generateStoryBible).toHaveBeenCalledOnce();
   });
 
   it("preserves completed sections and never saves a partial draft when one section is invalid", async () => {

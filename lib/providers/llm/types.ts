@@ -8,6 +8,8 @@ import type { GeneratedStory, ScreenplayScene } from "@/lib/validation/story";
 import type { StoryBibleTaskInput, StoryBibleTaskResult } from "@/lib/providers/llm/storyBibleTask";
 import type { SeasonPlan, SeasonArchitecture, EpisodeDetailBatch } from "@/lib/validation/seasonPlan";
 import type { SeasonPlanReasoningPrompt, AIReasoningResult } from "@/lib/providers/llm/seasonPlanReasoning";
+import type { EpisodeRevisionPrompt } from "@/lib/providers/llm/episodeRevision";
+import type { EpisodePlanItem } from "@/lib/validation/seasonPlan";
 
 export type StoryPrompt = {
   title: string;
@@ -173,6 +175,8 @@ export type LLMProvider = {
   critiqueStory?(input: StoryCriticPrompt, options?: StoryCallOptions): Promise<StoryCritiqueModelResult>;
   /** Season Plan Validation Engine: AI-assisted narrative reasoning. */
   reasonSeasonPlan?(input: SeasonPlanReasoningPrompt, options?: StoryCallOptions): Promise<SeasonPlanReasoningModelResult>;
+  /** Intelligent Revision Engine: revise a single episode to resolve a validation finding. */
+  reviseEpisode?(input: EpisodeRevisionPrompt, options?: StoryCallOptions): Promise<EpisodeRevisionModelResult>;
   /**
    * Extend a screenplay that stopped short by asking the same provider for the
    * scenes that follow the ones already written. Optional: a provider that
@@ -191,6 +195,15 @@ export type { SeasonPlanReasoningPrompt, AIReasoningResult } from "@/lib/provide
 
 export type SeasonPlanReasoningModelResult = {
   result: AIReasoningResult;
+  provider?: string;
+  model?: string;
+  fallbackFrom?: string | null;
+  attempts?: AttemptRecord[];
+  usage?: TokenUsage;
+};
+
+export type EpisodeRevisionModelResult = {
+  episode: EpisodePlanItem;
   provider?: string;
   model?: string;
   fallbackFrom?: string | null;

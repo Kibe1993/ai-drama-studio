@@ -16,6 +16,7 @@ import {
   seasonPlanValidationResultSchema,
   type SeasonPlanValidationResult,
 } from "@/lib/validation/seasonPlanValidation";
+import type { RevisionHistoryEntry } from "@/lib/validation/revisionHistory";
 
 type PlanDoc = {
   _id: mongoose.Types.ObjectId;
@@ -45,6 +46,7 @@ type PlanDoc = {
   fallbackFrom: string | null;
   validationFindings: unknown;
   validationResult: unknown;
+  revisionHistory: unknown[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -81,6 +83,7 @@ function toRecord(doc: PlanDoc): SeasonPlanRecord {
     fallbackFrom: doc.fallbackFrom ?? null,
     validationFindings: parseValidationFindings(doc.validationFindings),
     validationResult: parseValidationResult(doc.validationResult),
+    revisionHistory: parseRevisionHistory(doc.revisionHistory),
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };
@@ -96,6 +99,11 @@ function parseValidationResult(raw: unknown): SeasonPlanValidationResult | null 
   if (!raw || typeof raw !== "object") return null;
   const parsed = seasonPlanValidationResultSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
+}
+
+function parseRevisionHistory(raw: unknown): RevisionHistoryEntry[] | null {
+  if (!Array.isArray(raw)) return null;
+  return raw as RevisionHistoryEntry[];
 }
 
 async function models() {
@@ -212,6 +220,77 @@ export const seasonPlanRepository = {
     const doc = await Plan.findOneAndUpdate(
       { clerkUserId, _id: planId },
       { $set: { validationResult: result } },
+      { new: true }
+    ).lean<PlanDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  /** Find a specific plan version. */
+  async findVersion(clerkUserId: string, projectId: string, version: number): Promise<SeasonPlanRecord | null> {
+    const { Plan, Project } = await models();
+    if (!(await Project.exists(ownedQuery(clerkUserId, projectId)))) return null;
+    const doc = await Plan.findOne({ clerkUserId, projectId, version })
+      .lean<PlanDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  /** List all plan versions for a project, newest first. */
+  async listVersions(clerkUserId: string, projectId: string): Promise<SeasonPlanRecord[]> {
+    const { Plan, Project } = await models();
+    if (!(await Project.exists(ownedQuery(clerkUserId, projectId)))) return [];
+    const docs = await Plan.find({ clerkUserId, projectId })
+      .sort({ version: -1 })
+      .lean<PlanDoc[]>();
+    return docs.map(toRecord);
+  },
+
+  /** Mark a plan as rejected. Only awaiting_approval plans can be rejected. */
+  async markRejected(clerkUserId: string, planId: string): Promise<SeasonPlanRecord | null> {
+    const { Plan } = await models();
+    const doc = await Plan.findOneAndUpdate(
+      { clerkUserId, _id: planId, status: "awaiting_approval" },
+      { $set: { status: "rejected" } },
+      { new: true }
+    ).lean<PlanDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  /** Append a revision history entry to a plan. */
+  async appendRevisionHistoryEntry(
+    clerkUserId: string,
+    planId: string,
+    entry: RevisionHistoryEntry
+  ): Promise<SeasonPlanRecord | null> {
+    const { Plan } = await models();
+    const doc = await Plan.findOneAndUpdate(
+      { clerkUserId, _id: planId },
+      { $push: { revisionHistory: entry } },
+      { new: true }
+    ).lean<PlanDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  /** Update the review status of a revision history entry. */
+  async updateRevisionReviewStatus(
+    clerkUserId: string,
+    planId: string,
+    entryId: string,
+    reviewStatus: "approved" | "rejected",
+    reviewedBy: string,
+    reviewNotes: string | null,
+  ): Promise<SeasonPlanRecord | null> {
+    const { Plan } = await models();
+    const reviewedAt = new Date().toISOString();
+    const doc = await Plan.findOneAndUpdate(
+      { clerkUserId, _id: planId, "revisionHistory.entryId": entryId },
+      {
+        $set: {
+          "revisionHistory.$.reviewStatus": reviewStatus,
+          "revisionHistory.$.reviewedBy": reviewedBy,
+          "revisionHistory.$.reviewedAt": reviewedAt,
+          "revisionHistory.$.reviewNotes": reviewNotes,
+        },
+      },
       { new: true }
     ).lean<PlanDoc | null>();
     return doc ? toRecord(doc) : null;

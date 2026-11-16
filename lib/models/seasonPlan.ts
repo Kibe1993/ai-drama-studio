@@ -74,6 +74,50 @@ const validationResultSchema = new Schema(
   { _id: false }
 );
 
+const revisionEpisodeChangeSchema = new Schema(
+  {
+    episodeNumber: { type: Number, required: true, min: 1, max: 100 },
+    changedFields: { type: [String], default: [] },
+  },
+  { _id: false }
+);
+
+const revisionRoundSummarySchema = new Schema(
+  {
+    round: { type: Number, required: true, min: 1 },
+    actionsApplied: { type: Number, default: 0, min: 0 },
+    actionsRejected: { type: Number, default: 0, min: 0 },
+    actionsFailed: { type: Number, default: 0, min: 0 },
+    stopReason: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const revisionHistoryEntrySchema = new Schema(
+  {
+    entryId: { type: String, required: true, maxlength: 80 },
+    timestamp: { type: String, required: true },
+    source: { type: String, enum: ["auto_revalidation", "manual_edit", "rollback"], required: true },
+    fromVersion: { type: Number, required: true, min: 1 },
+    toVersion: { type: Number, required: true, min: 1 },
+    reason: { type: String, default: "" },
+    stopReason: { type: String, default: "" },
+    totalRounds: { type: Number, default: 0, min: 0 },
+    totalRevisionsApplied: { type: Number, default: 0, min: 0 },
+    totalRevisionsRejected: { type: Number, default: 0, min: 0 },
+    rounds: { type: [revisionRoundSummarySchema], default: [] },
+    episodeChanges: { type: [revisionEpisodeChangeSchema], default: [] },
+    findingsBefore: { type: Number, default: 0, min: 0 },
+    findingsAfter: { type: Number, default: 0, min: 0 },
+    blockingResolved: { type: Boolean, default: false },
+    reviewStatus: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
+    reviewedBy: { type: String, default: null },
+    reviewedAt: { type: String, default: null },
+    reviewNotes: { type: String, default: null },
+  },
+  { _id: false }
+);
+
 const episodePlanItemSchema = new Schema(
   {
     episodeNumber: { type: Number, required: true, min: 1, max: 100 },
@@ -145,7 +189,7 @@ const SeasonPlanSchema = new Schema(
     basedOnBibleVersion: { type: Number, required: true, min: 0 },
     basedOnBibleFingerprint: { type: String, required: true, maxlength: 40 },
     version: { type: Number, default: 1, min: 1 },
-    status: { type: String, enum: ["awaiting_approval", "approved", "failed"], default: "awaiting_approval" },
+    status: { type: String, enum: ["awaiting_approval", "approved", "failed", "rejected"], default: "awaiting_approval" },
     provider: { type: String, default: "" },
     model: { type: String, default: "" },
     fallbackFrom: { type: String, default: null },
@@ -160,6 +204,10 @@ const SeasonPlanSchema = new Schema(
     validationResult: {
       type: validationResultSchema,
       default: null,
+    },
+    revisionHistory: {
+      type: [revisionHistoryEntrySchema],
+      default: [],
     },
   },
   { timestamps: true, collection: "seasonPlans" }

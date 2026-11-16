@@ -29,7 +29,7 @@ const APPROVED_EPISODE_STATUSES = new Set(["story_approved", "completed"]);
 
 export type PlanGateView = {
   version: number;
-  status: "awaiting_approval" | "approved" | "failed";
+  status: "awaiting_approval" | "approved" | "failed" | "rejected";
   basedOnBibleVersion: number;
   episodeProgression: { episodeNumber: number }[];
 };

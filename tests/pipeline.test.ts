@@ -195,7 +195,7 @@ describe("production pipeline", () => {
     await nextQueued(deps);
 
     const run = (await deps.runs.findLatest(owner.userId, projectId))!;
-    // A five-minute episode needs five scenes; this stored story carries one.
+    // A five-minute episode needs six to eight scenes; this stored story carries one.
     projects[0]!.targetDurationSeconds = 300;
     const storyId = "f".repeat(24);
     run.stageResults.story!.storyId = storyId;

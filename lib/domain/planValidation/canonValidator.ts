@@ -1,7 +1,9 @@
 import type { SeasonPlan } from "@/lib/validation/seasonPlan";
 import type { StoryBibleContent } from "@/lib/validation/storyBible";
 import type { RichValidationFinding } from "@/lib/validation/seasonPlanValidation";
+import type { CanonicalEntityRegistry } from "@/lib/validation/canonicalRegistry";
 import { makeFindingId } from "@/lib/validation/seasonPlanValidation";
+import { resolveCanonicalId, getCharacterStatusAtEpisode } from "@/lib/domain/canonicalRegistry";
 
 function normalize(text: string): string {
   return text.toLowerCase().trim().replace(/\s+/g, " ");
@@ -67,6 +69,7 @@ export function extractCanonSummary(bible: StoryBibleContent): CanonSummary {
 export function validateCanonConsistency(
   plan: SeasonPlan,
   bible: StoryBibleContent | null,
+  registry?: CanonicalEntityRegistry,
 ): RichValidationFinding[] {
   const findings: RichValidationFinding[] = [];
   if (!bible) return findings;
@@ -86,6 +89,15 @@ export function validateCanonConsistency(
       if (role === "protagonist" || role === "antagonist") {
         const mentioned = epText.toLowerCase().includes(charName);
         if (!mentioned && ep.episodeNumber <= Math.ceil(plan.episodeProgression.length / 2)) {
+          if (registry) {
+            const canonicalId = resolveCanonicalId(registry, charName, "character");
+            if (canonicalId) {
+              const status = getCharacterStatusAtEpisode(registry, canonicalId, ep.episodeNumber);
+              if (status === "not_yet_introduced" || status === "mentioned_not_appeared") {
+                continue;
+              }
+            }
+          }
           findings.push({
             findingId: makeFindingId("canon"),
             category: "canon_contradiction",

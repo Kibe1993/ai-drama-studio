@@ -101,6 +101,7 @@ export type StoryDraft = GeneratedStory & {
   validationFindings?: EpisodeValidation | null;
   /** CASNA Stage H: bounded scene-repair attempts. */
   repairHistory?: SceneRepairRecord[];
+  sourceCanonVersion?: number | null;
 };
 
 /** A project-level story draft: the creative artifact of the guided workflow. */
@@ -110,6 +111,8 @@ export type ProjectStoryDraft = GeneratedStory & {
   provider?: string;
   model?: string;
   fallbackFrom?: string | null;
+  validationFindings?: EpisodeValidation | null;
+  sourceCanonVersion?: number | null;
 };
 
 export const storyRepository = {
@@ -140,6 +143,9 @@ export const storyRepository = {
         validationFindings: input.validationFindings ?? null,
         canonSummary: null,
         repairHistory: input.repairHistory ?? [],
+        sourceCanonVersion: input.sourceCanonVersion ?? null,
+        canonStale: false,
+        canonStaleReason: "",
         status: "awaiting_approval" satisfies StoryStatus,
         version: existing?.version ?? 1,
       },
@@ -190,6 +196,10 @@ export const storyRepository = {
       provider: input.provider || "",
       model: input.model || "",
       fallbackFrom: input.fallbackFrom || null,
+      validationFindings: input.validationFindings ?? null,
+      sourceCanonVersion: input.sourceCanonVersion ?? null,
+      canonStale: false,
+      canonStaleReason: "",
       status: "awaiting_approval" satisfies StoryStatus,
       version: (latest?.version ?? 0) + 1,
     });
@@ -212,6 +222,13 @@ export const storyRepository = {
     const { Story } = await models();
     const doc = await Story.findOne({ clerkUserId, productionRunId }).lean<StoryDoc | null>();
     return doc ? toRecord(doc) : null;
+  },
+
+  async recordCanonVersion(clerkUserId: string, id: string, version: number): Promise<void> {
+    const { Story } = await models();
+    await Story.updateOne(ownedQuery(clerkUserId, id), {
+      $set: { sourceCanonVersion: version, canonStale: false, canonStaleReason: "" },
+    });
   },
 
   async markApproved(clerkUserId: string, id: string): Promise<StoryRecord | null> {

@@ -18,6 +18,9 @@ export const renderJobSchema = z.object({
   bullJobId: z.string().max(120).nullable().default(null),
   startedAt: z.string().nullable().default(null),
   completedAt: z.string().nullable().default(null),
+  sourceCanonVersion: z.number().int().nonnegative().nullable().optional(),
+  canonStale: z.boolean().optional(),
+  canonStaleReason: z.string().max(600).optional(),
 });
 
 export type RenderJobInput = z.infer<typeof renderJobSchema>;

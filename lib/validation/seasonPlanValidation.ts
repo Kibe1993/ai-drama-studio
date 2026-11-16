@@ -208,11 +208,11 @@ export function highestSeverity(findings: RichValidationFinding[]): ValidationSe
 }
 
 export function passesValidation(findings: RichValidationFinding[]): boolean {
-  return !findings.some((f) => f.severity === "blocking" || f.severity === "high");
+  return !findings.some((f) => f.severity === "blocking");
 }
 
 export function toLegacySeverity(s: ValidationSeverity): "error" | "warning" {
-  return s === "blocking" || s === "high" ? "error" : "warning";
+  return s === "blocking" ? "error" : "warning";
 }
 
 export function toLegacyCategory(c: ValidationCategory): string {

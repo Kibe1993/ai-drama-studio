@@ -11,6 +11,7 @@ import type { StoryBibleSnapshot } from "@/lib/validation/storyBible";
 import type { ProjectRecord } from "@/lib/repositories/projectRepository";
 import { compactCasnaPromptContext, type CasnaEpisodeContext } from "@/lib/pipeline/casnaContext";
 import { validateEpisodeScreenplay } from "@/lib/domain/screenplayValidation";
+import { adjudicateCriticFindings, assembleNarrativeContext, canonFromApprovedSources, prepareWorkingCanon, renderNarrativeContext, type CanonPort } from "@/lib/domain/narrativeControl";
 import { mergeSceneRepair, repairSceneNumbers } from "@/lib/providers/llm/repairScenes";
 import type { SceneRepairRecord } from "@/lib/validation/story";
 
@@ -50,8 +51,10 @@ export function createLiveEngines(options: {
       withScreenplays?: boolean;
     }): Promise<CasnaEpisodeContext>;
   };
-  /** CASNA: opt-in advisory continuity critique (never blocks approval). */
+  /** CASNA: opt-in continuity critique. Confirmed canon breaches block; the rest stay warnings. */
   semanticCritique?: boolean;
+  /** Persisted narrative canon. Absent in unit tests, which keep the derived snapshot in memory. */
+  narrativeCanon?: CanonPort;
   onStoryStatus?: (job: JobRecord, message: string) => Promise<void>;
 }): EngineSet {
   const mocks = createMockEngines();
@@ -116,6 +119,35 @@ export function createLiveEngines(options: {
         approvedEpisodeContext,
       ]
         .filter(Boolean).join("\n\nPrior approved episode continuity:\n");
+      const derivedCanon = canonFromApprovedSources({
+        projectId: project.id,
+        bible: approvedBible?.content ?? null,
+        ledger: casna?.ledger ?? null,
+        bibleVersion: approvedBible?.version ?? run.episode?.baseSnapshotVersion ?? 0,
+        planVersion: casna?.plan?.version ?? 0,
+      });
+      const narrativeCanon = await prepareWorkingCanon({
+        port: options.narrativeCanon,
+        clerkUserId: job.clerkUserId,
+        projectId: project.id,
+        derived: derivedCanon,
+      });
+      const narrativePacket = assembleNarrativeContext({
+        canon: narrativeCanon,
+        request: {
+          taskId: job.id,
+          projectId: project.id,
+          narrativeVersion: narrativeCanon.version,
+          targetArtifact: "screenplay",
+          targetId: String(episodeNumber),
+          episode: episodeNumber,
+          objective: `Write episode ${episodeNumber} inside the approved canon.`,
+          allowedChangeIds: [],
+        },
+      });
+      const narrativeAuthority = narrativeCanon.facts.length > 0 || narrativeCanon.rules.length > 0
+        ? renderNarrativeContext(narrativeCanon, narrativePacket)
+        : undefined;
       const generated = await options.llm.generateStory(
         {
           title: run.episode?.title || project.title,
@@ -132,6 +164,7 @@ export function createLiveEngines(options: {
           episodePlan: casnaPrompt?.episodePlan ?? null,
           continuityLedger: casnaPrompt?.continuityLedger ?? null,
           previousEpisode: casnaPrompt?.previousEpisode ?? null,
+          narrativeAuthority,
         },
         {
           runId: run.id,
@@ -157,6 +190,9 @@ export function createLiveEngines(options: {
             episodePlan: casna.episodePlan,
             ledger: casna.ledger,
             previousEpisodes: casna.previousEpisodes,
+            canon: narrativeCanon,
+            structure: generated.structure,
+            sceneRange: project.sceneRange,
           })
         : null;
       const repairHistory: SceneRepairRecord[] = [];
@@ -220,6 +256,9 @@ export function createLiveEngines(options: {
           episodePlan: casna.episodePlan,
           ledger: casna.ledger,
           previousEpisodes: casna.previousEpisodes,
+          canon: narrativeCanon,
+          structure: generated.structure,
+          sceneRange: project.sceneRange,
         });
         repairHistory.push({
           attempt: repairHistory.length + 1,
@@ -239,8 +278,7 @@ export function createLiveEngines(options: {
         });
       }
 
-      // Optional advisory critic: catches timeline/knowledge issues the
-      // deterministic checks cannot. Its findings are always warnings.
+      // Critic errors block the draft. Only a confirmed breach is treated as canon, and the critic does not write it.
       if (options.semanticCritique && options.llm.critiqueStory && casna && validation) {
         try {
           const critique = await options.llm.critiqueStory(
@@ -261,18 +299,26 @@ export function createLiveEngines(options: {
             }
           );
           if (critique.findings.length > 0) {
+            const adjudicated = adjudicateCriticFindings({
+              canon: narrativeCanon,
+              episode: episodeNumber,
+              scenes: screenplay.map((scene) => ({
+                sceneNumber: scene.sceneNumber,
+                text: [
+                  scene.heading,
+                  scene.action,
+                  scene.visualDescription,
+                  ...scene.dialogue.map((line) => `${line.characterName}: ${line.line}`),
+                ].join("\n"),
+              })),
+              findings: critique.findings,
+            });
+            const blocked = adjudicated.some((finding) => finding.severity === "error");
             validation = {
               ...validation,
+              passed: validation.passed && !blocked,
               validatedAt: new Date().toISOString(),
-              findings: [
-                ...validation.findings,
-                ...critique.findings.map((finding) => ({
-                  category: finding.category,
-                  severity: "warning" as const,
-                  sceneNumber: finding.sceneNumber,
-                  message: `[continuity critic] ${finding.message}`,
-                })),
-              ],
+              findings: [...validation.findings, ...adjudicated],
             };
           }
           log.info("pipeline", "continuity critique complete", {
@@ -301,7 +347,25 @@ export function createLiveEngines(options: {
         validationPassed: validation?.passed ?? null,
         validationErrors: validation?.findings.filter((finding) => finding.severity === "error").length ?? 0,
         repairRounds: repairHistory.length,
+        canonVersion: narrativeCanon.version,
+        canonCommitted: false,
+        artifactsStale: false,
       });
+      if (validation && !validation.passed) {
+        const error = validation.findings.find((finding) => finding.severity === "error");
+        throw new JobError(
+          error?.message ?? "The screenplay conflicts with approved canon.",
+          "screenplay_conflict",
+          false,
+          {
+            kind: "narrative_validation",
+            findings: validation.findings,
+            canonVersion: narrativeCanon.version,
+            canonCommitted: false,
+            artifactsStale: false,
+          },
+        );
+      }
       const saved = await options.stories.upsertAwaiting({
         title: generated.title,
         synopsis: generated.synopsis,
@@ -317,21 +381,13 @@ export function createLiveEngines(options: {
         plan: casna?.episodePlan ?? null,
         validationFindings: validation,
         repairHistory,
+        sourceCanonVersion: narrativeCanon.version,
       });
-      // Preserve the draft (the screenplay is kept for review) but never report
-      // an episode that failed canon validation as a success.
-      if (validation && !validation.passed) {
-        const error = validation.findings.find((finding) => finding.severity === "error");
-        throw new JobError(
-          error?.message ?? "The screenplay conflicts with approved canon.",
-          "screenplay_conflict",
-          true
-        );
-      }
       return {
         title: saved.title,
         synopsis: saved.synopsis,
         storyId: saved.id,
+        sourceCanonVersion: narrativeCanon.version,
         provider: trace.provider,
         model: trace.model,
         fallbackFrom: trace.fallbackFrom,

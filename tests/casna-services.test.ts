@@ -44,7 +44,7 @@ function episodeItem(episodeNumber: number, overrides: Partial<EpisodePlanItem> 
     consequences: [`A consequence of episode ${episodeNumber}.`],
     storyContribution: `Episode ${episodeNumber} advances the season.`,
     endingOrCliffhanger: `Episode ${episodeNumber} ends on a turn.`,
-    unresolvedThreads: [`A thread opened in episode ${episodeNumber}.`],
+    unresolvedThreads: [`An unresolved thread from episode ${episodeNumber}.`],
     continuityRequirements: `The next episode must respect episode ${episodeNumber}.`,
     characterArcChanges: [],
     relationshipChanges: [],
@@ -219,7 +219,7 @@ function storyRecord(overrides: Partial<StoryRecord> = {}): StoryRecord {
         finalOutcome: "They agree to talk.",
       },
     },
-    screenplay: screenplay(5),
+    screenplay: screenplay(6),
     status: "awaiting_approval",
     version: 1,
     provider: "fake",
@@ -703,7 +703,7 @@ function liveEngineHarness(options: {
             act2: { risingTension: "f", obstacles: "g", characterDecisions: "h", turningPoint: "i" },
             act3: { climax: "j", resolution: "k", finalOutcome: "l" },
           },
-          screenplay: options.llmScreenplay ?? screenplay(5),
+          screenplay: options.llmScreenplay ?? screenplay(6),
           provider: "fake",
           model: "fake-model",
           fallbackFrom: null,
@@ -808,21 +808,24 @@ describe("sequential screenplay generation (Stages E/F/G)", () => {
     expect(saved).toHaveLength(0);
   });
 
-  it("keeps an invalid screenplay for review but never reports success", async () => {
-    const invalid = screenplay(5);
+  it("rejects an invalid screenplay without saving it as an approvable draft", async () => {
+    const invalid = screenplay(6);
     invalid[2]!.dialogue = [{ characterName: "The Stranger", line: "I know where the deed is." }];
     const { engines, saved } = liveEngineHarness({ llmScreenplay: invalid });
     await expect(
       engines.run(stubJob({ jobType: "story.generate", runId: "r".repeat(24) }), runRecord({ episode: { id: "e".repeat(24), number: 1, title: "Return", premise: "", targetDurationSeconds: 300, baseSnapshotVersion: 1 } }))
-    ).rejects.toMatchObject({ code: "screenplay_conflict", retryable: true });
-    expect(saved).toHaveLength(1);
-    expect(saved[0]!.validationFindings).toMatchObject({ passed: false });
+    ).rejects.toMatchObject({
+      code: "screenplay_conflict",
+      retryable: false,
+      details: { kind: "narrative_validation", canonCommitted: false, artifactsStale: false },
+    });
+    expect(saved).toHaveLength(0);
   });
 });
 
 describe("targeted repair and advisory critique (Stage H)", () => {
   it("repairs only the failing scene and saves a passing screenplay", async () => {
-    const invalid = screenplay(5);
+    const invalid = screenplay(6);
     invalid[2]!.dialogue = [{ characterName: "The Stranger", line: "I know where the deed is." }];
     const { engines, saved, repairCalls } = liveEngineHarness({
       llmScreenplay: invalid,
@@ -850,9 +853,9 @@ describe("targeted repair and advisory critique (Stage H)", () => {
     });
     await expect(
       engines.run(stubJob({ jobType: "story.generate", runId: "r".repeat(24) }), runRecord({ episode: { id: "e".repeat(24), number: 1, title: "Return", premise: "", targetDurationSeconds: 300, baseSnapshotVersion: 1 } }))
-    ).rejects.toMatchObject({ code: "screenplay_conflict" });
+    ).rejects.toMatchObject({ code: "screenplay_conflict", retryable: false });
     expect(repairCalls).toHaveLength(0);
-    expect(saved[0]!.validationFindings).toMatchObject({ passed: false });
+    expect(saved).toHaveLength(0);
   });
 
   it("bounds repair rounds when a repair does not resolve the finding", async () => {
@@ -868,7 +871,7 @@ describe("targeted repair and advisory critique (Stage H)", () => {
     expect(repairCalls).toHaveLength(2);
   });
 
-  it("keeps a repair provider failure from blocking the draft", async () => {
+  it("does not save a draft when scene repair fails", async () => {
     const invalid = screenplay(5);
     invalid[2]!.dialogue = [{ characterName: "The Stranger", line: "I know where the deed is." }];
     const { engines, saved, repairCalls } = liveEngineHarness({
@@ -877,33 +880,30 @@ describe("targeted repair and advisory critique (Stage H)", () => {
     });
     await expect(
       engines.run(stubJob({ jobType: "story.generate", runId: "r".repeat(24) }), runRecord({ episode: { id: "e".repeat(24), number: 1, title: "Return", premise: "", targetDurationSeconds: 300, baseSnapshotVersion: 1 } }))
-    ).rejects.toMatchObject({ code: "screenplay_conflict" });
+    ).rejects.toMatchObject({ code: "screenplay_conflict", retryable: false });
     expect(repairCalls).toHaveLength(1);
-    expect(saved[0]!.validationFindings).toMatchObject({ passed: false });
+    expect(saved).toHaveLength(0);
   });
 
-  it("adds advisory critique findings as warnings without blocking approval", async () => {
+  it("blocks a critic error without saving the draft or changing canon", async () => {
     const { engines, saved, critiqueCalls } = liveEngineHarness({
       semanticCritique: true,
       critiqueFindings: [
         { category: "timeline", severity: "error", message: "Night falls twice in one evening.", sceneNumber: 4 },
       ],
     });
-    await engines.run(
-      stubJob({ jobType: "story.generate", runId: "r".repeat(24) }),
-      runRecord({ episode: { id: "e".repeat(24), number: 1, title: "Return", premise: "", targetDurationSeconds: 300, baseSnapshotVersion: 1 } })
-    );
+    await expect(
+      engines.run(
+        stubJob({ jobType: "story.generate", runId: "r".repeat(24) }),
+        runRecord({ episode: { id: "e".repeat(24), number: 1, title: "Return", premise: "", targetDurationSeconds: 300, baseSnapshotVersion: 1 } })
+      )
+    ).rejects.toMatchObject({
+      code: "screenplay_conflict",
+      retryable: false,
+      details: { canonCommitted: false, artifactsStale: false },
+    });
     expect(critiqueCalls()).toBe(1);
-    const validation = saved[0]!.validationFindings as {
-      passed: boolean;
-      findings: { category: string; severity: string; message: string }[];
-    };
-    expect(validation.passed).toBe(true);
-    expect(validation.findings).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ category: "timeline", severity: "warning" }),
-      ])
-    );
+    expect(saved).toHaveLength(0);
   });
 });
 

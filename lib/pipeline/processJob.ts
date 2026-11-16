@@ -33,7 +33,23 @@ const NON_TRANSIENT_CODES = new Set([
   "ffmpeg_not_configured",
   "media_unavailable",
   "render_failed",
+  "module_resolution",
 ]);
+
+const MODULE_RESOLUTION_PATTERNS = [
+  "cannot be imported from a Client Component",
+  "server-only",
+  "Could not resolve",
+  "Cannot find module",
+  "ERR_MODULE_NOT_FOUND",
+  "ERR_REQUIRE_ESM",
+];
+
+export function isModuleResolutionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message;
+  return MODULE_RESOLUTION_PATTERNS.some((p) => message.includes(p));
+}
 
 export function llmSequenceRetryAllowed(error: unknown, job: JobRecord): boolean {
   if (!(error instanceof LlmSequenceError)) return true;
@@ -143,6 +159,7 @@ async function afterSuccess(deps: PipelineDeps, run: RunRecord, job: JobRecord, 
       synopsis: String(output.synopsis ?? ""),
       approved: false,
       storyId: typeof output.storyId === "string" ? output.storyId : undefined,
+      sourceCanonVersion: typeof output.sourceCanonVersion === "number" ? output.sourceCanonVersion : undefined,
     };
     run.stageResults = results;
     run.currentStage = "story";
@@ -356,6 +373,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       }
       const detail = error instanceof Error ? error.message : String(error);
       const failure = error instanceof JobError ? error : new JobError("Story draft generation failed.", "stage_failed", true);
+      if (failure.details) job.output = { ...(job.output ?? {}), ...failure.details };
       const retry = failure.retryable && job.attempts < job.maxAttempts && llmSequenceRetryAllowed(error, job);
       if (retry) {
         job.status = "queued";
@@ -800,9 +818,10 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
     } catch (error) {
       const isJobError = error instanceof JobError;
       const isStudioError = error instanceof StudioError;
-      const errorCode = isJobError ? error.code : isStudioError ? error.code : "stage_failed";
+      const isModuleErr = isModuleResolutionError(error);
+      const errorCode = isJobError ? error.code : isStudioError ? error.code : isModuleErr ? "module_resolution" : "stage_failed";
       const errorMessage = error instanceof Error ? error.message : "Audio generation failed.";
-      const failure = isJobError ? error : new JobError(errorMessage, errorCode, true);
+      const failure = isJobError ? error : new JobError(errorMessage, errorCode, !isModuleErr);
       const retry = failure.retryable && job.attempts < job.maxAttempts;
       log.error("worker", "audio job error", {
         jobId: job.id,
@@ -883,6 +902,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
     }
     const failure =
       error instanceof JobError ? error : new JobError("The stage failed", "stage_failed", true);
+    if (failure.details) job.output = { ...(job.output ?? {}), ...failure.details };
     const retry = failure.retryable && job.attempts < job.maxAttempts && llmSequenceRetryAllowed(error, job);
     if (retry) {
       job.status = "queued";

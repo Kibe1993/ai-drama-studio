@@ -1,9 +1,13 @@
-import type { EpisodePlan, EpisodeValidation, EpisodeValidationFinding } from "@/lib/validation/casna";
+import type { CanonState } from "@/lib/validation/narrativeControl";
+import { agreementFindings, contradictionChanges, evaluateProposal, type NarrativeFinding } from "@/lib/domain/narrativeControl";
+import type { EpisodePlan, EpisodeValidation, EpisodeValidationCategory, EpisodeValidationFinding } from "@/lib/validation/casna";
 import type { ContinuityLedger } from "@/lib/validation/continuityLedger";
 import type { SeasonPlan } from "@/lib/validation/seasonPlan";
-import type { ScreenplayScene } from "@/lib/validation/story";
+import type { ScreenplayScene, StoryStructure } from "@/lib/validation/story";
 import type { StoryBibleContent } from "@/lib/validation/storyBible";
-import { minimumScenesForDuration } from "@/lib/providers/llm/budget";
+import type { CanonicalEntityRegistry } from "@/lib/validation/canonicalRegistry";
+import { resolveSceneRange, type SceneRange } from "@/lib/providers/llm/budget";
+import { resolveCanonicalId, hasAppearedBy, isIntroducedBy } from "@/lib/domain/canonicalRegistry";
 
 /**
  * CASNA Stage H: validate a completed screenplay against the approved canon,
@@ -34,6 +38,15 @@ export type ScreenplayValidationInput = {
   episodePlan: EpisodePlan | null;
   ledger: ContinuityLedger | null;
   previousEpisodes: PreviousEpisode[];
+  registry?: CanonicalEntityRegistry;
+  /** Application canon. When present, disclosure and lifecycle checks run against it. */
+  canon?: CanonState | null;
+  /** Act summaries. Compared with the synopsis and the screenplay when present. */
+  structure?: StoryStructure | null;
+  /** Episode scene policy. Duration is the fallback when this is omitted. */
+  sceneRange?: SceneRange | null;
+  /** A whole-story revision must still contain every protected established fact. */
+  requireCanonCoverage?: boolean;
 };
 
 const MAX_REPETITION = 0.4;
@@ -83,6 +96,16 @@ function sceneText(scene: ScreenplayScene): string {
   return [scene.heading, scene.action, scene.visualDescription, ...scene.dialogue.map((line) => line.line)].join(" ");
 }
 
+/** Speaker-labeled text so knowledge checks can attribute a line to a character. */
+function spokenSceneText(scene: ScreenplayScene): string {
+  return [
+    scene.heading,
+    scene.action,
+    scene.visualDescription,
+    ...scene.dialogue.map((line) => `${line.characterName}: ${line.line}`),
+  ].join("\n");
+}
+
 function speakingNames(screenplay: ScreenplayScene[]): string[] {
   const names = new Set<string>();
   for (const scene of screenplay) {
@@ -125,7 +148,20 @@ function establishedCharacters(input: ScreenplayValidationInput): {
     const normalized = normalize(name ?? "");
     if (normalized) names.add(normalized);
   };
-  for (const character of input.bible?.characters.characters ?? []) add(character.name);
+  if (input.registry) {
+    for (const character of input.bible?.characters.characters ?? []) {
+      const canonicalId = resolveCanonicalId(input.registry, character.name, "character");
+      if (canonicalId && (hasAppearedBy(input.registry, canonicalId, input.episodeNumber) ||
+          isIntroducedBy(input.registry, canonicalId, input.episodeNumber))) {
+        add(character.name);
+        for (const alias of input.registry.entities.find((e) => e.canonicalId === canonicalId)?.aliases ?? []) {
+          add(alias.name);
+        }
+      }
+    }
+  } else {
+    for (const character of input.bible?.characters.characters ?? []) add(character.name);
+  }
   for (const state of input.ledger?.characterStates ?? []) add(state.name);
   for (const episode of input.previousEpisodes) {
     for (const scene of episode.screenplay) {
@@ -145,7 +181,18 @@ function establishedCharacters(input: ScreenplayValidationInput): {
   return { names, planText };
 }
 
-function wasIntroducedByPlan(name: string, planText: string): boolean {
+function wasIntroducedByPlan(
+  name: string,
+  planText: string,
+  registry?: CanonicalEntityRegistry,
+  episodeNumber?: number,
+): boolean {
+  if (registry && episodeNumber) {
+    const canonicalId = resolveCanonicalId(registry, name, "character");
+    if (canonicalId) {
+      return isIntroducedBy(registry, canonicalId, episodeNumber);
+    }
+  }
   if (!planText) return false;
   return normalize(planText).includes(normalize(name));
 }
@@ -155,15 +202,17 @@ export function validateEpisodeScreenplay(
 ): EpisodeValidation {
   const findings: EpisodeValidationFinding[] = [];
   const screenplay = input.story.screenplay;
-  const minimum = minimumScenesForDuration(input.targetDurationSeconds);
+  const range = resolveSceneRange(input.targetDurationSeconds, input.sceneRange);
   const fullText = screenplay.map(sceneText).join(" ");
 
   // -- Completeness -------------------------------------------------------
-  if (screenplay.length < minimum) {
+  if (screenplay.length < range.min || screenplay.length > range.max) {
     findings.push({
       category: "completeness",
       severity: "error",
-      message: `The screenplay has ${screenplay.length} scene${screenplay.length === 1 ? "" : "s"} but a ${input.targetDurationSeconds}-second episode needs at least ${minimum}. The episode is incomplete.`,
+      code: "scene_count",
+      evidence: `${screenplay.length} scenes`,
+      message: `The screenplay has ${screenplay.length} scene${screenplay.length === 1 ? "" : "s"} but this episode requires ${range.min}–${range.max}.`,
     });
   }
   const numbers = screenplay.map((scene) => scene.sceneNumber);
@@ -195,7 +244,7 @@ export function validateEpisodeScreenplay(
   const established = establishedCharacters(input);
   for (const name of speakingNames(screenplay)) {
     if (established.names.has(normalize(name))) continue;
-    if (wasIntroducedByPlan(name, established.planText)) continue;
+    if (wasIntroducedByPlan(name, established.planText, input.registry, input.episodeNumber)) continue;
     findings.push({
       category: "canon",
       severity: "error",
@@ -342,9 +391,100 @@ export function validateEpisodeScreenplay(
     });
   }
 
+  let narrativeCanonVersion: number | undefined;
+  let narrativeValidationLayers: EpisodeValidation["narrativeValidationLayers"];
+  let narrativeDecision: EpisodeValidation["narrativeDecision"];
+  if (input.canon) {
+    const actText = input.structure ? actSummary(input.structure) : "";
+    const spoken = screenplay.map(spokenSceneText).join("\n");
+    const proposedContent = [input.story.synopsis, actText, spoken].filter(Boolean).join("\n");
+    const decision = evaluateProposal({
+      canon: input.canon,
+      episode: input.episodeNumber,
+      provider: "application",
+      scenes: screenplay.map((scene) => ({
+        sceneNumber: scene.sceneNumber,
+        charactersPresent: scene.charactersPresent,
+        location: scene.location,
+        text: spokenSceneText(scene),
+      })),
+      response: {
+        taskId: `screenplay-${input.episodeNumber}`,
+        projectId: input.canon.projectId,
+        narrativeVersion: input.canon.version,
+        proposedContent,
+        proposedChanges: contradictionChanges(input.canon, input.episodeNumber, proposedContent),
+        newEntities: [],
+        newFacts: [],
+        modifiedFacts: [],
+        dependencies: [],
+        uncertainties: [],
+      },
+    });
+    narrativeCanonVersion = decision.canonVersion;
+    narrativeValidationLayers = decision.layers;
+    narrativeDecision = decision.decision;
+    for (const finding of decision.findings) {
+      const mapped = toEpisodeFinding(finding);
+      if (mapped) findings.push(mapped);
+    }
+    const agreements = agreementFindings({
+      canon: input.canon,
+      episode: input.episodeNumber,
+      synopsis: input.story.synopsis,
+      acts: actText,
+      screenplayText: spoken,
+      endingText: screenplay.slice(-2).map(spokenSceneText).join("\n"),
+      requireCanonCoverage: input.requireCanonCoverage === true,
+    });
+    if (agreements.some((finding) => finding.requiresCanonAuthorization)) {
+      narrativeDecision = "needs_authorization";
+    }
+    for (const finding of agreements) {
+      const mapped = toEpisodeFinding(finding);
+      if (mapped) findings.push(mapped);
+    }
+    if (narrativeDecision === "approve" && findings.some((finding) => finding.severity === "error")) {
+      narrativeDecision = "reject";
+    }
+  }
+
   return {
     passed: !findings.some((finding) => finding.severity === "error"),
     findings,
     validatedAt: new Date().toISOString(),
+    ...(narrativeCanonVersion !== undefined
+      ? { narrativeCanonVersion, narrativeValidationLayers, narrativeDecision }
+      : {}),
   };
+}
+
+function actSummary(structure: StoryStructure): string {
+  const { act1, act2, act3 } = structure;
+  return [
+    act1.initialSituation,
+    act1.incitingIncident,
+    act2.turningPoint,
+    act3.climax,
+    act3.finalOutcome,
+  ].join(" ");
+}
+
+function toEpisodeFinding(finding: NarrativeFinding): EpisodeValidationFinding | null {
+  if (finding.severity === "INFO") return null;
+  return {
+    category: episodeCategory(finding.category),
+    severity: finding.severity === "ERROR" ? "error" : "warning",
+    code: finding.algorithm.slice(0, 80),
+    ...(finding.evidence.trim() ? { evidence: finding.evidence.slice(0, 400) } : {}),
+    ...(finding.sceneNumber ? { sceneNumber: finding.sceneNumber } : {}),
+    message: finding.explanation.slice(0, 600),
+  };
+}
+
+function episodeCategory(category: string): EpisodeValidationCategory {
+  if (category === "knowledge") return "knowledge";
+  if (category === "canon" || category === "world_rule" || category === "object" || category === "identity") return "canon";
+  if (category === "structural") return "structure";
+  return "continuity";
 }

@@ -12,6 +12,11 @@ import { isObjectId } from "@/lib/repositories/ownership";
 import { projectRepository } from "@/lib/repositories/projectRepository";
 import { storyRepository } from "@/lib/repositories/storyRepository";
 import { storyDraftRequestSchema } from "@/lib/validation/story";
+import { storyBibleRepository } from "@/lib/repositories/storyBibleRepository";
+import { narrativeCanonRepository } from "@/lib/repositories/narrativeCanonRepository";
+import { canonFromApprovedSources, prepareWorkingCanon, resolveWorkingCanon, type CanonPort } from "@/lib/domain/narrativeControl";
+import { validateEpisodeScreenplay } from "@/lib/domain/screenplayValidation";
+import type { StoryBibleSnapshot } from "@/lib/validation/storyBible";
 
 const OPEN = new Set(["queued", "processing"]);
 const MAX_ATTEMPTS = 3;
@@ -25,6 +30,10 @@ export function createStoryDraftService(deps = {
   stories: storyRepository,
   jobs: generationJobRepository,
   queueFactory: () => livePipelineDeps().queue,
+  bibles: storyBibleRepository as {
+    findApproved(clerkUserId: string, projectId: string): Promise<StoryBibleSnapshot | null>;
+  },
+  narrativeCanon: narrativeCanonRepository as CanonPort,
 }) {
   async function loadProject(actor: RequestAuth, projectId: string) {
     if (!isObjectId(projectId)) throw new StudioError("That project id is not valid", 400, "invalid_id");
@@ -117,6 +126,61 @@ export function createStoryDraftService(deps = {
       }
       if (draft.status === "failed") {
         throw new StudioError("A failed story draft cannot be approved", 409, "story_failed");
+      }
+      const bible = await deps.bibles.findApproved(actor.userId, projectId);
+      if (bible?.content?.canon && bible.content.world && bible.content.characters) {
+        const derived = canonFromApprovedSources({
+          projectId,
+          bible: bible.content,
+          bibleVersion: bible.version,
+        });
+        const canon = await prepareWorkingCanon({
+          clerkUserId: actor.userId,
+          projectId,
+          derived,
+          port: deps.narrativeCanon,
+        });
+        const validation = validateEpisodeScreenplay({
+          episodeNumber: 1,
+          seriesTitle: project.title,
+          story: { title: draft.title, synopsis: draft.synopsis, screenplay: draft.screenplay },
+          targetDurationSeconds: project.targetDurationSeconds,
+          bible: bible.content,
+          seasonPlan: null,
+          episodePlan: null,
+          ledger: null,
+          previousEpisodes: [],
+          canon,
+          structure: draft.structure,
+          sceneRange: project.sceneRange,
+          requireCanonCoverage: true,
+        });
+        if (!validation.passed || validation.narrativeCanonVersion === undefined) {
+          const error = validation.findings.find((finding) => finding.severity === "error");
+          throw new StudioError(
+            error?.message ?? "This draft was not validated against the current canon.",
+            409,
+            "story_invalid",
+          );
+        }
+        if (draft.sourceCanonVersion != null && canon.version > draft.sourceCanonVersion && validation.narrativeDecision === "reject") {
+          throw new StudioError("This draft was validated against an older canon.", 409, "story_invalid");
+        }
+        const committed = await resolveWorkingCanon({
+          clerkUserId: actor.userId,
+          projectId,
+          derived: canon,
+          port: deps.narrativeCanon,
+        });
+        log.info("story-draft", "canon committed on approval", {
+          projectId,
+          storyId: draft.id,
+          canonVersion: committed.version,
+          canonCommitted: committed.version !== canon.version || canon.version === 0,
+          artifactsStale: committed.version !== canon.version || canon.version === 0,
+        });
+      } else if (draft.validationFindings && !draft.validationFindings.passed) {
+        throw new StudioError("This draft did not pass canon validation.", 409, "story_invalid");
       }
       // Generation success is not approval: only a persisted, complete draft
       // that is awaiting approval may be accepted.

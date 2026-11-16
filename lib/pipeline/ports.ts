@@ -8,6 +8,7 @@ import type { EpisodeValidation } from "@/lib/validation/casna";
 import type { SceneEdit, SceneRecord } from "@/lib/validation/scene";
 import type { CharacterProfile } from "@/lib/validation/productionStages";
 import type { CasnaEpisodeContext } from "@/lib/pipeline/casnaContext";
+import type { CanonPort } from "@/lib/domain/narrativeControl";
 
 export type ProjectPort = {
   findOwned(clerkUserId: string, id: string): Promise<ProjectRecord | null>;
@@ -53,6 +54,7 @@ export type StoryPort = {
       expectedUpdatedAt?: string;
     }
   ): Promise<StoryRecord | null>;
+  recordCanonVersion?(clerkUserId: string, id: string, version: number): Promise<void>;
 };
 
 export type EpisodePort = {
@@ -117,6 +119,8 @@ export type PipelineDeps = {
   engines: EngineSet;
   /** CASNA: season plan, continuity ledger, and sequential episode gates. */
   casna?: CasnaPort;
+  /** Versioned narrative canon. Generation prepares it; approval commits it. */
+  narrativeCanon?: CanonPort;
   storyDraftEngine?: {
     run(job: JobRecord, project: ProjectRecord): Promise<Record<string, unknown>>;
   };

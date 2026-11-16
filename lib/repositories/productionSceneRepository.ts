@@ -54,6 +54,11 @@ export const productionSceneRepository = {
           storyId,
           ...scene,
           shotPlan: [],
+        },
+        $set: {
+          sourceCanonVersion: run.stageResults.story?.sourceCanonVersion ?? null,
+          canonStale: false,
+          canonStaleReason: "",
         } },
         { upsert: true, runValidators: true }
       );

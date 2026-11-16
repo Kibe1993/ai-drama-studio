@@ -52,7 +52,7 @@ function episodeDetail(n: number): EpisodeDetail {
     consequences: [`A consequence of episode ${n}.`],
     storyContribution: `Episode ${n} advances the season.`,
     endingOrCliffhanger: `Episode ${n} ends with Ada closer to the deed.`,
-    unresolvedThreads: [`A thread from episode ${n}.`],
+    unresolvedThreads: [`An unresolved thread from episode ${n}.`],
     continuityRequirements: `Next episode must respect episode ${n}.`,
     characterArcChanges: [],
     relationshipChanges: [],

@@ -2,6 +2,8 @@ import "server-only";
 import { StudioError } from "@/lib/http/errors";
 import { timelineRepository } from "@/lib/repositories/timelineRepository";
 import { renderJobRepository } from "@/lib/repositories/renderJobRepository";
+import { narrativeCanonRepository } from "@/lib/repositories/narrativeCanonRepository";
+import { canonProvenance } from "@/lib/domain/narrativeControl/staleness";
 import { generationJobRepository } from "@/lib/repositories/generationJobRepository";
 import { episodeRepository } from "@/lib/repositories/episodeRepository";
 import { getPreset } from "@/lib/providers/media/ffmpeg/presets";
@@ -43,6 +45,9 @@ export function createRenderService(enqueue?: EnqueueFn) {
       }
 
       const idempotencyKey = `render:${timelineId}:${presetId}`;
+      const provenance = canonProvenance(
+        await narrativeCanonRepository.latest(actor.userId, timeline.projectId).then((state) => state?.version ?? null),
+      );
       const renderJob = await renderJobRepository.create(actor.userId, {
         projectId: timeline.projectId,
         episodeId: timeline.episodeId,
@@ -65,6 +70,7 @@ export function createRenderService(enqueue?: EnqueueFn) {
         bullJobId: null,
         startedAt: null,
         completedAt: null,
+        ...provenance,
       });
 
       const job = await generationJobRepository.insert({

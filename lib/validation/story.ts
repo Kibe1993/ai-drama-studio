@@ -118,6 +118,10 @@ export type StoryRecord = GeneratedStory & {
   canonSummary?: EpisodeCanonSummary | null;
   /** CASNA Stage H: bounded targeted-repair attempts and their outcomes. */
   repairHistory?: SceneRepairRecord[];
+  /** Canon version this screenplay was validated against. */
+  sourceCanonVersion?: number | null;
+  canonStale?: boolean;
+  canonStaleReason?: string;
   createdAt: string;
   updatedAt: string;
 };

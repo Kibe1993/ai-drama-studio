@@ -19,6 +19,7 @@ import { createStoryProvider } from "@/lib/providers/llm/registry";
 import { createRedisConnection } from "@/lib/pipeline/redis";
 import { createStoryBibleEngine } from "@/lib/pipeline/storyBibleEngine";
 import { createStoryDraftEngine } from "@/lib/pipeline/storyDraftEngine";
+import { narrativeCanonRepository } from "@/lib/repositories/narrativeCanonRepository";
 import type { JobQueue } from "@/lib/pipeline/types";
 
 function unavailableQueue(): JobQueue {
@@ -59,13 +60,14 @@ function buildLivePipelineDeps(): PipelineDeps {
       load: casnaContext.load,
       onEpisodeApproved: continuityService.onEpisodeApproved,
     },
+    narrativeCanon: narrativeCanonRepository,
     queue: connection ? createBullQueue(connection) : unavailableQueue(),
     storyDraftEngine: createStoryDraftEngine(llm, storyRepository, async (job, message) => {
       const current = await generationJobRepository.findById(job.id);
       if (!current || current.status !== "processing") return;
       current.progress = { stage: current.jobType, message };
       await generationJobRepository.save(current);
-    }),
+    }, narrativeCanonRepository, { bible: storyBibleRepository }),
     storyBibleEngine: createStoryBibleEngine(llm, storyBibleRepository, async (job, message, output) => {
       const current = await generationJobRepository.findById(job.id);
       if (!current || current.status !== "processing") return;
@@ -94,6 +96,7 @@ function buildLivePipelineDeps(): PipelineDeps {
       continuity: continuityRepository,
       casna: casnaContext,
       semanticCritique: /^(1|true|yes)$/i.test(process.env.CASNA_SEMANTIC_VALIDATION?.trim() ?? ""),
+      narrativeCanon: narrativeCanonRepository,
       onStoryStatus: async (job, message) => {
         const current = await generationJobRepository.findById(job.id);
         if (!current || current.status !== "processing") return;

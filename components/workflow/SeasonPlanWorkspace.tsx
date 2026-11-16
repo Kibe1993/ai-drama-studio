@@ -73,6 +73,9 @@ export function SeasonPlanWorkspace({ project }: { project: Project }) {
 
   const validationFindings = plan?.validationFindings;
   const hasValidationErrors = Boolean(validationFindings && !validationFindings.passed);
+  const hasValidationWarnings = Boolean(
+    validationFindings && validationFindings.passed && validationFindings.findings.length > 0,
+  );
 
   return (
     <div className="mt-6 grid gap-6">
@@ -216,9 +219,15 @@ export function SeasonPlanWorkspace({ project }: { project: Project }) {
             </Button>
           ) : null}
 
+          {plan && plan.status === "awaiting_approval" && hasValidationWarnings ? (
+            <p className="text-sm text-[#dfc18a]">
+              Validation produced advisory findings. Review them below, then approve if acceptable.
+            </p>
+          ) : null}
+
           {plan && plan.status === "awaiting_approval" && hasValidationErrors ? (
             <p className="text-sm text-[#dfc18a]">
-              Resolve validation errors before approving. Edit the plan, then save and re-validate.
+              Resolve blocking validation errors before approving. Edit the plan, then save and re-validate.
             </p>
           ) : null}
 

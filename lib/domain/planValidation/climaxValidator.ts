@@ -1,7 +1,9 @@
 import type { SeasonPlan } from "@/lib/validation/seasonPlan";
 import type { StoryBibleContent } from "@/lib/validation/storyBible";
 import type { RichValidationFinding } from "@/lib/validation/seasonPlanValidation";
+import type { CanonicalEntityRegistry } from "@/lib/validation/canonicalRegistry";
 import { makeFindingId } from "@/lib/validation/seasonPlanValidation";
+import { getThreadLifecycle } from "@/lib/domain/canonicalRegistry";
 
 function normalize(text: string): string {
   return text.toLowerCase().trim().replace(/\s+/g, " ");
@@ -28,6 +30,14 @@ function jaccardSimilarity(a: string, b: string): number {
   return intersection / (setA.size + setB.size - intersection);
 }
 
+function shareKeywords(a: string, b: string): boolean {
+  const wordsA = new Set(normalize(a).split(/\s+/).filter((w) => w.length > 5));
+  const wordsB = new Set(normalize(b).split(/\s+/).filter((w) => w.length > 5));
+  let shared = 0;
+  for (const w of wordsA) if (wordsB.has(w)) shared += 1;
+  return shared >= 2;
+}
+
 export interface SeasonNarrativeContract {
   centralDramaticQuestion: string;
   mainConflict: string;
@@ -40,8 +50,23 @@ export interface SeasonNarrativeContract {
   futureSeasonHooks: string[];
 }
 
-export function deriveNarrativeContract(plan: SeasonPlan): SeasonNarrativeContract {
+export function deriveNarrativeContract(
+  plan: SeasonPlan,
+  registry?: CanonicalEntityRegistry,
+): SeasonNarrativeContract {
   const finale = plan.episodeProgression[plan.episodeProgression.length - 1];
+
+  const futureSeasonHooks: string[] = [];
+  if (registry) {
+    for (const entity of registry.entities) {
+      if (entity.type !== "thread") continue;
+      const lc = getThreadLifecycle(registry, entity.canonicalId);
+      if (lc?.isIntentionalCarryForward || lc?.threadStatus === "carried_forward") {
+        futureSeasonHooks.push(entity.description);
+      }
+    }
+  }
+
   return {
     centralDramaticQuestion: plan.centralConflictOrMystery,
     mainConflict: plan.centralConflictOrMystery,
@@ -53,7 +78,7 @@ export function deriveNarrativeContract(plan: SeasonPlan): SeasonNarrativeContra
     majorRevelations: plan.importantRevelations,
     requiredFinaleEvents: finale?.importantEvents ?? [],
     deliberatelyUnresolvedQuestions: plan.unresolvedQuestions,
-    futureSeasonHooks: [],
+    futureSeasonHooks,
   };
 }
 
@@ -64,12 +89,13 @@ const RESOLUTION_INDICATORS = /\b(resolve|conclud|accept|complet|finish|end|clos
 export function validateClimaxAndResolution(
   plan: SeasonPlan,
   _bible: StoryBibleContent | null,
+  registry?: CanonicalEntityRegistry,
 ): RichValidationFinding[] {
   const findings: RichValidationFinding[] = [];
   const episodes = plan.episodeProgression;
   if (episodes.length < 2) return findings;
 
-  const contract = deriveNarrativeContract(plan);
+  const contract = deriveNarrativeContract(plan, registry);
   const finale = episodes[episodes.length - 1]!;
   const finaleText = normalize(
     finale.centralConflict + " " +
@@ -185,26 +211,39 @@ export function validateClimaxAndResolution(
       .some((w) => normalize(plan.centralConflictOrMystery).includes(w));
 
   if (!finaleAddressesConflict && episodes.length > 2) {
-    findings.push({
-      findingId: makeFindingId("climax"),
-      category: "climax_resolution",
-      severity: "high",
-      episodeNumber: finale.episodeNumber,
-      message: "The finale does not clearly address the season's central conflict or mystery.",
-      explanation: `Central conflict: "${plan.centralConflictOrMystery.slice(0, 80)}"`,
-      recommendation: "Ensure the finale confronts and resolves the central conflict.",
-      requiresHumanReview: true,
-      source: "deterministic",
-    });
+    const centralConflictUnresolved = registry
+      ? registry.entities.some((e) => {
+          if (e.type !== "thread") return false;
+          const lc = getThreadLifecycle(registry, e.canonicalId);
+          if (!lc) return false;
+          const matchesCentral = normalize(e.description).includes(normalize(plan.centralConflictOrMystery).slice(0, 30)) ||
+            shareKeywords(plan.centralConflictOrMystery, e.description);
+          return matchesCentral && lc.threadStatus !== "resolved" && !lc.isIntentionalCarryForward;
+        })
+      : true;
+    if (centralConflictUnresolved) {
+      findings.push({
+        findingId: makeFindingId("climax"),
+        category: "climax_resolution",
+        severity: "high",
+        episodeNumber: finale.episodeNumber,
+        message: "The finale does not clearly address the season's central conflict or mystery.",
+        explanation: `Central conflict: "${plan.centralConflictOrMystery.slice(0, 80)}"` +
+          (registry ? " The central conflict is not marked as resolved or intentionally carried forward." : ""),
+        recommendation: "Ensure the finale confronts and resolves the central conflict.",
+        requiresHumanReview: true,
+        source: "deterministic",
+      });
+    }
   }
 
-  if (episodes.length > 2 && plan.unresolvedQuestions.length === 0) {
+  if (episodes.length > 2 && plan.unresolvedQuestions.length === 0 && plan.setupAndPayoff.length === 0) {
     findings.push({
       findingId: makeFindingId("climax"),
       category: "narrative_integrity",
       severity: "medium",
-      message: "A multi-episode season should have unresolved questions to sustain engagement.",
-      recommendation: "Add unresolved questions or mark some threads as deliberately open.",
+      message: "A multi-episode season should have unresolved questions or setup/payoff pairs to sustain engagement.",
+      recommendation: "Add unresolved questions or describe key setup-payoff pairs.",
       requiresHumanReview: false,
       source: "deterministic",
     });

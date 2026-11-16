@@ -1,6 +1,8 @@
 import type { SeasonPlan } from "@/lib/validation/seasonPlan";
 import type { RichValidationFinding } from "@/lib/validation/seasonPlanValidation";
+import type { CanonicalEntityRegistry } from "@/lib/validation/canonicalRegistry";
 import { makeFindingId } from "@/lib/validation/seasonPlanValidation";
+import { getThreadLifecycle } from "@/lib/domain/canonicalRegistry";
 
 function normalize(text: string): string {
   return text.toLowerCase().trim().replace(/\s+/g, " ");
@@ -85,7 +87,7 @@ export function extractStoryThreads(plan: SeasonPlan): StoryThread[] {
         description: thread,
         introducedInEpisode: ep.episodeNumber,
         resolvedInEpisode: null,
-        isDeliberatelyUnresolved: isDeliberatelyUnresolved(thread) || true,
+        isDeliberatelyUnresolved: isDeliberatelyUnresolved(thread),
         abandonmentReason: isAbandoned(thread) ? thread : null,
       });
     }
@@ -122,7 +124,10 @@ export function extractStoryThreads(plan: SeasonPlan): StoryThread[] {
   return threads;
 }
 
-export function validateSetupPayoff(plan: SeasonPlan): RichValidationFinding[] {
+export function validateSetupPayoff(
+  plan: SeasonPlan,
+  registry?: CanonicalEntityRegistry,
+): RichValidationFinding[] {
   const findings: RichValidationFinding[] = [];
   const threads = extractStoryThreads(plan);
 
@@ -157,13 +162,21 @@ export function validateSetupPayoff(plan: SeasonPlan): RichValidationFinding[] {
 
     if (!hasPayoff && !hasLaterMention && setup.introducedInEpisode > 0) {
       const isMajor = setup.type === "promise" || setup.type === "foreshadowing";
+      const sourceEpisode = registry
+        ? (getThreadLifecycle(registry, setup.description)?.setupEpisodes[0] ?? setup.introducedInEpisode)
+        : setup.introducedInEpisode;
+      const destEpisode = registry
+        ? (getThreadLifecycle(registry, setup.description)?.payoffEpisodes[0] ?? null)
+        : null;
       findings.push({
         findingId: makeFindingId("sp"),
         category: "setup_payoff",
         severity: isMajor ? "high" : "medium",
-        episodeNumber: setup.introducedInEpisode,
-        message: `A ${setup.type} in episode ${setup.introducedInEpisode} has no payoff or resolution: "${setup.description.slice(0, 80)}".`,
-        explanation: "Major setups should have a payoff, a planned future payoff, or an explicit unresolved status.",
+        episodeNumber: sourceEpisode,
+        message: `A ${setup.type} in episode ${sourceEpisode} has no payoff or resolution: "${setup.description.slice(0, 80)}".`,
+        explanation: destEpisode
+          ? `Payoff expected in episode ${destEpisode}.`
+          : "Major setups should have a payoff, a planned future payoff, or an explicit unresolved status.",
         recommendation: "Add a payoff in a later episode or mark the thread as deliberately unresolved.",
         requiresHumanReview: isMajor,
         source: "deterministic",
@@ -183,13 +196,19 @@ export function validateSetupPayoff(plan: SeasonPlan): RichValidationFinding[] {
       shareKeywords(q, mystery.description)
     );
 
-    if (!hasResolution && !isCarriedForward && mystery.introducedInEpisode > 0) {
+    const threadLc = registry ? getThreadLifecycle(registry, mystery.description) : null;
+    const isIntentionalCarryForward = threadLc?.isIntentionalCarryForward ?? false;
+    const threadStatus = threadLc?.threadStatus;
+    const isResolvedInLedger = threadStatus === "resolved";
+
+    if (!hasResolution && !isCarriedForward && !isIntentionalCarryForward && !isResolvedInLedger && mystery.introducedInEpisode > 0) {
+      const sourceEpisode = threadLc?.setupEpisodes[0] ?? mystery.introducedInEpisode;
       findings.push({
         findingId: makeFindingId("sp"),
         category: "setup_payoff",
         severity: "high",
-        episodeNumber: mystery.introducedInEpisode,
-        message: `A mystery introduced in episode ${mystery.introducedInEpisode} is never resolved or deliberately carried forward: "${mystery.description.slice(0, 80)}".`,
+        episodeNumber: sourceEpisode,
+        message: `A mystery introduced in episode ${sourceEpisode} is never resolved or deliberately carried forward: "${mystery.description.slice(0, 80)}".`,
         explanation: "Major mysteries should be resolved, explicitly carried forward, or marked as intentionally unresolved.",
         recommendation: "Resolve the mystery in a later episode or add it to unresolvedQuestions with a reason.",
         requiresHumanReview: true,
@@ -204,11 +223,14 @@ export function validateSetupPayoff(plan: SeasonPlan): RichValidationFinding[] {
       shareKeywords(s.description, payoff.description)
     );
     if (!hasSetup) {
+      const destEpisode = registry
+        ? (getThreadLifecycle(registry, payoff.description)?.payoffEpisodes[0] ?? payoff.resolvedInEpisode)
+        : payoff.resolvedInEpisode;
       findings.push({
         findingId: makeFindingId("sp"),
         category: "setup_payoff",
         severity: "medium",
-        episodeNumber: payoff.resolvedInEpisode ?? undefined,
+        episodeNumber: destEpisode ?? undefined,
         message: `A payoff lacks sufficient setup: "${payoff.description.slice(0, 80)}".`,
         explanation: "Payoffs should reference an earlier setup or foreshadowing.",
         recommendation: "Add setup in an earlier episode.",

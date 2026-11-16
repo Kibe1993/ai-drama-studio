@@ -31,6 +31,9 @@ export const audioSegmentSchema = z.object({
   error: z.string().trim().max(500).nullable().default(null),
   attempts: z.number().int().min(0).default(0),
   idempotencyKey: z.string().trim().min(8).max(180),
+  sourceCanonVersion: z.number().int().nonnegative().nullable().optional(),
+  canonStale: z.boolean().optional(),
+  canonStaleReason: z.string().max(600).optional(),
 });
 
 export type AudioSegmentInput = z.infer<typeof audioSegmentSchema>;

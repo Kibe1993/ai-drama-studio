@@ -33,6 +33,11 @@ export const continuityRepository = {
             normalizedName: normalize(character.name), name: character.name, profile: character,
             status: "pending_review",
           },
+          $set: {
+            sourceCanonVersion: run.stageResults.story?.sourceCanonVersion ?? null,
+            canonStale: false,
+            canonStaleReason: "",
+          },
           $addToSet: { appearances: appearance(run, storyId) },
         },
         { upsert: true, runValidators: true }

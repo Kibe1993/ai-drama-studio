@@ -20,6 +20,9 @@ const RenderJobSchema = new Schema(
     bullJobId: { type: String, default: null, maxlength: 120 },
     startedAt: { type: String, default: null },
     completedAt: { type: String, default: null },
+    sourceCanonVersion: { type: Number, default: null },
+    canonStale: { type: Boolean, default: false },
+    canonStaleReason: { type: String, default: "", maxlength: 600 },
   },
   { timestamps: true, collection: "renderJobs" }
 );

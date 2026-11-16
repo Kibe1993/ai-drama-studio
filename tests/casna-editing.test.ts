@@ -78,7 +78,7 @@ function run(): RunRecord {
   };
 }
 
-function screenplay(count = 5): ScreenplayScene[] {
+function screenplay(count = 6): ScreenplayScene[] {
   return Array.from({ length: count }, (_, index) => ({
     sceneNumber: index + 1,
     heading: `INT. HOUSE ${index + 1} - NIGHT`,
@@ -301,14 +301,14 @@ describe("manual screenplay editing", () => {
     expect(updates[0]!.validationFindings).toMatchObject({ passed: true });
   });
 
-  it("saves an edit that still fails validation so the creator can see why", async () => {
+  it("rejects an invalid edit and keeps the previous screenplay", async () => {
     const edited = screenplay();
     edited[2]!.dialogue = [{ characterName: "The Stranger", line: "I know where the deed is." }];
     const { service, updates } = editingHarness();
-    const result = await service.updateStory(owner, projectId, storyId, { screenplay: edited });
-    expect(updates).toHaveLength(1);
-    expect(result.story.validationFindings).toMatchObject({ passed: false });
-    expect(result.story.validationFindings!.findings.some((finding) => finding.category === "canon")).toBe(true);
+    await expect(
+      service.updateStory(owner, projectId, storyId, { screenplay: edited })
+    ).rejects.toMatchObject({ status: 409, code: "story_invalid" });
+    expect(updates).toHaveLength(0);
   });
 
   it("refuses to edit an approved story", async () => {
@@ -463,7 +463,7 @@ describe("scene repair utilities", () => {
       { ...original[2]!, action: "Ada hides the deed before Elias enters." },
     ];
     const merged = mergeSceneRepair(original, repaired, [3])!;
-    expect(merged).toHaveLength(5);
+    expect(merged).toHaveLength(original.length);
     expect(merged[2]!.action).toContain("hides the deed");
     expect(merged[0]!.action).toBe(original[0]!.action);
   });

@@ -1,7 +1,9 @@
 import type { SeasonPlan, EpisodePlanItem } from "@/lib/validation/seasonPlan";
 import type { StoryBibleContent } from "@/lib/validation/storyBible";
 import type { RichValidationFinding } from "@/lib/validation/seasonPlanValidation";
+import type { CanonicalEntityRegistry } from "@/lib/validation/canonicalRegistry";
 import { makeFindingId } from "@/lib/validation/seasonPlanValidation";
+import { resolveCanonicalId, isIntroducedBy, hasAppearedBy, hasSupportedExplanation } from "@/lib/domain/canonicalRegistry";
 
 function normalize(text: string): string {
   return text.toLowerCase().trim().replace(/\s+/g, " ");
@@ -149,6 +151,7 @@ export function validateSeasonStructure(
 export function validateReferenceIntegrity(
   plan: SeasonPlan,
   bible: StoryBibleContent | null,
+  registry?: CanonicalEntityRegistry,
 ): RichValidationFinding[] {
   const findings: RichValidationFinding[] = [];
   if (!bible) return findings;
@@ -183,8 +186,16 @@ export function validateReferenceIntegrity(
     for (const arc of ep.characterArcChanges) {
       const normName = normalize(arc.name);
       if (!bibleCharNames.has(normName)) {
-        const isIntroduced = ep.characterDevelopment.toLowerCase().includes("introduce") &&
-          allText.toLowerCase().includes(normName);
+        let isIntroduced = false;
+        if (registry) {
+          const canonicalId = resolveCanonicalId(registry, arc.name, "character");
+          if (canonicalId) {
+            isIntroduced = isIntroducedBy(registry, canonicalId, ep.episodeNumber);
+          }
+        } else {
+          isIntroduced = ep.characterDevelopment.toLowerCase().includes("introduce") &&
+            allText.toLowerCase().includes(normName);
+        }
         if (!isIntroduced) {
           findings.push({
             findingId: makeFindingId("ref"),
@@ -201,6 +212,29 @@ export function validateReferenceIntegrity(
             source: "deterministic",
           });
         }
+      } else if (registry) {
+        const canonicalId = resolveCanonicalId(registry, arc.name, "character");
+        if (canonicalId && !hasAppearedBy(registry, canonicalId, ep.episodeNumber)) {
+          if (!hasSupportedExplanation(allText)) {
+            const firstApp = registry.lifecycles.find((lc) => lc.canonicalId === canonicalId)?.firstAppearanceEpisode;
+            if (firstApp && firstApp > ep.episodeNumber) {
+              findings.push({
+                findingId: makeFindingId("ref"),
+                category: "unknown_entity_reference",
+                severity: "medium",
+                episodeNumber: ep.episodeNumber,
+                affectedField: "characterArcChanges",
+                message: `Episode ${ep.episodeNumber} references character "${arc.name}" before their planned introduction in episode ${firstApp}.`,
+                canonIssueType: "UNKNOWN_ENTITY_REFERENCE",
+                explanation: `The character "${arc.name}" is first introduced in episode ${firstApp} but is referenced earlier without a supported explanation (flashback, foreshadowing, etc.).`,
+                whyItMatters: "Pre-introduction references without narrative justification break continuity.",
+                recommendation: `Add a flashback, foreshadowing, or other explicit explanation for the early reference.`,
+                requiresHumanReview: false,
+                source: "deterministic",
+              });
+            }
+          }
+        }
       }
     }
 
@@ -208,41 +242,67 @@ export function validateReferenceIntegrity(
       const normFrom = normalize(rel.from);
       const normTo = normalize(rel.to);
       if (!bibleCharNames.has(normFrom)) {
-        findings.push({
-          findingId: makeFindingId("ref"),
-          category: "unknown_entity_reference",
-          severity: "high",
-          episodeNumber: ep.episodeNumber,
-          affectedField: "relationshipChanges",
-          message: `Episode ${ep.episodeNumber} relationship change references unknown character "${rel.from}".`,
-          canonIssueType: "UNKNOWN_ENTITY_REFERENCE",
-          recommendation: `Use an established character name from the Story Bible.`,
-          requiresHumanReview: true,
-          source: "deterministic",
-        });
+        let isIntroduced = false;
+        if (registry) {
+          const canonicalId = resolveCanonicalId(registry, rel.from, "character");
+          if (canonicalId) {
+            isIntroduced = isIntroducedBy(registry, canonicalId, ep.episodeNumber);
+          }
+        }
+        if (!isIntroduced) {
+          findings.push({
+            findingId: makeFindingId("ref"),
+            category: "unknown_entity_reference",
+            severity: "high",
+            episodeNumber: ep.episodeNumber,
+            affectedField: "relationshipChanges",
+            message: `Episode ${ep.episodeNumber} relationship change references unknown character "${rel.from}".`,
+            canonIssueType: "UNKNOWN_ENTITY_REFERENCE",
+            recommendation: `Use an established character name from the Story Bible.`,
+            requiresHumanReview: true,
+            source: "deterministic",
+          });
+        }
       }
       if (!bibleCharNames.has(normTo)) {
-        findings.push({
-          findingId: makeFindingId("ref"),
-          category: "unknown_entity_reference",
-          severity: "high",
-          episodeNumber: ep.episodeNumber,
-          affectedField: "relationshipChanges",
-          message: `Episode ${ep.episodeNumber} relationship change references unknown character "${rel.to}".`,
-          canonIssueType: "UNKNOWN_ENTITY_REFERENCE",
-          recommendation: `Use an established character name from the Story Bible.`,
-          requiresHumanReview: true,
-          source: "deterministic",
-        });
+        let isIntroduced = false;
+        if (registry) {
+          const canonicalId = resolveCanonicalId(registry, rel.to, "character");
+          if (canonicalId) {
+            isIntroduced = isIntroducedBy(registry, canonicalId, ep.episodeNumber);
+          }
+        }
+        if (!isIntroduced) {
+          findings.push({
+            findingId: makeFindingId("ref"),
+            category: "unknown_entity_reference",
+            severity: "high",
+            episodeNumber: ep.episodeNumber,
+            affectedField: "relationshipChanges",
+            message: `Episode ${ep.episodeNumber} relationship change references unknown character "${rel.to}".`,
+            canonIssueType: "UNKNOWN_ENTITY_REFERENCE",
+            recommendation: `Use an established character name from the Story Bible.`,
+            requiresHumanReview: true,
+            source: "deterministic",
+          });
+        }
       }
     }
 
     for (const loc of ep.locationChanges) {
       const normName = normalize(loc.name);
       if (!bibleLocationNames.has(normName)) {
-        const isIntroduced = loc.change.toLowerCase().includes("introduce") ||
-          loc.change.toLowerCase().includes("discover") ||
-          loc.change.toLowerCase().includes("new");
+        let isIntroduced = false;
+        if (registry) {
+          const canonicalId = resolveCanonicalId(registry, loc.name, "location");
+          if (canonicalId) {
+            isIntroduced = isIntroducedBy(registry, canonicalId, ep.episodeNumber);
+          }
+        } else {
+          isIntroduced = loc.change.toLowerCase().includes("introduce") ||
+            loc.change.toLowerCase().includes("discover") ||
+            loc.change.toLowerCase().includes("new");
+        }
         if (!isIntroduced) {
           findings.push({
             findingId: makeFindingId("ref"),
@@ -256,6 +316,29 @@ export function validateReferenceIntegrity(
             requiresHumanReview: false,
             source: "deterministic",
           });
+        }
+      } else if (registry) {
+        const canonicalId = resolveCanonicalId(registry, loc.name, "location");
+        if (canonicalId && !hasAppearedBy(registry, canonicalId, ep.episodeNumber)) {
+          if (!hasSupportedExplanation(allText)) {
+            const firstApp = registry.lifecycles.find((lc) => lc.canonicalId === canonicalId)?.firstAppearanceEpisode;
+            if (firstApp && firstApp > ep.episodeNumber) {
+              findings.push({
+                findingId: makeFindingId("ref"),
+                category: "unknown_entity_reference",
+                severity: "medium",
+                episodeNumber: ep.episodeNumber,
+                affectedField: "locationChanges",
+                message: `Episode ${ep.episodeNumber} visits location "${loc.name}" before its planned introduction in episode ${firstApp}.`,
+                canonIssueType: "UNKNOWN_ENTITY_REFERENCE",
+                explanation: `The location "${loc.name}" is first introduced in episode ${firstApp} but is visited earlier without a supported explanation.`,
+                whyItMatters: "Pre-introduction visits without narrative justification break continuity.",
+                recommendation: `Add a flashback or other explicit explanation for the early visit.`,
+                requiresHumanReview: false,
+                source: "deterministic",
+              });
+            }
+          }
         }
       }
     }

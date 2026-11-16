@@ -22,6 +22,10 @@ export type StoryPrompt = {
   aspectRatio: string;
   productionType?: string;
   continuityContext?: string;
+  /** Application-owned narrative constraints for this generation. */
+  narrativeAuthority?: string;
+  /** Optional episode scene policy. Duration supplies the range when omitted. */
+  sceneRange?: { min: number; max: number } | null;
   /** CASNA Stage G: the approved Season Plan for this series. */
   seasonPlan?: unknown | null;
   /** CASNA Stage F/G: the episode-specific plan this screenplay must follow. */

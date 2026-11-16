@@ -1,6 +1,6 @@
 import type { StoryPrompt } from "@/lib/providers/llm/types";
 import { PRODUCTION_TYPES } from "@/lib/domain/projectCatalog";
-import { storySceneRange } from "@/lib/providers/llm/budget";
+import { resolveSceneRange, type SceneRange } from "@/lib/providers/llm/budget";
 
 export function storySystemPrompt(): string {
   return [
@@ -18,9 +18,9 @@ export function storySystemPrompt(): string {
  * Derive a concrete scene-count guidance range from the target duration.
  * The range is shared with validation so the prompt and the pacing gate agree.
  */
-export function sceneCountGuidance(targetDurationSeconds: number): string {
+export function sceneCountGuidance(targetDurationSeconds: number, sceneRange?: SceneRange | null): string {
   const minutes = targetDurationSeconds / 60;
-  const { min, max } = storySceneRange(targetDurationSeconds);
+  const { min, max } = resolveSceneRange(targetDurationSeconds, sceneRange);
   return `Write ${min}–${max} screenplay scenes to fill the requested ${Math.round(minutes)}-minute duration. Never produce only one scene unless the episode is under 60 seconds and the story is already complete.`;
 }
 
@@ -39,9 +39,12 @@ export function storyUserPrompt(input: StoryPrompt): string {
     `Aspect ratio: ${input.aspectRatio}`,
     `Target duration: ${input.targetDurationSeconds} seconds, about ${minutes} minute${minutes === 1 ? "" : "s"}.`,
     "The requested target duration is authoritative, including targets longer than three minutes.",
-    sceneCountGuidance(input.targetDurationSeconds),
+    sceneCountGuidance(input.targetDurationSeconds, input.sceneRange),
     ...(category.id === "documentary_educational"
       ? ["For documentary-style or educational output, do not invent factual claims, quotations, sources, or historical details. Mark claims that require research as requiring verification; this application does not yet provide a research-verification stage."]
+      : []),
+    ...(input.narrativeAuthority?.trim()
+      ? [input.narrativeAuthority.trim()]
       : []),
     ...(input.continuityContext?.trim()
       ? ["Approved Story Bible context (follow these established facts and boundaries):", input.continuityContext.trim()]

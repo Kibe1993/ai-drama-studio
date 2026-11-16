@@ -5,13 +5,17 @@ import { StudioError } from "@/lib/http/errors";
 import { log } from "@/lib/log";
 import { isObjectId } from "@/lib/repositories/ownership";
 import { validateEpisodeScreenplay } from "@/lib/domain/screenplayValidation";
+import { canonFromApprovedSources, prepareWorkingCanon, resolveWorkingCanon } from "@/lib/domain/narrativeControl";
+import type { StoryBibleContent } from "@/lib/validation/storyBible";
+import type { CanonState } from "@/lib/validation/narrativeControl";
 import { screenplayEditSchema } from "@/lib/validation/story";
 import { enqueueForRun } from "@/lib/pipeline/processJob";
 import { sceneHasStoredVideo } from "@/lib/pipeline/mediaEvidence";
-import { minimumScenesForDuration } from "@/lib/providers/llm/budget";
+import { resolveSceneRange } from "@/lib/providers/llm/budget";
 import type { PipelineDeps } from "@/lib/pipeline/ports";
 import type { JobRecord, RunRecord } from "@/lib/pipeline/types";
 import type { StoryRecord } from "@/lib/validation/story";
+import type { EpisodeValidation } from "@/lib/validation/casna";
 
 const ACTIVE = new Set(["pending", "running", "waiting_for_approval"]);
 
@@ -263,10 +267,24 @@ export function createPipelineService(deps: PipelineDeps) {
       const project = await deps.projects.findOwned(actor.userId, projectId);
       if (!project) throw new StudioError("Project not found", 404, "not_found");
       const targetSeconds = run.episode?.targetDurationSeconds ?? project.targetDurationSeconds;
-      const minimum = minimumScenesForDuration(targetSeconds);
-      if (story.screenplay.length < minimum) {
+      const enforced = await enforceStoryCanon(deps, actor.userId, projectId, story, {
+        episodeNumber: run.episode?.number ?? 1,
+        targetDurationSeconds: targetSeconds,
+        sceneRange: project.sceneRange,
+        seriesTitle: project.title,
+      });
+      if (enforced && !enforced.passed) {
+        const error = enforced.findings.find((finding) => finding.severity === "error");
         throw new StudioError(
-          `This story has ${story.screenplay.length} screenplay scene${story.screenplay.length === 1 ? "" : "s"} but a ${targetSeconds}-second episode needs at least ${minimum}. Generate the episode again before approving.`,
+          error?.message ?? "This screenplay did not pass canon validation. Regenerate it before approving.",
+          409,
+          "story_invalid",
+        );
+      }
+      const range = resolveSceneRange(targetSeconds, project.sceneRange);
+      if (story.screenplay.length < range.min || story.screenplay.length > range.max) {
+        throw new StudioError(
+          `This story has ${story.screenplay.length} screenplay scene${story.screenplay.length === 1 ? "" : "s"} but a ${targetSeconds}-second episode needs ${range.min} to ${range.max}. Generate the episode again before approving.`,
           409,
           "story_incomplete"
         );
@@ -309,11 +327,14 @@ export function createPipelineService(deps: PipelineDeps) {
         );
       }
       let validationFindings = story.validationFindings ?? null;
+      const project = await deps.projects.findOwned(actor.userId, projectId);
+      const bibleSnapshot = run.episode
+        ? run.episode.baseSnapshotVersion > 0 && deps.bibles?.findApprovedVersion
+          ? await deps.bibles.findApprovedVersion(actor.userId, projectId, run.episode.baseSnapshotVersion)
+          : (await deps.bibles?.findApproved?.(actor.userId, projectId)) ?? null
+        : null;
+      const canon = await workingCanonFor(deps, actor.userId, projectId, bibleSnapshot?.content ?? null, bibleSnapshot?.version ?? 0);
       if (deps.casna && run.episode) {
-        const bibleSnapshot =
-          run.episode.baseSnapshotVersion > 0 && deps.bibles?.findApprovedVersion
-            ? await deps.bibles.findApprovedVersion(actor.userId, projectId, run.episode.baseSnapshotVersion)
-            : (await deps.bibles?.findApproved?.(actor.userId, projectId)) ?? null;
         const context = await deps.casna.load({
           clerkUserId: actor.userId,
           projectId,
@@ -324,7 +345,7 @@ export function createPipelineService(deps: PipelineDeps) {
         });
         validationFindings = validateEpisodeScreenplay({
           episodeNumber: run.episode.number,
-          seriesTitle: bibleSnapshot?.content?.identity.title ?? "the series",
+          seriesTitle: bibleSnapshot?.content?.identity.title ?? project?.title ?? "the series",
           story: {
             title: parsed.data.title ?? story.title,
             synopsis: parsed.data.synopsis ?? story.synopsis,
@@ -336,7 +357,48 @@ export function createPipelineService(deps: PipelineDeps) {
           episodePlan: context.episodePlan,
           ledger: context.ledger,
           previousEpisodes: context.previousEpisodes,
+          canon,
+          structure: story.structure,
+          sceneRange: project?.sceneRange,
         });
+      } else if (canon && run.episode) {
+        validationFindings = validateEpisodeScreenplay({
+          episodeNumber: run.episode.number,
+          seriesTitle: project?.title ?? "the series",
+          story: {
+            title: parsed.data.title ?? story.title,
+            synopsis: parsed.data.synopsis ?? story.synopsis,
+            screenplay: parsed.data.screenplay,
+          },
+          targetDurationSeconds: run.episode.targetDurationSeconds,
+          bible: bibleSnapshot?.content ?? null,
+          seasonPlan: null,
+          episodePlan: null,
+          ledger: null,
+          previousEpisodes: [],
+          canon,
+          structure: story.structure,
+          sceneRange: project?.sceneRange,
+        });
+      } else if (!validationFindings || validationFindings.passed) {
+        validationFindings = {
+          passed: false,
+          findings: [{
+            category: "canon",
+            severity: "error",
+            code: "canon_unavailable",
+            message: "Narrative canon was not loaded, so this screenplay cannot be marked valid.",
+          }],
+          validatedAt: new Date().toISOString(),
+        };
+      }
+      if (!validationFindings.passed) {
+        const error = validationFindings.findings.find((finding) => finding.severity === "error");
+        throw new StudioError(
+          error?.message ?? "This screenplay conflicts with approved canon, so the previous version was kept.",
+          409,
+          "story_invalid",
+        );
       }
       if (!deps.stories.updateScreenplay) {
         throw new StudioError("Screenplay editing is not available.", 503, "editing_unavailable");
@@ -534,4 +596,86 @@ export function createPipelineService(deps: PipelineDeps) {
     },
   };
   return service;
+}
+
+function isUsableBible(content: StoryBibleContent | null | undefined): content is StoryBibleContent {
+  return Boolean(
+    content
+    && Array.isArray(content.characters?.characters)
+    && Array.isArray(content.world?.rules)
+    && Array.isArray(content.canon?.confirmedFacts),
+  );
+}
+
+async function workingCanonFor(
+  deps: PipelineDeps,
+  clerkUserId: string,
+  projectId: string,
+  content: StoryBibleContent | null | undefined,
+  bibleVersion: number,
+): Promise<CanonState | null> {
+  if (!isUsableBible(content) && !deps.narrativeCanon) return null;
+  const derived = isUsableBible(content)
+    ? canonFromApprovedSources({ projectId, bible: content, bibleVersion })
+    : null;
+  if (!derived) {
+    const stored = await deps.narrativeCanon?.latest(clerkUserId, projectId) ?? null;
+    return stored;
+  }
+  return prepareWorkingCanon({
+    clerkUserId,
+    projectId,
+    derived,
+    port: deps.narrativeCanon,
+  });
+}
+
+async function enforceStoryCanon(
+  deps: PipelineDeps,
+  clerkUserId: string,
+  projectId: string,
+  story: StoryRecord,
+  scope: {
+    episodeNumber: number;
+    targetDurationSeconds: number;
+    sceneRange?: { min: number; max: number } | null;
+    seriesTitle: string;
+  },
+): Promise<EpisodeValidation | null> {
+  if (!deps.bibles?.findApproved && !deps.narrativeCanon) return null;
+  const bible = await deps.bibles?.findApproved?.(clerkUserId, projectId) ?? null;
+  const canon = await workingCanonFor(deps, clerkUserId, projectId, bible?.content, bible?.version ?? 0);
+  if (!canon || (canon.facts.length === 0 && canon.rules.length === 0)) return null;
+  const validation = validateEpisodeScreenplay({
+    episodeNumber: scope.episodeNumber,
+    seriesTitle: scope.seriesTitle,
+    story: { title: story.title, synopsis: story.synopsis, screenplay: story.screenplay },
+    targetDurationSeconds: scope.targetDurationSeconds,
+    bible: isUsableBible(bible?.content) ? bible.content : null,
+    seasonPlan: null,
+    episodePlan: null,
+    ledger: null,
+    previousEpisodes: [],
+    canon,
+    structure: story.structure,
+    sceneRange: scope.sceneRange,
+  });
+  if (!validation.passed) return validation;
+  if (deps.narrativeCanon) {
+    const committed = await resolveWorkingCanon({
+      clerkUserId,
+      projectId,
+      derived: canon,
+      port: deps.narrativeCanon,
+    });
+    await deps.stories.recordCanonVersion?.(clerkUserId, story.id, committed.version);
+    log.info("pipeline", "canon committed on approval", {
+      projectId,
+      storyId: story.id,
+      canonVersion: committed.version,
+      canonCommitted: true,
+      artifactsStale: true,
+    });
+  }
+  return validation;
 }

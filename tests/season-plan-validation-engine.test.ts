@@ -460,7 +460,7 @@ describe("Season Plan Validation Engine — Additional Tests", () => {
       const bible = makeBible();
       const plan = makePlan([
         makeEpisode(1, {
-          characterArcChanges: [{ name: "Unknown Character", change: "Some change" }],
+          relationshipChanges: [{ from: "Unknown Character", to: "Daniel", change: "Some change" }],
         }),
         makeEpisode(2),
         makeEpisode(3),

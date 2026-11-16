@@ -26,6 +26,9 @@ const ShotProductionRecordSchema = new Schema({
   adjustedDurationSeconds: { type: Number, default: null, min: 0 },
   validationInfo: { type: Schema.Types.Mixed, default: {} },
   idempotencyKey: { type: String, required: true, maxlength: 180 },
+  sourceCanonVersion: { type: Number, default: null },
+  canonStale: { type: Boolean, default: false },
+  canonStaleReason: { type: String, default: "", maxlength: 600 },
 }, { timestamps: true, collection: "shotProductionRecords" });
 
 ShotProductionRecordSchema.index({ clerkUserId: 1, productionSceneId: 1, shotNumber: 1 }, { unique: true });

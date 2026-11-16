@@ -115,7 +115,7 @@ describe("screenplay completeness prompts", () => {
       continuityContext: "World rules: the lantern must never go out. Canon: Elias lost his brother at sea.",
     });
     expect(text).toContain(sceneCountGuidance(300));
-    expect(text).toContain("Write 5–9 screenplay scenes");
+    expect(text).toContain("Write 6–8 screenplay scenes");
     expect(text).toContain("the lantern must never go out");
     expect(text).toContain("Elias lost his brother at sea");
     expect(text).toContain("Distribute scenes across all three acts");
@@ -158,7 +158,8 @@ describe("screenplay pacing", () => {
   });
 
   it("accepts a screenplay that meets the duration minimum", () => {
-    expect(() => assertScreenplayPacing(300, screenplay(5))).not.toThrow();
+    expect(() => assertScreenplayPacing(300, screenplay(6))).not.toThrow();
+    expect(() => assertScreenplayPacing(300, screenplay(5))).toThrow();
     expect(() => assertScreenplayPacing(60, screenplay(1))).not.toThrow();
   });
 
@@ -166,14 +167,14 @@ describe("screenplay pacing", () => {
     const result = await new StoryProviderManager({
       slots: [
         slot("groq", async () => ({ story: story(1) })),
-        slot("openrouter", async () => ({ story: story(5) })),
+        slot("openrouter", async () => ({ story: story(6) })),
       ],
       sequenceTimeoutMs: 5_000,
       providerTimeoutMs: 1_000,
     }).generateStory(prompt);
     expect(result.provider).toBe("openrouter");
     expect(result.fallbackFrom).toBe("groq");
-    expect(result.screenplay).toHaveLength(5);
+    expect(result.screenplay).toHaveLength(6);
     expect(result.attempts?.[0]).toMatchObject({ provider: "groq", success: false, category: "invalid_schema" });
   });
 });
@@ -201,8 +202,8 @@ describe("screenplay continuation", () => {
       providerTimeoutMs: 1_000,
     });
     const result = await provider.generateStory(prompt);
-    expect(result.screenplay.map((scene) => scene.sceneNumber)).toEqual([1, 2, 3, 4, 5]);
-    expect(rounds).toEqual([1, 3]);
+    expect(result.screenplay.map((scene) => scene.sceneNumber)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(rounds).toEqual([1, 3, 5]);
   });
 
   it("never asks for a continuation once the screenplay already meets the floor", async () => {
@@ -215,7 +216,7 @@ describe("screenplay continuation", () => {
           configured: true,
           supported: true,
           async generate() {
-            return { story: story(5) };
+            return { story: story(6) };
           },
           async continueStory(_input, current) {
             calls += 1;
@@ -227,7 +228,7 @@ describe("screenplay continuation", () => {
       providerTimeoutMs: 1_000,
     });
     const result = await provider.generateStory(prompt);
-    expect(result.screenplay).toHaveLength(5);
+    expect(result.screenplay).toHaveLength(6);
     expect(calls).toBe(0);
   });
 
@@ -241,7 +242,7 @@ describe("screenplay continuation", () => {
           configured: true,
           supported: true,
           async generate() {
-            return { story: story(1), truncated: true };
+            return { story: story(2), truncated: true };
           },
           async continueStory(_input, current) {
             calls += 1;
@@ -253,7 +254,7 @@ describe("screenplay continuation", () => {
       providerTimeoutMs: 1_000,
     });
     const result = await provider.generateStory(prompt);
-    expect(result.screenplay).toHaveLength(5);
+    expect(result.screenplay).toHaveLength(6);
     expect(calls).toBe(MAX_CONTINUATION_ROUNDS);
   });
 

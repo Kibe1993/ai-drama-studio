@@ -26,6 +26,9 @@ const AudioSegmentSchema = new Schema({
   error: { type: String, default: null, maxlength: 500 },
   attempts: { type: Number, default: 0, min: 0 },
   idempotencyKey: { type: String, required: true, maxlength: 180 },
+  sourceCanonVersion: { type: Number, default: null },
+  canonStale: { type: Boolean, default: false },
+  canonStaleReason: { type: String, default: "", maxlength: 600 },
 }, { timestamps: true, collection: "audioSegments" });
 
 AudioSegmentSchema.index({ clerkUserId: 1, runId: 1, sceneNumber: 1, sequence: 1 }, { unique: true });

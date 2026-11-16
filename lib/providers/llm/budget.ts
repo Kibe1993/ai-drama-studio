@@ -11,12 +11,29 @@
  * number of scenes in the prompt guidance and in validation.
  */
 
+export type SceneRange = { min: number; max: number };
+
+/**
+ * Scene count used by both the prompt and validation.
+ * An explicit episode policy wins. Otherwise the duration formula applies.
+ */
+export function resolveSceneRange(
+  targetDurationSeconds: number,
+  sceneRange?: SceneRange | null,
+): SceneRange {
+  const fallback = storySceneRange(targetDurationSeconds);
+  if (!sceneRange) return fallback;
+  const min = Math.min(40, Math.max(1, Math.trunc(sceneRange.min)));
+  const max = Math.min(40, Math.max(min, Math.trunc(sceneRange.max)));
+  return { min, max };
+}
+
 /** The scene count a duration should produce. Shared by the prompt and validation. */
 export function storySceneRange(targetDurationSeconds: number): { min: number; max: number } {
   const minutes = targetDurationSeconds / 60;
   if (minutes <= 1) return { min: 1, max: 4 };
   if (minutes <= 3) return { min: 3, max: 6 };
-  if (minutes <= 5) return { min: 5, max: 9 };
+  if (minutes <= 5) return { min: 6, max: 8 };
   if (minutes <= 10) return { min: 8, max: 15 };
   return { min: 12, max: 24 };
 }

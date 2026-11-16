@@ -289,6 +289,18 @@ describe("Revalidation Loop Controller", () => {
       seriesTitle: "Test",
       llm,
       maxRounds: 1,
+      validate: () => ({
+        passed: false,
+        overallSeverity: "blocking",
+        findings: [
+          makeFinding({ findingId: "max1", category: "character_history_contradiction", severity: "blocking", message: "Episode 1 still contradicts canon.", episodeNumber: 1, canonIssueType: "CHARACTER_HISTORY_CONTRADICTION" }),
+        ],
+        deterministicFindingCount: 1,
+        aiFindingCount: 0,
+        repairHistory: [],
+        validatorVersion: "2.0",
+        validatedAt: new Date().toISOString(),
+      }),
     });
 
     expect(result.totalRounds).toBe(1);

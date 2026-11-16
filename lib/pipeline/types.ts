@@ -57,6 +57,7 @@ export type StoryResult = {
   synopsis: string;
   approved: boolean;
   storyId?: string;
+  sourceCanonVersion?: number;
 };
 
 export type CharacterResult = {
@@ -149,7 +150,8 @@ export class JobError extends Error {
   constructor(
     message: string,
     readonly code: string,
-    readonly retryable: boolean
+    readonly retryable: boolean,
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
   }

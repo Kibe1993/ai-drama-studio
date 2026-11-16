@@ -56,6 +56,9 @@ const CanonicalEntitySchema = new Schema({
   appearances: { type: [AppearanceSchema], default: [] },
   defaultReferenceAssetId: { type: Schema.Types.ObjectId, default: null },
   voiceProfileId: { type: Schema.Types.ObjectId, default: null },
+  sourceCanonVersion: { type: Number, default: null },
+  canonStale: { type: Boolean, default: false },
+  canonStaleReason: { type: String, default: "", maxlength: 600 },
 }, { timestamps: true, collection: "canonicalEntities" });
 
 CanonicalEntitySchema.index({ clerkUserId: 1, projectId: 1, entityType: 1, normalizedName: 1 }, { unique: true });

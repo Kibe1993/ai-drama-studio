@@ -4,6 +4,7 @@ import type {
   RichValidationFinding,
   SeasonPlanValidationResult,
 } from "@/lib/validation/seasonPlanValidation";
+import type { CanonicalEntityRegistry } from "@/lib/validation/canonicalRegistry";
 import {
   VALIDATOR_VERSION,
   highestSeverity,
@@ -13,6 +14,8 @@ import {
   toLegacyCategory,
   toLegacySeverity,
 } from "@/lib/validation/seasonPlanValidation";
+import { buildRegistry } from "@/lib/domain/canonicalRegistry";
+import { runNarrativeEngine } from "@/lib/domain/narrativeEngine";
 
 import { validateSeasonStructure, validateReferenceIntegrity, validateRelationshipIntegrity, validateEpisodeIndexing } from "./structuralValidator";
 import { validateCanonConsistency } from "./canonValidator";
@@ -25,8 +28,10 @@ import { validateClimaxAndResolution } from "./climaxValidator";
 export interface ValidationOptions {
   expectedEpisodeCount?: number;
   enableAIReasoning?: boolean;
+  enableNarrativeEngine?: boolean;
   bibleVersion?: number;
   planVersion?: number;
+  registry?: CanonicalEntityRegistry;
 }
 
 export function runDeterministicValidation(
@@ -35,19 +40,31 @@ export function runDeterministicValidation(
   options?: ValidationOptions,
 ): RichValidationFinding[] {
   resetFindingIdCounter();
+  const registry = options?.registry ?? buildRegistry({ bible, plan, ledger: null });
   const findings: RichValidationFinding[] = [
     ...validateSeasonStructure(plan, options?.expectedEpisodeCount),
     ...validateEpisodeIndexing(plan),
-    ...validateReferenceIntegrity(plan, bible),
+    ...validateReferenceIntegrity(plan, bible, registry),
     ...validateRelationshipIntegrity(plan, bible),
-    ...validateCanonConsistency(plan, bible),
+    ...validateCanonConsistency(plan, bible, registry),
     ...validateTemporalContinuity(plan),
     ...validateCharacterStateContinuity(plan, bible),
     ...validateEpisodeProgression(plan),
     ...validateCharacterDevelopment(plan),
-    ...validateSetupPayoff(plan),
-    ...validateClimaxAndResolution(plan, bible),
+    ...validateSetupPayoff(plan, registry),
+    ...validateClimaxAndResolution(plan, bible, registry),
   ];
+
+  if (options?.enableNarrativeEngine !== false) {
+    const narrativeResult = runNarrativeEngine({
+      bible,
+      plan,
+      ledger: null,
+      canonicalRegistry: registry,
+    });
+    findings.push(...narrativeResult.richFindings);
+  }
+
   return findings;
 }
 

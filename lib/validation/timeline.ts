@@ -35,6 +35,9 @@ export const timelineSchema = z.object({
   status: z.enum(["draft", "under_review", "approved", "stale"]).default("draft"),
   validation: validationResultSchema.default({}),
   idempotencyKey: z.string().trim().min(8).max(180),
+  sourceCanonVersion: z.number().int().nonnegative().nullable().optional(),
+  canonStale: z.boolean().optional(),
+  canonStaleReason: z.string().max(600).optional(),
 });
 
 export type TimelineRecord = z.infer<typeof timelineSchema> & {

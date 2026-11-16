@@ -40,7 +40,7 @@ export function validateEpisodeProgression(plan: SeasonPlan): RichValidationFind
       findings.push({
         findingId: makeFindingId("prog"),
         category: "episode_progression",
-        severity: "high",
+        severity: "blocking",
         episodeNumber: ep.episodeNumber,
         message: `Episode ${ep.episodeNumber} repeats the main objective of an earlier episode.`,
         recommendation: "Give each episode a distinct main objective.",

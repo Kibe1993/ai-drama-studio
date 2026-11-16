@@ -23,6 +23,9 @@ export const shotProductionRecordSchema = z.object({
   adjustedDurationSeconds: z.number().positive().nullable().default(null),
   validationInfo: z.record(z.string(), z.unknown()).default({}),
   idempotencyKey: z.string().trim().min(8).max(180),
+  sourceCanonVersion: z.number().int().nonnegative().nullable().optional(),
+  canonStale: z.boolean().optional(),
+  canonStaleReason: z.string().max(600).optional(),
 });
 
 export type ShotProductionRecordInput = z.infer<typeof shotProductionRecordSchema>;

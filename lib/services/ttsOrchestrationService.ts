@@ -4,6 +4,8 @@ import { StudioError } from "@/lib/http/errors";
 import { log } from "@/lib/log";
 import type { ScreenplayScene } from "@/lib/validation/story";
 import { audioSegmentRepository } from "@/lib/repositories/audioSegmentRepository";
+import { narrativeCanonRepository } from "@/lib/repositories/narrativeCanonRepository";
+import { canonProvenance } from "@/lib/domain/narrativeControl/staleness";
 import { voiceProfileRepository } from "@/lib/repositories/voiceProfileRepository";
 import { canonicalEntityRepository } from "@/lib/repositories/canonicalEntityRepository";
 import type { AudioSegmentRecord } from "@/lib/validation/audioSegment";
@@ -85,6 +87,9 @@ export function createTtsOrchestrationService(deps: TtsOrchestrationDeps) {
         entityByName.set(entity.name.toLowerCase(), entity.id);
       }
 
+      const provenance = canonProvenance(
+        await narrativeCanonRepository.latest(actor.userId, input.projectId).then((state) => state?.version ?? null),
+      );
       const segmentInputs = extraction.segments.map((seg) => {
         const assignment = assignments.get(seg.speakerName);
         if (!assignment) {
@@ -112,6 +117,7 @@ export function createTtsOrchestrationService(deps: TtsOrchestrationDeps) {
           error: null,
           attempts: 0,
           idempotencyKey,
+          ...provenance,
         };
       });
 
@@ -138,6 +144,15 @@ export function createTtsOrchestrationService(deps: TtsOrchestrationDeps) {
       if (!segment) {
         throw new StudioError("Audio segment not found", 404, "not_found");
       }
+      log.info("audio", "audio.segment.loaded", {
+        segmentId,
+        sceneNumber: segment.sceneNumber,
+        sequence: segment.sequence,
+        speakerName: segment.speakerName,
+        kind: segment.kind,
+        textLength: segment.text.length,
+        status: segment.status,
+      });
       if (segment.status === "completed") {
         return segment;
       }
@@ -177,6 +192,13 @@ export function createTtsOrchestrationService(deps: TtsOrchestrationDeps) {
         if (durationSeconds <= 0) {
           throw new StudioError("Generated audio has no duration", 422, "invalid_audio_duration");
         }
+
+        log.info("audio", "audio.output.validated", {
+          segmentId,
+          byteLength: result.bytes.byteLength,
+          durationSeconds,
+          mimeType: result.mimeType,
+        });
 
         log.info("audio", "audio.storage.started", { segmentId, byteLength: result.bytes.byteLength, durationSeconds });
 

@@ -27,6 +27,9 @@ export type StoryShape = {
   canonSummary: Record<string, unknown> | null;
   /** CASNA Stage H: bounded scene-repair attempts. */
   repairHistory: Record<string, unknown>[];
+  sourceCanonVersion?: number | null;
+  canonStale?: boolean;
+  canonStaleReason?: string;
 };
 
 const StorySchema = new Schema(
@@ -48,6 +51,9 @@ const StorySchema = new Schema(
     validationFindings: { type: Schema.Types.Mixed, default: null },
     canonSummary: { type: Schema.Types.Mixed, default: null },
     repairHistory: { type: [Schema.Types.Mixed], default: [] },
+    sourceCanonVersion: { type: Number, default: null },
+    canonStale: { type: Boolean, default: false },
+    canonStaleReason: { type: String, default: "", maxlength: 600 },
   },
   { timestamps: true, collection: "stories" }
 );

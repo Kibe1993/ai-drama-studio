@@ -21,6 +21,11 @@ export type ProjectRecord = {
   productionMode: ProjectShape["productionMode"];
   /** The story draft the project currently treats as canonical, if any. */
   currentStoryId?: string | null;
+  /**
+   * Optional scene-count policy for this project. When omitted, duration
+   * determines the range. Not every project persists one.
+   */
+  sceneRange?: { min: number; max: number } | null;
   createdAt: string;
   updatedAt: string;
 };

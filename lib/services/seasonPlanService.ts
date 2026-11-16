@@ -235,14 +235,14 @@ export function createSeasonPlanService(deps = {
           "plan_stale"
         );
       }
-      // Gate: validation must have passed (no error-severity findings)
+      // Gate: validation must have passed (no blocking-severity findings)
       if (plan.validationFindings && !plan.validationFindings.passed) {
         throw new StudioError("The season plan has validation errors. Revise it before approving.", 409, "plan_validation_failed");
       }
       // Gate: rich validation result must also have passed
       if (plan.validationResult && !plan.validationResult.passed) {
         const blocking = plan.validationResult.findings.filter(
-          (f) => f.severity === "blocking" || f.severity === "high"
+          (f) => f.severity === "blocking"
         );
         const detail = blocking.length > 0
           ? blocking[0]!.message

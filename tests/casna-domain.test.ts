@@ -39,7 +39,7 @@ function episodeItem(
     consequences: [`A consequence of episode ${episodeNumber}.`],
     storyContribution: `Episode ${episodeNumber} advances the season.`,
     endingOrCliffhanger: `Episode ${episodeNumber} ends on a turn.`,
-    unresolvedThreads: [`A thread opened in episode ${episodeNumber}.`],
+    unresolvedThreads: [`An unresolved thread from episode ${episodeNumber}.`],
     continuityRequirements: `The next episode must respect episode ${episodeNumber}.`,
     characterArcChanges: [],
     relationshipChanges: [],
@@ -484,7 +484,7 @@ describe("screenplay validation", () => {
   it("passes a screenplay that respects canon and duration", () => {
     const result = validateEpisodeScreenplay({
       ...base,
-      story: { title: "Consequences", synopsis: "Ada presses Elias for the truth about the deed and the sale.", screenplay: screenplay(5) },
+      story: { title: "Consequences", synopsis: "Ada presses Elias for the truth about the deed and the sale.", screenplay: screenplay(6) },
     });
     expect(result.passed).toBe(true);
   });

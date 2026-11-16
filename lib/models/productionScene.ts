@@ -37,6 +37,9 @@ const ProductionSceneSchema = new Schema({
   failed: { type: Boolean, default: false },
   productionStatus: { type: String, enum: ["pending", "in_progress", "complete"], default: "pending" },
   approvedAt: { type: Date, default: null },
+  sourceCanonVersion: { type: Number, default: null },
+  canonStale: { type: Boolean, default: false },
+  canonStaleReason: { type: String, default: "", maxlength: 600 },
 }, { timestamps: true, collection: "productionScenes" });
 
 ProductionSceneSchema.index({ clerkUserId: 1, productionRunId: 1, sceneNumber: 1 }, { unique: true });

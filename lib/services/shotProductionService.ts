@@ -4,6 +4,8 @@ import { connectDB } from "@/lib/db/connect";
 import { productionSceneModel } from "@/lib/models/productionScene";
 import { productionSceneRepository } from "@/lib/repositories/productionSceneRepository";
 import { shotProductionRepository } from "@/lib/repositories/shotProductionRepository";
+import { narrativeCanonRepository } from "@/lib/repositories/narrativeCanonRepository";
+import { canonProvenance } from "@/lib/domain/narrativeControl/staleness";
 import type { ShotProductionRecord } from "@/lib/validation/shotProduction";
 import type { ProviderCapability } from "@/lib/providers/media/capability";
 import type { ShotPlan } from "@/lib/validation/scene";
@@ -71,6 +73,7 @@ export function createShotProductionService() {
 
       const existing = await shotProductionRepository.findByScene(actor.userId, sceneId);
       if (existing.length > 0) return existing;
+      const provenance = canonProvenance(await narrativeCanonRepository.latest(actor.userId, scene.projectId.toString()).then((state) => state?.version ?? null));
 
       const records: ShotProductionRecord[] = [];
       for (const shot of scene.shotPlan) {
@@ -91,6 +94,7 @@ export function createShotProductionService() {
           adjustedDurationSeconds: null,
           validationInfo: {},
           idempotencyKey: `shot:${scene.projectId.toString()}:${sceneId}:${shot.shotNumber}`,
+          ...provenance,
         });
         records.push(record);
       }

@@ -34,6 +34,9 @@ const TimelineSchema = new Schema({
   status: { type: String, enum: ["draft", "under_review", "approved", "stale"], default: "draft" },
   validation: { type: ValidationResultSchema, default: {} },
   idempotencyKey: { type: String, required: true, maxlength: 180 },
+  sourceCanonVersion: { type: Number, default: null },
+  canonStale: { type: Boolean, default: false },
+  canonStaleReason: { type: String, default: "", maxlength: 600 },
 }, { timestamps: true, collection: "timelines" });
 
 TimelineSchema.index({ clerkUserId: 1, episodeId: 1 }, { unique: true });

@@ -1,5 +1,7 @@
 import "server-only";
 import { StudioError } from "@/lib/http/errors";
+import { canonProvenance } from "@/lib/domain/narrativeControl/staleness";
+import { narrativeCanonRepository } from "@/lib/repositories/narrativeCanonRepository";
 import { timelineRepository } from "@/lib/repositories/timelineRepository";
 import type { TimelineRecord, TimelineTrack, ValidationResult } from "@/lib/validation/timeline";
 
@@ -108,6 +110,9 @@ export function createTimelineAssemblyService() {
       if (existing) {
         await timelineRepository.markStale(actor.userId, existing.id);
       }
+      const provenance = canonProvenance(
+        await narrativeCanonRepository.latest(actor.userId, input.projectId).then((state) => state?.version ?? null),
+      );
 
       return timelineRepository.create(actor.userId, {
         projectId: input.projectId,
@@ -120,6 +125,7 @@ export function createTimelineAssemblyService() {
         status: "under_review",
         validation,
         idempotencyKey: `timeline:${input.projectId}:${input.episodeId}`,
+        ...provenance,
       });
     },
 

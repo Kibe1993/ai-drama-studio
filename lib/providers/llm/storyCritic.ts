@@ -5,12 +5,12 @@ import type { StageTransport } from "@/lib/providers/llm/stageTasks";
 import type { StoryCallOptions, TokenUsage } from "@/lib/providers/llm/types";
 
 /**
- * An optional, advisory continuity critic.
+ * An optional continuity critic.
  *
- * The deterministic validator remains the gate. This pass exists to catch the
- * things lexical checks cannot: a timeline that cannot be true, a character
- * acting on knowledge they were never given, or a scene that does not belong.
- * Its findings are always saved as warnings and never block approval.
+ * The deterministic validator remains the authority for canon. This pass
+ * proposes timeline, knowledge, and canon claims. An error blocks the draft.
+ * The application confirms a claim against the scene text before treating it
+ * as a canon breach. The critic never writes canon.
  */
 export type StoryCriticPrompt = {
   seriesTitle: string;

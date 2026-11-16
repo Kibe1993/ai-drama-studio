@@ -76,6 +76,10 @@ export const episodeValidationFindingSchema = z.object({
   severity: z.enum(["warning", "error"]),
   sceneNumber: z.number().int().positive().optional(),
   message: text(600),
+  /** Validator that produced the finding, when narrative control supplied it. */
+  code: z.string().trim().min(1).max(80).optional(),
+  /** Quoted proposal text that triggered the finding. */
+  evidence: z.string().trim().min(1).max(400).optional(),
 });
 
 export type EpisodeValidationFinding = z.infer<typeof episodeValidationFindingSchema>;
@@ -84,6 +88,9 @@ export const episodeValidationSchema = z.object({
   passed: z.boolean(),
   findings: z.array(episodeValidationFindingSchema),
   validatedAt: z.string().trim().min(1).max(40),
+  narrativeCanonVersion: z.number().int().nonnegative().optional(),
+  narrativeValidationLayers: z.array(z.enum(["structural", "deterministic", "semantic", "regression"])).max(4).optional(),
+  narrativeDecision: z.enum(["approve", "reject", "needs_authorization"]).optional(),
 });
 
 export type EpisodeValidation = z.infer<typeof episodeValidationSchema>;

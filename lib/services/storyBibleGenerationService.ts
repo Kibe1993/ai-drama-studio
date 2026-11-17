@@ -2,13 +2,11 @@ import "server-only";
 import { createHash } from "node:crypto";
 import type { RequestAuth } from "@/lib/auth/session";
 import { isBusyStatus } from "@/lib/domain/projectCatalog";
-import { storyApprovedForProject, storyFoundation } from "@/lib/domain/workflow";
 import { StudioError } from "@/lib/http/errors";
 import { livePipelineDeps } from "@/lib/pipeline/live";
 import { stageMessage } from "@/lib/pipeline/messages";
 import { generationJobRepository } from "@/lib/repositories/generationJobRepository";
 import { projectRepository } from "@/lib/repositories/projectRepository";
-import { storyRepository } from "@/lib/repositories/storyRepository";
 import { storyBibleRepository } from "@/lib/repositories/storyBibleRepository";
 import { storyBibleGenerationJobInputSchema, type StoryBibleGenerationJobInput, type StoryBibleRecord } from "@/lib/validation/storyBible";
 import { log } from "@/lib/log";
@@ -23,7 +21,6 @@ function makeIdempotencyKey(projectId: string, input: StoryBibleGenerationJobInp
 export function createStoryBibleGenerationService(deps = {
   projects: projectRepository,
   bibles: storyBibleRepository,
-  stories: storyRepository,
   jobs: generationJobRepository,
   queueFactory: () => livePipelineDeps().queue,
 }) {
@@ -34,14 +31,6 @@ export function createStoryBibleGenerationService(deps = {
       if (project.status === "archived" || isBusyStatus(project.status)) {
         throw new StudioError("Wait until production is idle before developing its Story Bible", 409, "project_busy");
       }
-      // The Story Bible builds on an approved story draft. The backend enforces
-      // the dependency so generation cannot race ahead of the story approval.
-      const storyDraft = await deps.stories.findProjectDraft(actor.userId, projectId);
-      if (!storyApprovedForProject(project.status, storyDraft?.status ?? null)) {
-        throw new StudioError("Approve the story draft before developing the Story Bible", 409, "story_required");
-      }
-      // Stage 3 develops from the story the creator approved, not the raw idea.
-      const foundation = storyDraft ? storyFoundation(storyDraft) : "";
       const bible = await deps.bibles.findOwned(actor.userId, projectId) ?? await deps.bibles.saveDraft(
         actor.userId, projectId, { premise: "", worldRules: [], themes: [], boundaries: [], canonFacts: [], sourceIdea: project.originalStoryIdea }
       );
@@ -50,7 +39,7 @@ export function createStoryBibleGenerationService(deps = {
       const parsed = storyBibleGenerationJobInputSchema.safeParse({
         ...((raw && typeof raw === "object") ? raw : {}),
         expectedDraftRevision: bible.draftRevision,
-        idea: (raw as { idea?: string } | null)?.idea?.trim() || foundation || bible.sourceIdea || project.originalStoryIdea || bible.premise,
+        idea: (raw as { idea?: string } | null)?.idea?.trim() || bible.sourceIdea || project.originalStoryIdea || bible.premise,
         title: (raw as { title?: string } | null)?.title || bible.content?.identity.title || project.title,
         creativeDirection: (raw as { creativeDirection?: string } | null)?.creativeDirection || bible.creativeDirection || "",
       });

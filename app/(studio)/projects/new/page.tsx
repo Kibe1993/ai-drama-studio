@@ -26,7 +26,7 @@ export default function NewProjectPage() {
             input: values,
             idempotencyKey: idempotencyKey.current,
           });
-          router.push(`/projects/${result.project.id}/story`);
+          router.push(`/projects/${result.project.id}/bible`);
         }}
       />
       {create.isError ? (

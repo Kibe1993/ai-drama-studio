@@ -243,13 +243,13 @@ function blockedReason(
   bibleGenerating: boolean,
   planApproved: boolean,
 ): string | null {
-  if (stage === "story") {
-    if (storyAwaitingApproval) return "Approve the story draft to continue.";
-    if (!storyApproved) return "Generate and approve a story draft before the Story Bible.";
-  }
   if (stage === "bible") {
     if (bibleGenerating) return "The Story Bible is generating. Wait for all six sections.";
-    if (!bibleApproved) return "Generate and approve the Story Bible before creating the Season Plan.";
+    if (!bibleApproved) return "Generate and approve the Story Bible before creating the Story Draft.";
+  }
+  if (stage === "story") {
+    if (storyAwaitingApproval) return "Approve the story draft to continue.";
+    if (!storyApproved) return "Generate and approve a story draft before the Season Plan.";
   }
   if (stage === "plan") {
     if (!planApproved) return "Generate and approve a Season Plan before creating episodes.";

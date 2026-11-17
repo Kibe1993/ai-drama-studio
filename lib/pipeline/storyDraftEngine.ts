@@ -75,6 +75,9 @@ export function createStoryDraftEngine(
         );
       }
       const bible = await sources?.bible?.findApproved(job.clerkUserId, job.projectId) ?? null;
+      if (!bible) {
+        throw new JobError("No approved Story Bible found. Approve the Story Bible first.", "bible_required", false);
+      }
       const derived = bible?.content
         ? canonFromApprovedSources({
             projectId: job.projectId,

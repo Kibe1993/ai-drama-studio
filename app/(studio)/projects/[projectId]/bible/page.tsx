@@ -37,8 +37,8 @@ export default function StoryBiblePage() {
           />
           {bibleApproved ? (
             <div className="mt-6 flex flex-wrap gap-3">
-              <Button onClick={() => router.push(`/projects/${projectId}/episodes`)}>
-                Continue to Episodes →
+              <Button onClick={() => router.push(`/projects/${projectId}/story`)}>
+                Continue to Story Draft →
               </Button>
             </div>
           ) : null}

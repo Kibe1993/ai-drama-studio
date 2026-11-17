@@ -78,10 +78,10 @@ describe("WorkflowStepper regression: steps must never be undefined", () => {
   it("deriveWorkflowStage() always returns a valid stage string", () => {
     const variants: Partial<WorkflowSignals>[] = [
       {},
-      { storyDraftStatus: "approved" },
-      { storyDraftStatus: "approved", bibleApproved: true },
-      { storyDraftStatus: "approved", bibleApproved: true, planApproved: true },
-      { storyDraftStatus: "approved", bibleApproved: true, planApproved: true, productionActive: true },
+      { bibleApproved: true },
+      { bibleApproved: true, storyDraftStatus: "approved" },
+      { bibleApproved: true, storyDraftStatus: "approved", planApproved: true },
+      { bibleApproved: true, storyDraftStatus: "approved", planApproved: true, productionActive: true },
     ];
     for (const override of variants) {
       const stage = deriveWorkflowStage(signals(override));

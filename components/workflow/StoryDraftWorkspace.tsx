@@ -210,8 +210,8 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
         ) : null}
 
         {isApproved && !isGenerating ? (
-          <Button onClick={() => router.push(`/projects/${projectId}/bible`)}>
-            Continue to Story Bible →
+          <Button onClick={() => router.push(`/projects/${projectId}/plan`)}>
+            Continue to Season Plan →
           </Button>
         ) : null}
       </div>

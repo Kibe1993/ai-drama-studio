@@ -36,40 +36,42 @@ function signals(overrides: Partial<WorkflowSignals> = {}): WorkflowSignals {
 // ---------------------------------------------------------------------------
 
 describe("workflow stage derivation", () => {
-  it("starts at the story stage when nothing is approved", () => {
-    expect(deriveWorkflowStage(signals())).toBe("story");
+  it("starts at the bible stage when nothing is approved", () => {
+    expect(deriveWorkflowStage(signals())).toBe("bible");
   });
 
-  it("stays at the story stage when a draft is awaiting approval", () => {
-    expect(deriveWorkflowStage(signals({ storyDraftStatus: "awaiting_approval" }))).toBe("story");
-  });
-
-  it("advances to the bible stage once the story is approved", () => {
-    expect(deriveWorkflowStage(signals({ storyDraftStatus: "approved" }))).toBe("bible");
+  it("stays at the bible stage when a story draft is awaiting approval but no bible exists", () => {
+    expect(deriveWorkflowStage(signals({ storyDraftStatus: "awaiting_approval" }))).toBe("bible");
   });
 
   it("stays at the bible stage while the bible is generating but not yet approved", () => {
     expect(
-      deriveWorkflowStage(signals({ storyDraftStatus: "approved", bibleGenerating: true }))
+      deriveWorkflowStage(signals({ bibleGenerating: true }))
     ).toBe("bible");
   });
 
-  it("advances to the plan stage after the bible is approved", () => {
+  it("advances to the story stage once the bible is approved", () => {
     expect(
-      deriveWorkflowStage(signals({ storyDraftStatus: "approved", bibleApproved: true }))
+      deriveWorkflowStage(signals({ bibleApproved: true }))
+    ).toBe("story");
+  });
+
+  it("advances to the plan stage after the bible and story are approved", () => {
+    expect(
+      deriveWorkflowStage(signals({ bibleApproved: true, storyDraftStatus: "approved" }))
     ).toBe("plan");
   });
 
   it("advances to episodes after the season plan is approved", () => {
     expect(
-      deriveWorkflowStage(signals({ storyDraftStatus: "approved", bibleApproved: true, planApproved: true }))
+      deriveWorkflowStage(signals({ bibleApproved: true, storyDraftStatus: "approved", planApproved: true }))
     ).toBe("episodes");
   });
 
   it("advances to production once a production run is active", () => {
     expect(
       deriveWorkflowStage(
-        signals({ storyDraftStatus: "approved", bibleApproved: true, planApproved: true, productionActive: true })
+        signals({ bibleApproved: true, storyDraftStatus: "approved", planApproved: true, productionActive: true })
       )
     ).toBe("production");
   });
@@ -91,43 +93,45 @@ describe("workflow stage derivation", () => {
 // ---------------------------------------------------------------------------
 
 describe("workflow step states", () => {
-  it("marks the story stage as current when nothing is approved", () => {
+  it("marks the bible stage as current when nothing is approved", () => {
     const steps = workflowSteps(signals());
-    expect(steps.find((s) => s.stage === "story")?.state).toBe("current");
-    expect(steps.find((s) => s.stage === "bible")?.state).toBe("upcoming");
+    expect(steps.find((s) => s.stage === "bible")?.state).toBe("current");
+    expect(steps.find((s) => s.stage === "story")?.state).toBe("upcoming");
     expect(steps.find((s) => s.stage === "plan")?.state).toBe("upcoming");
     expect(steps.find((s) => s.stage === "episodes")?.state).toBe("upcoming");
     expect(steps.find((s) => s.stage === "production")?.state).toBe("upcoming");
   });
 
-  it("marks story as awaiting_approval when a draft is generated but not approved", () => {
-    const steps = workflowSteps(signals({ storyDraftStatus: "awaiting_approval" }));
-    expect(steps.find((s) => s.stage === "story")?.state).toBe("awaiting_approval");
-  });
-
-  it("marks story as completed and bible as current once story is approved", () => {
-    const steps = workflowSteps(signals({ storyDraftStatus: "approved" }));
-    expect(steps.find((s) => s.stage === "story")?.state).toBe("completed");
-    expect(steps.find((s) => s.stage === "bible")?.state).toBe("current");
-  });
-
   it("marks bible as awaiting_approval when a draft is ready but not approved", () => {
     const steps = workflowSteps(
-      signals({ storyDraftStatus: "approved", bibleDraftReady: true })
+      signals({ bibleDraftReady: true })
     );
     expect(steps.find((s) => s.stage === "bible")?.state).toBe("awaiting_approval");
   });
 
+  it("marks bible as completed and story as current once bible is approved", () => {
+    const steps = workflowSteps(signals({ bibleApproved: true }));
+    expect(steps.find((s) => s.stage === "bible")?.state).toBe("completed");
+    expect(steps.find((s) => s.stage === "story")?.state).toBe("current");
+  });
+
+  it("marks story as awaiting_approval when a draft is generated but not approved", () => {
+    const steps = workflowSteps(
+      signals({ bibleApproved: true, storyDraftStatus: "awaiting_approval" })
+    );
+    expect(steps.find((s) => s.stage === "story")?.state).toBe("awaiting_approval");
+  });
+
   it("marks plan as awaiting_approval when a draft is ready but not approved", () => {
     const steps = workflowSteps(
-      signals({ storyDraftStatus: "approved", bibleApproved: true, planDraftReady: true })
+      signals({ bibleApproved: true, storyDraftStatus: "approved", planDraftReady: true })
     );
     expect(steps.find((s) => s.stage === "plan")?.state).toBe("awaiting_approval");
   });
 
   it("marks earlier stages as completed when production is active", () => {
     const steps = workflowSteps(
-      signals({ storyDraftStatus: "approved", bibleApproved: true, planApproved: true, productionActive: true })
+      signals({ bibleApproved: true, storyDraftStatus: "approved", planApproved: true, productionActive: true })
     );
     expect(steps.filter((s) => s.state === "completed")).toHaveLength(4);
     expect(steps.find((s) => s.stage === "production")?.state).toBe("current");

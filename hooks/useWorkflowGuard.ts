@@ -3,8 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useWorkflow } from "@/hooks/useWorkflow";
-import type { WorkflowStage } from "@/lib/domain/workflow";
-import { WORKFLOW_STAGE_PATH } from "@/lib/domain/workflow";
+import { WORKFLOW_STAGES, WORKFLOW_STAGE_PATH, type WorkflowStage } from "@/lib/domain/workflow";
 
 /**
  * Returns whether a given stage is accessible based on workflow state.
@@ -12,9 +11,8 @@ import { WORKFLOW_STAGE_PATH } from "@/lib/domain/workflow";
  * past the current stage.
  */
 function isStageAccessible(targetStage: WorkflowStage, currentStage: WorkflowStage): boolean {
-  const order = ["story", "bible", "plan", "episodes", "production"] as const;
-  const targetIndex = order.indexOf(targetStage as (typeof order)[number]);
-  const currentIndex = order.indexOf(currentStage as (typeof order)[number]);
+  const targetIndex = WORKFLOW_STAGES.indexOf(targetStage);
+  const currentIndex = WORKFLOW_STAGES.indexOf(currentStage);
   return targetIndex <= currentIndex;
 }
 

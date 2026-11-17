@@ -16,7 +16,7 @@ function stateLabel(state: WorkflowStepState): string | null {
 }
 
 /**
- * The guided progression: Story draft → Story Bible → Episodes → Production.
+ * The guided progression: Story Bible → Story draft → Season Plan → Episodes → Production.
  * Completed and current stages link; upcoming stages are shown but locked.
  */
 export function WorkflowStepper({

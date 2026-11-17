@@ -68,6 +68,10 @@ export function createStoryDraftService(deps = {
       if (isBusyStatus(project.status)) {
         throw new StudioError("Wait until production is idle before developing the story draft", 409, "project_busy");
       }
+      const bible = await deps.bibles.findApproved(actor.userId, projectId);
+      if (!bible) {
+        throw new StudioError("Approve the Story Bible before developing the story draft", 409, "bible_required");
+      }
       const parsed = storyDraftRequestSchema.safeParse(raw ?? {});
       if (!parsed.success) {
         throw new StudioError(parsed.error.issues[0]?.message ?? "Check the request", 400, "invalid_input");
@@ -137,6 +141,9 @@ export function createStoryDraftService(deps = {
         throw new StudioError("A failed story draft cannot be approved", 409, "story_failed");
       }
       const bible = await deps.bibles.findApproved(actor.userId, projectId);
+      if (!bible) {
+        throw new StudioError("Approve the Story Bible before approving the story draft", 409, "bible_required");
+      }
       if (bible?.content?.canon && bible.content.world && bible.content.characters) {
         const derived = canonFromApprovedSources({
           projectId,

@@ -3,19 +3,11 @@ import { createStoryBibleService } from "@/lib/services/storyBibleService";
 import type { RequestAuth } from "@/lib/auth/session";
 import type { ProjectRecord } from "@/lib/repositories/projectRepository";
 import { storyBibleDraftSchema } from "@/lib/validation/storyBible";
-import type { StoryRecord } from "@/lib/validation/story";
 import type { StoryBibleDraft, StoryBibleRecord, StoryBibleSnapshot } from "@/lib/validation/storyBible";
 
 const owner: RequestAuth = { userId: "owner", isAdmin: false, email: "", name: "", imageUrl: "" };
 const other: RequestAuth = { ...owner, userId: "other" };
 const projectId = "a".repeat(24);
-
-/** A story reader whose project-level draft is already approved. */
-const approvedStory = {
-  async findProjectDraft(): Promise<StoryRecord | null> {
-    return { status: "approved" } as unknown as StoryRecord;
-  },
-};
 
 type OwnedProject = ProjectRecord & { clerkUserId: string };
 
@@ -96,7 +88,7 @@ describe("Story Bible approval", () => {
     const store = memory();
     const service = createStoryBibleService(store.repo, {
       async findOwned(userId, pid) { return store.projects.find((item) => item.id === pid && item.clerkUserId === userId) ?? null; },
-    }, approvedStory);
+    });
     const initial = await service.get(owner, projectId);
     const draft = await service.save(owner, projectId, storyBibleDraftSchema.parse({
       premise: "A family protects an old secret.",
@@ -112,7 +104,7 @@ describe("Story Bible approval", () => {
     const store = memory();
     const service = createStoryBibleService(store.repo, {
       async findOwned(userId, pid) { return store.projects.find((item) => item.id === pid && item.clerkUserId === userId) ?? null; },
-    }, approvedStory);
+    });
     const initial = await service.get(owner, projectId);
     const oldDraft = await service.save(owner, projectId, { premise: "Version one", worldRules: [], themes: [], boundaries: [], canonFacts: [] });
     await service.save(owner, projectId, { premise: "Version two", worldRules: [], themes: [], boundaries: [], canonFacts: [] });
@@ -124,7 +116,7 @@ describe("Story Bible approval", () => {
     const store = memory();
     const service = createStoryBibleService(store.repo, {
       async findOwned(userId, pid) { return store.projects.find((item) => item.id === pid && item.clerkUserId === userId) ?? null; },
-    }, approvedStory);
+    });
     const initial = await service.get(owner, projectId);
     const firstDraft = await service.save(owner, projectId, { premise: "First canon", worldRules: [], themes: [], boundaries: [], canonFacts: [] });
     const first = await service.approve(owner, projectId, initial.approvedVersion, firstDraft.draftRevision);
@@ -137,7 +129,7 @@ describe("Story Bible approval", () => {
     const store = memory();
     const service = createStoryBibleService(store.repo, {
       async findOwned(userId, pid) { return store.projects.find((item) => item.id === pid && item.clerkUserId === userId) ?? null; },
-    }, approvedStory);
+    });
     await expect(service.get(other, projectId)).rejects.toMatchObject({ code: "not_found" });
     await expect(service.save(other, projectId, { premise: "No", worldRules: [], themes: [], boundaries: [], canonFacts: [] })).rejects.toMatchObject({ code: "not_found" });
   });
@@ -149,7 +141,7 @@ describe("Story Bible approval", () => {
         const value = store.projects.find((item) => item.id === pid && item.clerkUserId === userId);
         return value ? { ...value, status: "generating" as const } : null;
       },
-    }, approvedStory);
+    });
     await expect(service.save(owner, projectId, { premise: "No mid-run edits", worldRules: [], themes: [], boundaries: [], canonFacts: [] })).rejects.toMatchObject({ code: "project_busy" });
   });
 });

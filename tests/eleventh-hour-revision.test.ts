@@ -726,7 +726,7 @@ function houseStory(): GeneratedStory {
   };
 }
 
-describe("story draft before a Story Bible", () => {
+describe("story draft requires a Story Bible", () => {
   it("rejects a screenplay that does not play the acts, and does not save it", async () => {
     const saved: StoryRecord[] = [];
     const commits: CanonState[] = [];
@@ -735,7 +735,7 @@ describe("story draft before a Story Bible", () => {
       memoryStories(saved),
       undefined,
       canonPort(commits),
-      { bible: { async findApproved() { return null; } } },
+      { bible: { async findApproved() { return snapshot(); } } },
     );
     const error = await engine.run(job(), project()).then(() => null, (caught: unknown) => caught);
     expect(error).toBeInstanceOf(JobError);
@@ -749,7 +749,22 @@ describe("story draft before a Story Bible", () => {
     expect(commits).toEqual([]);
   });
 
-  it("saves a consistent draft before a Story Bible exists", async () => {
+  it("saves a consistent draft with an approved Story Bible", async () => {
+    const saved: StoryRecord[] = [];
+    const engine = createStoryDraftEngine(
+      stub(() => faithfulStory()) as unknown as LLMProvider,
+      memoryStories(saved),
+      undefined,
+      canonPort([]),
+      { bible: { async findApproved() { return snapshot(); } } },
+    );
+    const result = await engine.run(job(), project());
+    expect(result.storyId).toBeTruthy();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.validationFindings?.passed).toBe(true);
+  });
+
+  it("refuses to generate when no Story Bible exists", async () => {
     const saved: StoryRecord[] = [];
     const engine = createStoryDraftEngine(
       stub(() => faithfulStory()) as unknown as LLMProvider,
@@ -758,10 +773,8 @@ describe("story draft before a Story Bible", () => {
       canonPort([]),
       { bible: { async findApproved() { return null; } } },
     );
-    const result = await engine.run(job(), project());
-    expect(result.storyId).toBeTruthy();
-    expect(saved).toHaveLength(1);
-    expect(saved[0]!.validationFindings?.passed).toBe(true);
+    await expect(engine.run(job(), project())).rejects.toMatchObject({ code: "bible_required" });
+    expect(saved).toHaveLength(0);
   });
 
   it("refuses to approve the same draft when no Story Bible exists", async () => {
@@ -797,7 +810,7 @@ describe("story draft before a Story Bible", () => {
       narrativeCanon: canonPort([]),
     } as never);
     await expect(service.approve({ userId, isAdmin: false, email: "", name: "", imageUrl: "" }, projectId, "d".repeat(24)))
-      .rejects.toMatchObject({ code: "story_invalid", status: 409 });
+      .rejects.toMatchObject({ code: "bible_required", status: 409 });
     expect(approved).toBe(false);
   });
 });

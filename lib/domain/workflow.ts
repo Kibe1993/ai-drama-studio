@@ -10,12 +10,12 @@ import type { StoryRecord, StoryStatus } from "@/lib/validation/story";
  * `Create Drama` is the project creation page itself; once a project exists the
  * remaining stages are the four below.
  */
-export const WORKFLOW_STAGES = ["story", "bible", "plan", "episodes", "production"] as const;
+export const WORKFLOW_STAGES = ["bible", "story", "plan", "episodes", "production"] as const;
 export type WorkflowStage = (typeof WORKFLOW_STAGES)[number];
 
 export const WORKFLOW_STAGE_LABELS: Record<WorkflowStage, string> = {
-  story: "Story draft",
   bible: "Story Bible",
+  story: "Story draft",
   plan: "Season Plan",
   episodes: "Episodes",
   production: "Production",
@@ -23,8 +23,8 @@ export const WORKFLOW_STAGE_LABELS: Record<WorkflowStage, string> = {
 
 /** Path segment under `/projects/[projectId]`. */
 export const WORKFLOW_STAGE_PATH: Record<WorkflowStage, string> = {
-  story: "story",
   bible: "bible",
+  story: "story",
   plan: "plan",
   episodes: "episodes",
   production: "production",
@@ -131,8 +131,8 @@ export function deriveWorkflowStage(
     | "productionActive"
   >
 ): WorkflowStage {
-  if (!storyIsApproved(signals)) return "story";
   if (!signals.bibleApproved) return "bible";
+  if (!storyIsApproved(signals)) return "story";
   // A pending revision or a stale approved plan means the plan stage is open
   // again; episodes must not continue from a plan the creator has not settled.
   if (!signals.planApproved || signals.planDraftReady || signals.planNeedsReview) return "plan";
@@ -142,8 +142,8 @@ export function deriveWorkflowStage(
 
 /** Whether the stage that is currently open is waiting for the user's approval. */
 export function isAwaitingApproval(stage: WorkflowStage, signals: WorkflowSignals): boolean {
-  if (stage === "story") return storyAwaitingApproval(signals);
   if (stage === "bible") return !signals.bibleApproved && signals.bibleDraftReady;
+  if (stage === "story") return storyAwaitingApproval(signals);
   if (stage === "plan") return !signals.planApproved && signals.planDraftReady;
   return false;
 }
@@ -168,7 +168,9 @@ export function workflowSteps(signals: WorkflowSignals): WorkflowStep[] {
 
 /**
  * A Story Bible needs review again when the story it was approved from is no
- * longer the project's current story.
+ * longer the project's current story. In the current workflow the Bible is
+ * approved before the story draft, so this only applies to legacy projects
+ * that have a `basedOnStoryId` set.
  */
 export function bibleNeedsReview(input: {
   bibleApproved: boolean;
@@ -193,9 +195,9 @@ export function episodeNeedsReview(input: {
 }
 
 /**
- * A compact, human-readable summary of an approved story draft. Stage 3 uses it
- * as the default foundation for the Story Bible so the reference is developed
- * from the story the creator actually approved, not the raw project idea.
+ * A compact, human-readable summary of an approved story draft. The Season Plan
+ * engine uses it so the plan is developed from the story the creator actually
+ * approved, not the raw project idea.
  * Bounded to stay within the Story Bible idea field's limit.
  */
 export function storyFoundation(

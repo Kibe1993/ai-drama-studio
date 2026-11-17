@@ -54,6 +54,8 @@ function toRecord(doc: StoryDoc): StoryRecord {
     validationFindings: parseValidation(doc.validationFindings),
     storyContract: parseContract(doc.storyContract),
     sourceCanonVersion: typeof doc.sourceCanonVersion === "number" ? doc.sourceCanonVersion : null,
+    sourceBibleVersion: typeof doc.sourceBibleVersion === "number" ? doc.sourceBibleVersion : null,
+    promptFingerprint: typeof doc.promptFingerprint === "string" ? doc.promptFingerprint : null,
     canonSummary: parseCanon(doc.canonSummary),
     repairHistory: parseRepairHistory(doc.repairHistory),
     createdAt: doc.createdAt.toISOString(),
@@ -123,6 +125,8 @@ export type ProjectStoryDraft = GeneratedStory & {
   fallbackFrom?: string | null;
   validationFindings?: EpisodeValidation | null;
   sourceCanonVersion?: number | null;
+  sourceBibleVersion?: number | null;
+  promptFingerprint?: string | null;
   storyContract?: StoryContract | null;
 };
 
@@ -210,6 +214,8 @@ export const storyRepository = {
       fallbackFrom: input.fallbackFrom || null,
       validationFindings: input.validationFindings ?? null,
       sourceCanonVersion: input.sourceCanonVersion ?? null,
+      sourceBibleVersion: input.sourceBibleVersion ?? null,
+      promptFingerprint: input.promptFingerprint ?? null,
       storyContract: input.storyContract ?? null,
       canonStale: false,
       canonStaleReason: "",

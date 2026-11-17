@@ -3,7 +3,7 @@ import type { ProjectPort } from "@/lib/pipeline/ports";
 import { createMockEngines } from "@/lib/pipeline/mockEngines";
 import { JobError, type EngineSet, type JobRecord, type RunRecord } from "@/lib/pipeline/types";
 import { assertCharacters, assertScenes } from "@/lib/providers/llm/stageTasks";
-import { storyBibleBrief } from "@/lib/providers/llm/storyBibleSections";
+import { storyBibleBrief, renderStoryBibleBrief } from "@/lib/providers/llm/storyBibleSections";
 import type { LLMProvider, StoryModelResult } from "@/lib/providers/llm/types";
 import type { StoryDraft } from "@/lib/repositories/storyRepository";
 import type { StoryRecord } from "@/lib/validation/story";
@@ -164,6 +164,7 @@ export function createLiveEngines(options: {
           aspectRatio: project.aspectRatio,
           productionType: project.productionType,
           continuityContext: continuityContext || undefined,
+          bibleContext: approvedBible?.content ? renderStoryBibleBrief(approvedBible.content) : undefined,
           seasonPlan: casnaPrompt?.seasonPlan ?? null,
           episodePlan: casnaPrompt?.episodePlan ?? null,
           continuityLedger: casnaPrompt?.continuityLedger ?? null,

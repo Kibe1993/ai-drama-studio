@@ -91,6 +91,7 @@ export function createStoryDraftService(deps = {
         instruction: parsed.data.instruction ?? "",
         creativeDirection: parsed.data.creativeDirection ?? "",
         ...(parsed.data.targetFindingId ? { targetFindingId: parsed.data.targetFindingId } : {}),
+        sourceBibleVersion: bible.version,
       };
       const digest = createHash("sha256").update(JSON.stringify(input)).digest("hex").slice(0, 20);
       const job = await deps.jobs.insert({
@@ -187,6 +188,9 @@ export function createStoryDraftService(deps = {
               errors,
             );
           }
+        }
+        if (draft.sourceBibleVersion != null && bible.version > draft.sourceBibleVersion && validation.narrativeDecision === "reject") {
+          throw new StudioError("This draft was generated from an older Story Bible. Revalidate against the current Bible before approving.", 409, "story_invalid");
         }
         if (draft.sourceCanonVersion != null && canon.version > draft.sourceCanonVersion && validation.narrativeDecision === "reject") {
           throw new StudioError("This draft was validated against an older canon.", 409, "story_invalid");

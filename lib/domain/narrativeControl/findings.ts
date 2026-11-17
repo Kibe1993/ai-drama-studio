@@ -60,7 +60,7 @@ export function makeFinding(input: FindingInput): NarrativeFinding {
     input.expected ?? "",
   ].join(":");
   const id = createHash("sha256")
-    .update([signature, input.evidence ?? "", String(input.episode ?? ""), input.actual ?? ""].join("|"))
+    .update([signature, input.evidence ?? "", String(input.episode ?? ""), String(input.sceneNumber ?? ""), input.actual ?? ""].join("|"))
     .digest("hex")
     .slice(0, 16);
   return {
@@ -122,8 +122,9 @@ export function dedupeFindings(findings: NarrativeFinding[]): NarrativeFinding[]
   const seen = new Set<string>();
   const unique: NarrativeFinding[] = [];
   for (const finding of findings) {
-    if (seen.has(finding.id)) continue;
-    seen.add(finding.id);
+    const key = `${finding.id}:${finding.signature}:${finding.sceneNumber ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     unique.push(finding);
   }
   return unique;

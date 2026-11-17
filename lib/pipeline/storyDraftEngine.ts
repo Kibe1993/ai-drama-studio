@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { log } from "@/lib/log";
 import type { ProjectRecord } from "@/lib/repositories/projectRepository";
 import type { ProjectStoryDraft } from "@/lib/repositories/storyRepository";
@@ -14,7 +15,7 @@ import {
   DEFAULT_MAX_REVISION_ROUNDS,
   type CanonPort,
 } from "@/lib/domain/narrativeControl";
-import { storyBibleBrief } from "@/lib/providers/llm/storyBibleSections";
+import { storyBibleBrief, renderStoryBibleBrief } from "@/lib/providers/llm/storyBibleSections";
 import { deriveStoryContract } from "@/lib/domain/storyContract";
 import type { ContractLayer } from "@/lib/validation/storyContract";
 import type { ControlDecision } from "@/lib/domain/narrativeControl/orchestrator";
@@ -38,6 +39,7 @@ type DraftReader = {
 type DraftSources = {
   bible?: {
     findApproved(clerkUserId: string, projectId: string): Promise<StoryBibleSnapshot | null>;
+    findApprovedVersion?(clerkUserId: string, projectId: string, version: number): Promise<StoryBibleSnapshot | null>;
   } | null;
 };
 
@@ -74,7 +76,21 @@ export function createStoryDraftEngine(
           false,
         );
       }
-      const bible = await sources?.bible?.findApproved(job.clerkUserId, job.projectId) ?? null;
+      const pinnedBibleVersion = parsed.data.sourceBibleVersion;
+      let bible: StoryBibleSnapshot | null = null;
+      if (pinnedBibleVersion && sources?.bible?.findApprovedVersion) {
+        bible = await sources.bible.findApprovedVersion(job.clerkUserId, job.projectId, pinnedBibleVersion);
+        if (!bible) {
+          log.info("story-draft", "pinned bible version not found, falling back to latest approved", {
+            projectId: job.projectId,
+            jobId: job.id,
+            pinnedBibleVersion,
+          });
+        }
+      }
+      if (!bible) {
+        bible = await sources?.bible?.findApproved(job.clerkUserId, job.projectId) ?? null;
+      }
       if (!bible) {
         throw new JobError("No approved Story Bible found. Approve the Story Bible first.", "bible_required", false);
       }
@@ -95,6 +111,7 @@ export function createStoryDraftEngine(
         : null;
       const knowledge = buildContext(request.operation, request.instruction, request.creativeDirection, previous, targetFinding);
       const authority = working ? narrativeAuthority(working, job.projectId, request.instruction || request.operation) : undefined;
+      const bibleContext = bible?.content ? renderStoryBibleBrief(bible.content) : undefined;
       const continuityContext = [knowledge, previous ? screenplayContext(previous) : undefined].filter(Boolean).join("\n\n") || undefined;
       const promptBase: StoryPrompt = {
         title: project.title,
@@ -108,6 +125,7 @@ export function createStoryDraftEngine(
         productionType: project.productionType,
         continuityContext,
         narrativeAuthority: authority,
+        bibleContext,
         sceneRange: project.sceneRange,
       };
 
@@ -117,8 +135,19 @@ export function createStoryDraftEngine(
         operation: request.operation,
         hasPrevious: Boolean(previous),
         canonVersion: working?.version ?? null,
+        bibleVersion: bible?.version ?? null,
+        pinnedBibleVersion: pinnedBibleVersion ?? null,
         screenplayIncluded: Boolean(previous && request.operation === "revise"),
         canonCommitted: false,
+      });
+
+      const digest = promptDigest(promptBase);
+      log.info("story-draft", "prompt assembled", {
+        projectId: job.projectId,
+        jobId: job.id,
+        operation: request.operation,
+        ...digest,
+        previousDraftVersion: previous?.version ?? null,
       });
 
       let current = await llm.generateStory(promptBase, {
@@ -153,12 +182,24 @@ export function createStoryDraftEngine(
             const correction = findings
               .map((finding) => `- ${finding.explanation} Evidence: ${finding.evidence || "the proposal"}. Correction: ${finding.suggestedCorrection || "Restore the canonical fact."}`)
               .join("\n");
+            const candidateText = renderStoryForRevision(current);
             current = await llm.generateStory({
               ...promptBase,
               continuityContext: [
                 continuityContext,
-                `Targeted revision, round ${round}. Change only the defective elements. Do not rewrite protected canon.`,
+                `You are revising an existing story draft, revision round ${round}. The complete current candidate is below. Change only the defective elements. Do not rewrite the rest of the story.`,
+                candidateText,
+                `Defects to fix:`,
                 correction,
+                `Preservation requirements:`,
+                `- Preserve the story's central premise.`,
+                `- Preserve established character identities.`,
+                `- Preserve approved Bible facts.`,
+                `- Preserve unaffected scenes.`,
+                `- Correct the specified defects.`,
+                `- Avoid introducing unrelated plot changes.`,
+                `- Avoid deleting required events merely to silence findings.`,
+                `- Return the complete structured story in the required schema.`,
               ].filter(Boolean).join("\n\n"),
             }, {
               jobId: job.id,
@@ -192,6 +233,7 @@ export function createStoryDraftEngine(
           layers: (validation.narrativeValidationLayers ?? []).join(","),
           errors: validation.findings.filter((finding) => finding.severity === "error").length,
           warnings: validation.findings.filter((finding) => finding.severity === "warning").length,
+          findingIds: validation.findings.filter((f) => f.severity === "error").map((f) => f.id),
           round: rounds,
           accepted,
           canonCommitted: false,
@@ -199,42 +241,31 @@ export function createStoryDraftEngine(
           decision: cycle.decision,
         });
         if (!accepted) {
-          const errors = validation.findings.filter((f) => f.severity === "error");
-          const summary = errors.length > 0
-            ? errors.map((e, i) => `${i + 1}. ${e.message}`).join("\n")
-            : "The revision conflicts with approved canon.";
-          throw new JobError(
-            summary,
-            "narrative_rejected",
-            false,
-            {
-              kind: "narrative_validation",
-              findings: validation.findings,
-              canonVersion: working.version,
-              rounds,
-              canonCommitted: false,
-              artifactsStale: false,
-            },
-          );
+          log.info("story-draft", "revision completed with findings", {
+            projectId: job.projectId,
+            jobId: job.id,
+            operation: request.operation,
+            canonVersion: working.version,
+            errors: validation.findings.filter((finding) => finding.severity === "error").length,
+            warnings: validation.findings.filter((finding) => finding.severity === "warning").length,
+            round: rounds,
+            decision: cycle.decision,
+            canonCommitted: false,
+            artifactsStale: false,
+          });
         }
       } else {
         validation = validateDraft(project, current, null, null);
         if (!validation.passed) {
-          const errors = validation.findings.filter((f) => f.severity === "error");
-          const summary = errors.length > 0
-            ? errors.map((e, i) => `${i + 1}. ${e.message}`).join("\n")
-            : "The draft's synopsis, acts, and screenplay do not agree.";
-          throw new JobError(
-            summary,
-            "narrative_rejected",
-            false,
-            {
-              kind: "narrative_validation",
-              findings: validation.findings,
-              canonCommitted: false,
-              artifactsStale: false,
-            },
-          );
+          log.info("story-draft", "validation completed with findings (no canon)", {
+            projectId: job.projectId,
+            jobId: job.id,
+            operation: request.operation,
+            errors: validation.findings.filter((finding) => finding.severity === "error").length,
+            warnings: validation.findings.filter((finding) => finding.severity === "warning").length,
+            canonCommitted: false,
+            artifactsStale: false,
+          });
         }
       }
 
@@ -251,23 +282,16 @@ export function createStoryDraftEngine(
         validation = reviewed.validation;
         semantic = reviewed.semantic;
         if (!validation.passed) {
-          const errors = validation.findings.filter((f) => f.severity === "error");
-          const summary = errors.length > 0
-            ? errors.map((e, i) => `${i + 1}. ${e.message}`).join("\n")
-            : "The revision conflicts with approved canon.";
-          throw new JobError(
-            summary,
-            "narrative_rejected",
-            false,
-            {
-              kind: "narrative_validation",
-              findings: validation.findings,
-              canonVersion: working.version,
-              rounds,
-              canonCommitted: false,
-              artifactsStale: false,
-            },
-          );
+          log.info("story-draft", "critique completed with findings", {
+            projectId: job.projectId,
+            jobId: job.id,
+            operation: request.operation,
+            errors: validation.findings.filter((finding) => finding.severity === "error").length,
+            warnings: validation.findings.filter((finding) => finding.severity === "warning").length,
+            semantic,
+            canonCommitted: false,
+            artifactsStale: false,
+          });
         }
       }
 
@@ -292,6 +316,8 @@ export function createStoryDraftEngine(
         fallbackFrom: trace.fallbackFrom,
         validationFindings: validation,
         sourceCanonVersion: working?.version ?? null,
+        sourceBibleVersion: bible?.version ?? null,
+        promptFingerprint: digest.fingerprint,
         storyContract,
       });
       log.info("story-draft", "saved", {
@@ -302,7 +328,11 @@ export function createStoryDraftEngine(
         provider: trace.provider,
         model: trace.model,
         canonVersion: working?.version ?? null,
-        accepted: true,
+        bibleVersion: bible?.version ?? null,
+        accepted: validation?.passed ?? false,
+        validationPassed: validation?.passed ?? null,
+        errorCount: validation?.findings.filter((f) => f.severity === "error").length ?? 0,
+        warningCount: validation?.findings.filter((f) => f.severity === "warning").length ?? 0,
         canonCommitted: false,
         artifactsStale: false,
         round: rounds,
@@ -461,6 +491,48 @@ function traceOf(generated: StoryModelResult, llm: LLMProvider) {
   };
 }
 
+type PromptDigest = {
+  sections: string[];
+  fingerprint: string;
+  bibleContextLength: number;
+  narrativeAuthorityLength: number;
+  continuityContextLength: number;
+};
+
+/**
+ * Safe diagnostic representation of an assembled prompt.  Returns the sections
+ * that were present, a content fingerprint for cross-run comparison, and the
+ * size of each section — never the actual prompt text.
+ */
+function promptDigest(prompt: StoryPrompt): PromptDigest {
+  const sections: string[] = [];
+  if (prompt.bibleContext?.trim()) sections.push("bibleContext");
+  if (prompt.narrativeAuthority?.trim()) sections.push("narrativeAuthority");
+  if (prompt.continuityContext?.trim()) sections.push("continuityContext");
+  if (prompt.seasonPlan) sections.push("seasonPlan");
+  if (prompt.episodePlan) sections.push("episodePlan");
+  if (prompt.continuityLedger) sections.push("continuityLedger");
+  if (prompt.previousEpisode) sections.push("previousEpisode");
+  const fingerprint = createHash("sha256")
+    .update(JSON.stringify({
+      title: prompt.title,
+      idea: prompt.idea,
+      genre: prompt.genre,
+      bibleContext: prompt.bibleContext ?? "",
+      narrativeAuthority: prompt.narrativeAuthority ?? "",
+      continuityContext: prompt.continuityContext ?? "",
+    }))
+    .digest("hex")
+    .slice(0, 16);
+  return {
+    sections,
+    fingerprint,
+    bibleContextLength: prompt.bibleContext?.length ?? 0,
+    narrativeAuthorityLength: prompt.narrativeAuthority?.length ?? 0,
+    continuityContextLength: prompt.continuityContext?.length ?? 0,
+  };
+}
+
 /** Builds the extra guidance handed to the provider as continuity context. */
 function buildContext(
   operation: string,
@@ -524,4 +596,37 @@ function renderStory(story: GeneratedStory): string {
     ].join(" "),
   ).join("\n");
   return `${story.synopsis}\n${acts}\n${scenes}`;
+}
+/**
+ * Renders the complete candidate for a revision prompt. Includes title,
+ * synopsis, all three acts, and every scene with heading, visual description,
+ * action, and full dialogue so the model can correct specific defects without
+ * losing the rest of the story.
+ */
+function renderStoryForRevision(story: GeneratedStory): string {
+  const { act1, act2, act3 } = story.structure;
+  const acts = [
+    `Act 1 — Introduction: ${act1.introduction}`,
+    `Act 1 — Main characters: ${act1.mainCharacters}`,
+    `Act 1 — Setting: ${act1.setting}`,
+    `Act 1 — Initial situation: ${act1.initialSituation}`,
+    `Act 1 — Inciting incident: ${act1.incitingIncident}`,
+    `Act 2 — Rising tension: ${act2.risingTension}`,
+    `Act 2 — Obstacles: ${act2.obstacles}`,
+    `Act 2 — Character decisions: ${act2.characterDecisions}`,
+    `Act 2 — Turning point: ${act2.turningPoint}`,
+    `Act 3 — Climax: ${act3.climax}`,
+    `Act 3 — Resolution: ${act3.resolution}`,
+    `Act 3 — Final outcome: ${act3.finalOutcome}`,
+  ].join("\n");
+  const scenes = story.screenplay.map((scene) => {
+    const lines = scene.dialogue.map((line) => `  ${line.characterName}: ${line.line}`).join("\n");
+    return [
+      `Scene ${scene.sceneNumber}: ${scene.heading}`,
+      `  Visual: ${scene.visualDescription}`,
+      `  Action: ${scene.action}`,
+      lines,
+    ].join("\n");
+  }).join("\n\n");
+  return `Title: ${story.title}\nSynopsis: ${story.synopsis}\n\n${acts}\n\n${scenes}`;
 }

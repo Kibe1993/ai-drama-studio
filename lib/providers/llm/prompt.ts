@@ -43,11 +43,14 @@ export function storyUserPrompt(input: StoryPrompt): string {
     ...(category.id === "documentary_educational"
       ? ["For documentary-style or educational output, do not invent factual claims, quotations, sources, or historical details. Mark claims that require research as requiring verification; this application does not yet provide a research-verification stage."]
       : []),
+    ...(input.bibleContext?.trim()
+      ? ["Story Bible (authoritative — follow character personalities, relationships, world rules, narrative direction, themes, and boundaries exactly):", input.bibleContext.trim()]
+      : []),
     ...(input.narrativeAuthority?.trim()
       ? [input.narrativeAuthority.trim()]
       : []),
     ...(input.continuityContext?.trim()
-      ? ["Approved Story Bible context (follow these established facts and boundaries):", input.continuityContext.trim()]
+      ? ["Continuity context (follow these established facts and boundaries):", input.continuityContext.trim()]
       : []),
     ...(input.seasonPlan
       ? ["Approved Season Plan (the season's direction; your episode must serve it):", JSON.stringify(input.seasonPlan)]

@@ -4,7 +4,7 @@ import { describeWorldRule } from "@/lib/domain/narrativeControl/worldRules";
 import { canonStateSchema } from "@/lib/validation/narrativeControl";
 import { createLiveEngines } from "@/lib/pipeline/liveEngines";
 import { createStoryDraftEngine } from "@/lib/pipeline/storyDraftEngine";
-import { JobError, type JobRecord, type RunRecord } from "@/lib/pipeline/types";
+import { type JobRecord, type RunRecord } from "@/lib/pipeline/types";
 import { storyUserPrompt } from "@/lib/providers/llm/prompt";
 import type { LLMProvider, StoryPrompt } from "@/lib/providers/llm/types";
 import type { ProjectRecord } from "@/lib/repositories/projectRepository";
@@ -358,7 +358,7 @@ describe("story revise workflow", () => {
     },
   ];
 
-  it.each(cases)("rejects $name through the story revise engine", async ({ story, code }) => {
+  it.each(cases)("saves candidate with $name findings for creator review", async ({ story, code }) => {
     const saved: StoryRecord[] = [acceptedDraft()];
     const commits: CanonState[] = [];
     const prompts: StoryPrompt[] = [];
@@ -368,19 +368,16 @@ describe("story revise workflow", () => {
       return story;
     }) as unknown as LLMProvider, memoryStories(saved), undefined, port, { bible: { async findApproved() { return snapshot(); } } });
 
-    const error = await engine.run(job(), project()).then(() => null, (caught: unknown) => caught);
-    expect(error).toBeInstanceOf(JobError);
-    const failure = error as JobError;
-    expect(failure.code).toBe("narrative_rejected");
-    expect(failure.retryable).toBe(false);
-    const findings = (failure.details?.findings ?? []) as EpisodeValidation["findings"];
+    const result = await engine.run(job(), project());
+    expect(result.storyId).toBeTruthy();
+    expect(result.validationPassed).toBe(false);
+    expect(saved).toHaveLength(2);
+    expect(saved[1]!.status).toBe("awaiting_approval");
+    const findings = saved[1]!.validationFindings?.findings ?? [];
     expect(findings.some((finding) => finding.severity === "error" && (finding.code === code || finding.message.length > 0))).toBe(true);
     expect(codes(findings)).toContain(code);
     expect(findings.some((finding) => finding.evidence || finding.message)).toBe(true);
-    expect(saved).toHaveLength(1);
-    expect(saved[0]!.status).toBe("approved");
     expect(commits).toEqual([]);
-    expect(prompts.length).toBeLessThanOrEqual(3);
   });
 
   it("includes the screenplay and canonical constraints in the revise prompt", async () => {
@@ -568,7 +565,7 @@ function memoryStories(saved: StoryRecord[]) {
     async findProjectDraft() {
       return [...saved].reverse().find((draft) => draft.status !== "failed") ?? null;
     },
-    async upsertProjectDraft(input: GeneratedStory & { validationFindings?: EpisodeValidation | null; sourceCanonVersion?: number | null; storyContract?: StoryRecord["storyContract"] }) {
+    async upsertProjectDraft(input: GeneratedStory & { validationFindings?: EpisodeValidation | null; sourceCanonVersion?: number | null; promptFingerprint?: string | null; storyContract?: StoryRecord["storyContract"] }) {
       const record: StoryRecord = {
         ...input,
         id: "e".repeat(24),
@@ -582,6 +579,7 @@ function memoryStories(saved: StoryRecord[]) {
         fallbackFrom: null,
         validationFindings: input.validationFindings ?? null,
         sourceCanonVersion: input.sourceCanonVersion ?? null,
+        promptFingerprint: input.promptFingerprint ?? null,
         storyContract: input.storyContract ?? null,
         createdAt: now,
         updatedAt: now,
@@ -727,7 +725,7 @@ function houseStory(): GeneratedStory {
 }
 
 describe("story draft requires a Story Bible", () => {
-  it("rejects a screenplay that does not play the acts, and does not save it", async () => {
+  it("saves a screenplay with validation findings even when acts are not played", async () => {
     const saved: StoryRecord[] = [];
     const commits: CanonState[] = [];
     const engine = createStoryDraftEngine(
@@ -737,15 +735,15 @@ describe("story draft requires a Story Bible", () => {
       canonPort(commits),
       { bible: { async findApproved() { return snapshot(); } } },
     );
-    const error = await engine.run(job(), project()).then(() => null, (caught: unknown) => caught);
-    expect(error).toBeInstanceOf(JobError);
-    const failure = error as JobError;
-    expect(failure.code).toBe("narrative_rejected");
-    expect(failure.retryable).toBe(false);
-    expect(codes((failure.details?.findings ?? []) as { code?: string; message: string }[])).toEqual(
+    const result = await engine.run(job(), project());
+    expect(result.storyId).toBeTruthy();
+    expect(result.validationPassed).toBe(false);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.status).toBe("awaiting_approval");
+    const findings = saved[0]!.validationFindings?.findings ?? [];
+    expect(codes(findings)).toEqual(
       expect.arrayContaining(["draft_agreement", "draft_mechanism", "draft_choice", "draft_causality", "scene_action", "place_name"]),
     );
-    expect(saved).toHaveLength(0);
     expect(commits).toEqual([]);
   });
 

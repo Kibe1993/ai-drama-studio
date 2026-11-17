@@ -149,6 +149,64 @@ export function canonFromApprovedSources(input: {
         conditions: described.conditions,
       });
     }
+    for (const entry of bible.canon.characterKnowledge) {
+      const characterId = slugId("character", entry.characterName);
+      if (!seen.has(characterId)) continue;
+      for (const statement of entry.knows) {
+        const factId = slugId("fact", `knowledge-${statement}`);
+        if (!seen.has(factId)) {
+          seen.add(factId);
+          facts.push({
+            id: factId,
+            key: "character_knowledge",
+            statement,
+            classification: "CHARACTER_KNOWLEDGE",
+            protected: false,
+            subjectEntityIds: [characterId],
+            ...roleFields(statement),
+          });
+        }
+        const knowledgeId = slugId("knowledge", `${characterId}-${factId}`);
+        if (seen.has(knowledgeId)) continue;
+        seen.add(knowledgeId);
+        knowledge.push({
+          id: knowledgeId,
+          characterId,
+          factId,
+          knownFromEpisode: 1,
+          learnedVia: "Recorded as this character's knowledge in the approved Story Bible.",
+          believes: true,
+          certainty: "certain",
+        });
+      }
+      for (const statement of entry.believes) {
+        const factId = slugId("fact", `belief-${statement}`);
+        if (!seen.has(factId)) {
+          seen.add(factId);
+          facts.push({
+            id: factId,
+            key: "character_belief",
+            statement,
+            classification: "CHARACTER_KNOWLEDGE",
+            protected: false,
+            subjectEntityIds: [characterId],
+            ...roleFields(statement),
+          });
+        }
+        const knowledgeId = slugId("knowledge", `${characterId}-${factId}`);
+        if (seen.has(knowledgeId)) continue;
+        seen.add(knowledgeId);
+        knowledge.push({
+          id: knowledgeId,
+          characterId,
+          factId,
+          knownFromEpisode: 1,
+          learnedVia: "Recorded as this character's belief in the approved Story Bible.",
+          believes: true,
+          certainty: "suspected",
+        });
+      }
+    }
   }
 
   const ledger = input.ledger;

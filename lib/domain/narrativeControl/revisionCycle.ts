@@ -81,10 +81,7 @@ export async function runControlledRevision(input: {
       lastValid = current.nextCanon ?? canon;
       break;
     }
-    if (findings.some((finding) => finding.requiresCanonAuthorization)) {
-      decision = "needs_authorization";
-      break;
-    }
+
 
     const proposal = await input.propose({
       round,

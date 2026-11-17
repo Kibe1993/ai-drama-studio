@@ -62,6 +62,8 @@ export const storyDraftGenerationJobInputSchema = z.object({
   instruction: z.string().trim().max(2000).default(""),
   creativeDirection: z.string().trim().max(2000).default(""),
   targetFindingId: z.string().trim().max(40).optional(),
+  /** Bible version pinned at job creation so the worker loads the exact snapshot. */
+  sourceBibleVersion: z.number().int().positive().optional(),
 });
 export type StoryDraftGenerationJobInput = z.infer<typeof storyDraftGenerationJobInputSchema>;
 
@@ -136,6 +138,10 @@ export type StoryRecord = GeneratedStory & {
   repairHistory?: SceneRepairRecord[];
   /** Canon version this screenplay was validated against. */
   sourceCanonVersion?: number | null;
+  /** Bible version this draft was generated from. */
+  sourceBibleVersion?: number | null;
+  /** SHA-256 fingerprint (16 chars) of the prompt digest for cross-run comparison. */
+  promptFingerprint?: string | null;
   /** Provisional narrative claims for this draft revision. Not a second canon store. */
   storyContract?: StoryContract | null;
   canonStale?: boolean;

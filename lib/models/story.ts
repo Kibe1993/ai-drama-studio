@@ -28,6 +28,8 @@ export type StoryShape = {
   /** CASNA Stage H: bounded scene-repair attempts. */
   repairHistory: Record<string, unknown>[];
   sourceCanonVersion?: number | null;
+  sourceBibleVersion?: number | null;
+  promptFingerprint?: string | null;
   canonStale?: boolean;
   canonStaleReason?: string;
   storyContract?: Record<string, unknown> | null;
@@ -54,6 +56,8 @@ const StorySchema = new Schema(
     repairHistory: { type: [Schema.Types.Mixed], default: [] },
     storyContract: { type: Schema.Types.Mixed, default: null },
     sourceCanonVersion: { type: Number, default: null },
+    sourceBibleVersion: { type: Number, default: null },
+    promptFingerprint: { type: String, default: null },
     canonStale: { type: Boolean, default: false },
     canonStaleReason: { type: String, default: "", maxlength: 600 },
   },

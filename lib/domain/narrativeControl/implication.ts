@@ -1,6 +1,7 @@
 import type { CanonState, NarrativeFact } from "@/lib/validation/narrativeControl";
 import { makeFinding, type NarrativeFinding } from "@/lib/domain/narrativeControl/findings";
 import { knowledgeAt, validateDisclosures } from "@/lib/domain/narrativeControl/knowledge";
+import { resolveIdentity } from "@/lib/domain/narrativeControl/identity";
 import { normalizeName } from "@/lib/domain/narrativeControl/text";
 
 const STOP = new Set([
@@ -99,7 +100,7 @@ export function implicationLevel(sentence: string, fact: NarrativeFact, names: s
 }
 
 function audienceReady(fact: NarrativeFact, episode: number): boolean {
-  if (fact.classification === "ESTABLISHED_CANON" || fact.classification === "AUDIENCE_KNOWLEDGE") {
+  if (fact.classification === "ESTABLISHED_CANON" || fact.classification === "AUDIENCE_KNOWLEDGE" || fact.classification === "CHARACTER_KNOWLEDGE") {
     return fact.audienceRevealEpisode === null || episode >= fact.audienceRevealEpisode;
   }
   if (fact.audienceRevealEpisode === null) return false;
@@ -121,7 +122,12 @@ export function impliedKnowledgeFindings(canon: CanonState, episode: number, tex
       const level = implicationLevel(line.text, fact, names);
       if (!level) continue;
       const speaker = line.speaker
-        ? canon.entities.find((entity) => normalizeName(entity.name) === normalizeName(line.speaker ?? ""))
+        ? (() => {
+            const resolved = resolveIdentity(line.speaker, canon.entities);
+            return resolved.canonicalId
+              ? canon.entities.find((entity) => entity.id === resolved.canonicalId) ?? null
+              : null;
+          })()
         : null;
       const subjects = fact.subjectEntityIds.length > 0
         ? fact.subjectEntityIds

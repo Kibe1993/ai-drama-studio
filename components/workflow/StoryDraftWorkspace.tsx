@@ -11,6 +11,7 @@ import {
   useStartStoryDraft,
   useStoryDraft,
   useStoryDraftJob,
+  useRevalidateStoryDraft,
 } from "@/hooks/useStoryDraft";
 import { validationPassesForApproval } from "@/lib/validation/casna";
 import type { Project } from "@/hooks/useProjects";
@@ -29,11 +30,17 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
   const jobId = job?.id ?? null;
   const jobQuery = useStoryDraftJob(projectId, jobId);
   const activeJob = jobQuery.data?.job ?? job;
+  const revalidate = useRevalidateStoryDraft(projectId, story?.id);
   const isGenerating =
     activeJob?.status === "queued" || activeJob?.status === "processing";
   const isFailed = activeJob?.status === "failed" || story?.status === "failed";
   const isApproved = story?.status === "approved";
-  const pending = start.isPending || approve.isPending || isGenerating;
+  const pending = start.isPending || approve.isPending || revalidate.isPending || isGenerating;
+
+  const validationFindings = story?.validationFindings;
+  const hasValidationErrors = Boolean(
+    validationFindings && !validationPassesForApproval(validationFindings),
+  );
 
   function startGeneration(operation: StoryDraftRequest["operation"]) {
     setInstruction("");
@@ -43,6 +50,22 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
       creativeDirection: project.tone || undefined,
     });
   }
+
+  function fixAllBlocking() {
+    const blockingFindings = validationFindings?.findings.filter(
+      (f) => f.severity === "error" && f.resolutionStatus !== "accepted_as_intentional" && f.resolutionStatus !== "resolved",
+    ) ?? [];
+    const summary = blockingFindings.map((f, i) => `${i + 1}. ${f.message}`).join("\n");
+    start.mutate({
+      operation: "revise",
+      instruction: `Fix all blocking validation issues:\n${summary}`,
+      creativeDirection: project.tone || undefined,
+    });
+  }
+
+  const blockingFindingCount = validationFindings?.findings.filter(
+    (f) => f.severity === "error" && f.resolutionStatus !== "accepted_as_intentional" && f.resolutionStatus !== "resolved",
+  ).length ?? 0;
 
   const error = start.error ?? approve.error;
   const errorMessage =
@@ -57,10 +80,6 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
       ? activeJob.error?.message ?? "Story generation failed."
       : null;
 
-  const validationFindings = story?.validationFindings;
-  const hasValidationErrors = Boolean(
-    validationFindings && !validationPassesForApproval(validationFindings),
-  );
 
   return (
     <div className="mt-6 grid gap-6">
@@ -90,6 +109,23 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
               ))}
             </ul>
           ) : null}
+        </div>
+      ) : null}
+
+      {story && story.status === "awaiting_approval" && hasValidationErrors && !isGenerating ? (
+        <div className="rounded border border-[#6b3a32] p-4">
+          <p className="text-sm text-[#dfc18a]">
+            Needs revision — {blockingFindingCount} blocking issue{blockingFindingCount > 1 ? "s" : ""} found.
+            The complete story is shown below. Use “Fix all blocking issues”, revise with instructions, or regenerate.
+          </p>
+        </div>
+      ) : null}
+
+      {story && story.status === "awaiting_approval" && !hasValidationErrors && !isGenerating ? (
+        <div className="rounded border border-[#3a4a32] p-4">
+          <p className="text-sm text-[#7a9a6a]">
+            Ready for approval — validation passed.
+          </p>
         </div>
       ) : null}
 
@@ -179,28 +215,34 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
           </Button>
         ) : null}
 
-        {story && story.status === "awaiting_approval" && instruction.trim() ? (
-          <Button disabled={pending} onClick={() => startGeneration("revise")}>
-            {isGenerating ? "Generating…" : "Revise draft"}
-          </Button>
-        ) : null}
-
-        {story && story.status === "awaiting_approval" && !instruction.trim() ? (
-          <Button variant="quiet" disabled={pending} onClick={() => startGeneration("regenerate")}>
-            {isGenerating ? "Generating…" : "Regenerate draft"}
+        {story && story.status === "awaiting_approval" && hasValidationErrors && !isGenerating ? (
+          <Button disabled={pending} onClick={fixAllBlocking}>
+            Fix all blocking issues ({blockingFindingCount})
           </Button>
         ) : null}
 
         {story && story.status === "awaiting_approval" && !isGenerating ? (
-          <Button disabled={pending || isGenerating || hasValidationErrors} onClick={() => approve.mutate(story.id)}>
-            {approve.isPending ? "Approving…" : hasValidationErrors ? "Resolve validation errors first" : "Approve story and continue"}
+          <Button disabled={pending} onClick={() => startGeneration("revise")}>
+            {isGenerating ? "Generating…" : instruction.trim() ? "Revise draft" : "Revise (add instructions below)"}
           </Button>
         ) : null}
 
-        {story && story.status === "awaiting_approval" && hasValidationErrors && !isGenerating ? (
-          <p className="text-xs text-[#a39b8f]">
-            The draft has validation errors. Revise or regenerate to fix them before approving.
-          </p>
+        {story && story.status === "awaiting_approval" && !isGenerating ? (
+          <Button variant="quiet" disabled={pending} onClick={() => startGeneration("regenerate")}>
+            Regenerate from scratch
+          </Button>
+        ) : null}
+
+        {story && story.status === "awaiting_approval" && !isGenerating ? (
+          <Button variant="quiet" disabled={pending} onClick={() => revalidate.mutate()}>
+            {revalidate.isPending ? "Revalidating…" : "Revalidate"}
+          </Button>
+        ) : null}
+
+        {story && story.status === "awaiting_approval" && !isGenerating ? (
+          <Button disabled={pending || hasValidationErrors} onClick={() => approve.mutate(story.id)}>
+            {approve.isPending ? "Approving…" : hasValidationErrors ? "Resolve validation errors first" : "Approve story and continue"}
+          </Button>
         ) : null}
 
         {isApproved && instruction.trim() ? (

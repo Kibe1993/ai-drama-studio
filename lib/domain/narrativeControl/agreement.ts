@@ -34,7 +34,10 @@ export function agreementFindings(input: {
   requireCanonCoverage: boolean;
 }): NarrativeFinding[] {
   const findings: NarrativeFinding[] = [];
-  const names = input.canon.entities.filter((entity) => entity.kind === "character").map((entity) => entity.name);
+  const nameGroups = input.canon.entities
+    .filter((entity) => entity.kind === "character")
+    .map((entity) => [entity.name, ...entity.aliases]);
+  const names = nameGroups.flat();
   const screenplay = input.screenplayText.toLocaleLowerCase();
   const ending = input.endingText.toLocaleLowerCase();
   const asserted = `${input.synopsis}\n${input.acts}`.toLocaleLowerCase();
@@ -62,7 +65,7 @@ export function agreementFindings(input: {
       }
     }
 
-    const denial = deniesFact(fact, names, input.screenplayText);
+    const denial = deniesFact(fact, nameGroups, input.screenplayText);
     if (denial) {
       findings.push(makeFinding({
         algorithm: "agreement",
@@ -79,7 +82,7 @@ export function agreementFindings(input: {
       }));
     }
 
-    const drift = callerDrift(fact, names, input.screenplayText);
+    const drift = callerDrift(fact, nameGroups, input.screenplayText);
     if (drift) {
       findings.push(makeFinding({
         algorithm: "agreement",
@@ -95,7 +98,7 @@ export function agreementFindings(input: {
       }));
     }
 
-    const absent = absentPresentRole(fact, names, input.screenplayText);
+    const absent = absentPresentRole(fact, nameGroups, input.screenplayText);
     if (absent) {
       findings.push(makeFinding({
         algorithm: "agreement",
@@ -111,7 +114,7 @@ export function agreementFindings(input: {
       }));
     }
 
-    const broken = brokenLink(fact, names, input.screenplayText);
+    const broken = brokenLink(fact, nameGroups, input.screenplayText);
     if (broken) {
       findings.push(makeFinding({
         algorithm: "agreement",
@@ -171,53 +174,83 @@ function uncovered(factTokens: string[], haystack: string): string | null {
   return missing.slice(0, 4).join(", ");
 }
 
-function deniesFact(fact: NarrativeFact, names: string[], text: string): string | null {
-  const role = ROLES.find((item) => fact.statement.toLocaleLowerCase().includes(item));
-  const subject = names.find((name) => fact.statement.toLocaleLowerCase().includes(name.toLocaleLowerCase()));
-  if (!role || !subject) return null;
-  const pattern = new RegExp(`\\b${subject}\\b[^.?!\\n]{0,80}\\b(not|never|n't)\\b[^.?!\\n]{0,40}\\b${role}\\b`, "i");
-  return pattern.exec(text)?.[0] ?? null;
+function nameInFact(name: string, statement: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(statement);
 }
 
-function callerDrift(fact: NarrativeFact, names: string[], text: string): string | null {
+function nameInText(name: string, text: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+}
+
+function variantsForFact(fact: NarrativeFact, nameGroups: string[][]): string[] {
+  const variants: string[] = [];
+  for (const group of nameGroups) {
+    if (group.some((name) => nameInFact(name, fact.statement))) {
+      variants.push(...group);
+    }
+  }
+  return [...new Set(variants)];
+}
+
+function deniesFact(fact: NarrativeFact, nameGroups: string[][], text: string): string | null {
+  const role = ROLES.find((item) => fact.statement.toLocaleLowerCase().includes(item));
+  if (!role) return null;
+  const variants = variantsForFact(fact, nameGroups);
+  if (variants.length === 0) return null;
+  for (const subject of variants) {
+    const escaped = subject.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`\\b${escaped}\\b[^.?!\\n]{0,80}\\b(not|never|n't)\\b[^.?!\\n]{0,40}\\b${role}\\b`, "i");
+    const match = pattern.exec(text);
+    if (match) return match[0];
+  }
+  return null;
+}
+
+function callerDrift(fact: NarrativeFact, nameGroups: string[][], text: string): string | null {
   if (!CALL.test(fact.statement)) return null;
-  const subject = names.find((name) => fact.statement.toLocaleLowerCase().includes(name.toLocaleLowerCase()));
-  if (!subject) return null;
+  const variants = variantsForFact(fact, nameGroups);
+  if (variants.length === 0) return null;
   for (const sentence of splitSentences(text)) {
     if (!CALL.test(sentence)) continue;
-    if (sentence.toLocaleLowerCase().includes(subject.toLocaleLowerCase())) continue;
+    if (variants.some((name) => nameInText(name, sentence))) continue;
     if (/\b(anonymous|stranger|unknown|unrelated)\b/i.test(sentence)) return sentence;
   }
   return null;
 }
 
-function absentPresentRole(fact: NarrativeFact, names: string[], text: string): string | null {
+function absentPresentRole(fact: NarrativeFact, nameGroups: string[][], text: string): string | null {
   if (!CALL.test(fact.statement) && !/\bwarns?\b/i.test(fact.statement)) return null;
-  const subject = names.find((name) => fact.statement.toLocaleLowerCase().includes(name.toLocaleLowerCase()));
-  if (!subject) return null;
-  const gone = new RegExp(
-    `\\b${subject}\\b[^.?!\\n]{0,40}\\b(disappeared|vanished|gone)\\b[^.?!\\n]{0,24}\\b(twelve|12)\\s+years\\b`,
-    "i",
-  );
-  const match = gone.exec(text);
-  if (!match) return null;
-  const stillActs = splitSentences(text).some((sentence) =>
-    sentence.toLocaleLowerCase().includes(subject.toLocaleLowerCase()) && (CALL.test(sentence) || /\bwarns?\b/i.test(sentence)),
-  );
-  return stillActs ? null : match[0];
+  const variants = variantsForFact(fact, nameGroups);
+  if (variants.length === 0) return null;
+  for (const subject of variants) {
+    const escaped = subject.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const gone = new RegExp(
+      `\\b${escaped}\\b[^.?!\\n]{0,40}\\b(disappeared|vanished|gone)\\b[^.?!\\n]{0,24}\\b(twelve|12)\\s+years\\b`,
+      "i",
+    );
+    const match = gone.exec(text);
+    if (!match) continue;
+    const stillActs = splitSentences(text).some((sentence) =>
+      variants.some((name) => nameInText(name, sentence)) && (CALL.test(sentence) || /\bwarns?\b/i.test(sentence)),
+    );
+    if (!stillActs) return match[0];
+  }
+  return null;
 }
 
-function brokenLink(fact: NarrativeFact, names: string[], text: string): string | null {
+function brokenLink(fact: NarrativeFact, nameGroups: string[][], text: string): string | null {
   if (!/\b(sacrifice|ritual)\b/i.test(fact.statement)) return null;
-  const mentioned = names.filter((name) => fact.statement.toLocaleLowerCase().includes(name.toLocaleLowerCase()));
-  if (mentioned.length === 0) return null;
+  const variants = variantsForFact(fact, nameGroups);
+  if (variants.length === 0) return null;
   const stakeSentences = splitSentences(text).filter((sentence) => /\b(sacrifice|ritual)\b/i.test(sentence));
   if (stakeSentences.length === 0) return null;
   const linked = stakeSentences.some((sentence) =>
-    mentioned.every((name) => sentence.toLocaleLowerCase().includes(name.toLocaleLowerCase())),
+    variants.every((name) => nameInText(name, sentence)),
   );
   if (linked) return null;
-  if (!mentioned.some((name) => text.toLocaleLowerCase().includes(name.toLocaleLowerCase()))) return null;
+  if (!variants.some((name) => nameInText(name, text))) return null;
   return stakeSentences[0] ?? null;
 }
 
@@ -396,11 +429,37 @@ function hasWord(text: string, word: string): boolean {
   return new RegExp(`\\b${word}\\b`, "i").test(text);
 }
 
+function normalizePassage(text: string): string {
+  return text
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function passageShingles(text: string): Set<string> {
+  const tokens = normalizePassage(text).split(" ").filter((word) => word.length > 0);
+  if (tokens.length < 2) return new Set(tokens);
+  const set = new Set<string>();
+  for (let index = 0; index <= tokens.length - 2; index += 1) {
+    set.add(`${tokens[index]} ${tokens[index + 1]}`);
+  }
+  return set;
+}
+
+function passageJaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let shared = 0;
+  for (const value of a) if (b.has(value)) shared += 1;
+  return shared / (a.size + b.size - shared);
+}
+
 function samePassage(left: string, right: string): boolean {
-  const a = left.toLocaleLowerCase().replace(/\s+/g, " ").trim();
-  const b = right.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  const a = normalizePassage(left);
+  const b = normalizePassage(right);
   if (a.length < 40 || b.length < 40) return false;
-  return a === b;
+  if (a === b) return true;
+  return passageJaccard(passageShingles(a), passageShingles(b)) >= 0.8;
 }
 
 function properNouns(text: string): string[] {

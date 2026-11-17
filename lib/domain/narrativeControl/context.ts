@@ -124,6 +124,7 @@ export function renderNarrativeContext(canon: CanonState, packet: NarrativeConte
   const rules = canon.rules.filter((rule) => packet.mandatoryRuleIds.includes(rule.id));
   const entities = canon.entities.filter((entity) => packet.relevantEntityIds.includes(entity.id));
   const knowledge = canon.knowledge.filter((entry) => packet.knowledgeIds.includes(entry.id));
+  const entityById = new Map(canon.entities.map((entity) => [entity.id, entity]));
   const lines = [
     "NARRATIVE AUTHORITY. The application owns canon. You may propose a change. You cannot approve or commit one.",
     "Priority 1 — Safety: do not reveal concealed facts and do not change protected facts.",
@@ -144,12 +145,29 @@ export function renderNarrativeContext(canon: CanonState, packet: NarrativeConte
     ...packet.prohibitedDisclosures.map((item) =>
       `- ${item.statement} (fact ${item.factId}, available episode ${item.availableEpisode ?? "unset"}).`,
     ),
-    "Relevant identities:",
-    ...entities.map((entity) => `- ${entity.id}: ${entity.name}; aliases: ${entity.aliases.join(", ") || "none"}.`),
+    "Relevant characters and entities:",
+    ...entities.map((entity) => {
+      const parts = [`- ${entity.name} (${entity.id})`];
+      if (entity.aliases.length > 0) parts.push(`  Aliases: ${entity.aliases.join(", ")}.`);
+      if (entity.description) parts.push(`  Description: ${entity.description}.`);
+      if (entity.role) parts.push(`  Role: ${entity.role}.`);
+      if (entity.motivations.length > 0) parts.push(`  Motivations: ${entity.motivations.join("; ")}.`);
+      if (entity.goals.length > 0) parts.push(`  Goals: ${entity.goals.join("; ")}.`);
+      if (entity.arc) parts.push(`  Arc: ${entity.arc}.`);
+      if (entity.secrets.length > 0) parts.push(`  Secrets: ${entity.secrets.join("; ")}.`);
+      if (entity.lifecycle !== "unknown") parts.push(`  Lifecycle: ${entity.lifecycle}.`);
+      return parts.join("\n");
+    }),
     "Relevant rules:",
-    ...rules.map((rule) => `- ${rule.id}: ${rule.description}`),
+    ...rules.map((rule) => `- ${rule.description}`),
     "Knowledge already available to characters:",
-    ...knowledge.map((entry) => `- ${entry.characterId} / ${entry.factId}: ${entry.certainty} from episode ${entry.knownFromEpisode}.`),
+    ...knowledge.map((entry) => {
+      const character = entityById.get(entry.characterId);
+      const fact = byId.get(entry.factId);
+      const charLabel = character?.name ?? entry.characterId;
+      const factLabel = fact?.statement ?? entry.factId;
+      return `- ${charLabel} knows [${entry.certainty}] from episode ${entry.knownFromEpisode}: ${factLabel}`;
+    }),
   ];
   return lines.join("\n");
 }

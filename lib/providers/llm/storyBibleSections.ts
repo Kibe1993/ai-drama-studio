@@ -221,6 +221,145 @@ export function storyBibleBrief(sections: Partial<StoryBibleContent>): Partial<R
   return context;
 }
 
+function joinList(items: unknown): string | undefined {
+  if (!Array.isArray(items) || items.length === 0) return undefined;
+  return items.join("; ");
+}
+
+/**
+ * Renders the Story Bible brief as readable text for inclusion in an LLM
+ * generation prompt.  Each section is labelled so the model can distinguish
+ * creative direction (characters, world, narrative, guidelines) from formal
+ * canon (confirmed facts, character knowledge, audience knowledge).
+ *
+ * Returns `undefined` when no sections are available, so callers can omit the
+ * field entirely instead of sending an empty string.
+ */
+export function renderStoryBibleBrief(sections: Partial<StoryBibleContent>): string | undefined {
+  const brief = storyBibleBrief(sections);
+  const parts: string[] = [];
+
+  if (brief.identity) {
+    const id = brief.identity as Record<string, unknown>;
+    const lines: string[] = ["[IDENTITY]"];
+    if (id.title) lines.push(`Title: ${id.title}`);
+    const genres = joinList(id.genres);
+    if (genres) lines.push(`Genres: ${genres}`);
+    if (typeof id.centralPremise === "string" && id.centralPremise) lines.push(`Central premise: ${id.centralPremise}`);
+    if (typeof id.narrativeConcept === "string" && id.narrativeConcept) lines.push(`Narrative concept: ${id.narrativeConcept}`);
+    if (typeof id.toneAndAtmosphere === "string" && id.toneAndAtmosphere) lines.push(`Tone: ${id.toneAndAtmosphere}`);
+    if (typeof id.centralConflict === "string" && id.centralConflict) lines.push(`Central conflict: ${id.centralConflict}`);
+    parts.push(lines.join("\n"));
+  }
+
+  if (brief.world) {
+    const w = brief.world as Record<string, unknown>;
+    const lines: string[] = ["[WORLD]"];
+    if (typeof w.description === "string" && w.description) lines.push(`Description: ${w.description}`);
+    if (Array.isArray(w.geographyAndLocations) && w.geographyAndLocations.length) {
+      lines.push("Locations:");
+      for (const loc of w.geographyAndLocations) {
+        const l = loc as Record<string, unknown>;
+        const fn = typeof l.storyFunction === "string" && l.storyFunction ? ` (${l.storyFunction})` : "";
+        lines.push(`- ${l.name}: ${l.description}${fn}`);
+      }
+    }
+    const cultures = joinList(w.socialStructuresAndCultures);
+    if (cultures) lines.push(`Cultures: ${cultures}`);
+    const history = joinList(w.historyAndPastEvents);
+    if (history) lines.push(`History: ${history}`);
+    const rules = joinList(w.rules);
+    if (rules) lines.push(`Rules: ${rules}`);
+    if (Array.isArray(w.definingSystems) && w.definingSystems.length) {
+      lines.push("Systems:");
+      for (const sys of w.definingSystems) {
+        const s = sys as Record<string, unknown>;
+        lines.push(`- ${s.name}: ${s.description}`);
+        const lim = joinList(s.limitations);
+        if (lim) lines.push(`  Limitations: ${lim}`);
+        const con = joinList(s.consequences);
+        if (con) lines.push(`  Consequences: ${con}`);
+      }
+    }
+    parts.push(lines.join("\n"));
+  }
+
+  if (brief.characters) {
+    const ch = brief.characters as Record<string, unknown>;
+    const lines: string[] = ["[CHARACTERS]"];
+    if (Array.isArray(ch.characters)) {
+      for (const c of ch.characters) {
+        const char = c as Record<string, unknown>;
+        lines.push(`- ${char.name} (${char.storyRole}): ${char.roleDescription}`);
+        if (typeof char.personality === "string" && char.personality) lines.push(`  Personality: ${char.personality}`);
+        const mot = joinList(char.motivations);
+        if (mot) lines.push(`  Motivations: ${mot}`);
+        const fears = joinList(char.fearsAndWeaknesses);
+        if (fears) lines.push(`  Fears: ${fears}`);
+        if (Array.isArray(char.relationships) && char.relationships.length) {
+          for (const r of char.relationships) {
+            const rel = r as Record<string, unknown>;
+            const tension = typeof rel.tensionOrChange === "string" && rel.tensionOrChange ? ` (tension: ${rel.tensionOrChange})` : "";
+            lines.push(`  -> ${rel.characterName}: ${rel.relationship}${tension}`);
+          }
+        }
+      }
+    }
+    const dynamics = joinList(ch.relationshipDynamics);
+    if (dynamics) lines.push(`Relationship dynamics: ${dynamics}`);
+    parts.push(lines.join("\n"));
+  }
+
+  if (brief.narrative) {
+    const n = brief.narrative as Record<string, unknown>;
+    const lines: string[] = ["[NARRATIVE]"];
+    if (typeof n.mainStoryline === "string" && n.mainStoryline) lines.push(`Main storyline: ${n.mainStoryline}`);
+    const conflicts = joinList(n.majorConflicts);
+    if (conflicts) lines.push(`Major conflicts: ${conflicts}`);
+    if (typeof n.longTermDirection === "string" && n.longTermDirection) lines.push(`Long-term direction: ${n.longTermDirection}`);
+    const subplots = joinList(n.subplots);
+    if (subplots) lines.push(`Subplots: ${subplots}`);
+    const mysteries = joinList(n.unresolvedMysteries);
+    if (mysteries) lines.push(`Unresolved mysteries: ${mysteries}`);
+    if (typeof n.serializedEndingGuidance === "string" && n.serializedEndingGuidance) lines.push(`Ending guidance: ${n.serializedEndingGuidance}`);
+    parts.push(lines.join("\n"));
+  }
+
+  if (brief.guidelines) {
+    const g = brief.guidelines as Record<string, unknown>;
+    const lines: string[] = ["[GUIDELINES]"];
+    const themes = joinList(g.mainThemes);
+    if (themes) lines.push(`Main themes: ${themes}`);
+    if (typeof g.storytellingStyle === "string" && g.storytellingStyle) lines.push(`Storytelling style: ${g.storytellingStyle}`);
+    const boundaries = joinList(g.boundaries);
+    if (boundaries) lines.push(`Boundaries: ${boundaries}`);
+    const consistent = joinList(g.mustRemainConsistent);
+    if (consistent) lines.push(`Must remain consistent: ${consistent}`);
+    parts.push(lines.join("\n"));
+  }
+
+  if (brief.canon) {
+    const c = brief.canon as Record<string, unknown>;
+    const lines: string[] = ["[CANON]"];
+    const facts = joinList(c.confirmedFacts);
+    if (facts) lines.push(`Confirmed facts: ${facts}`);
+    if (Array.isArray(c.characterKnowledge) && c.characterKnowledge.length) {
+      lines.push("Character knowledge:");
+      for (const ck of c.characterKnowledge) {
+        const k = ck as Record<string, unknown>;
+        const knows = joinList(k.knows) ?? "";
+        const believes = joinList(k.believes);
+        lines.push(`- ${k.characterName}: knows ${knows}${believes ? `; believes ${believes}` : ""}`);
+      }
+    }
+    const audience = joinList(c.audienceKnowledge);
+    if (audience) lines.push(`Audience knowledge: ${audience}`);
+    parts.push(lines.join("\n"));
+  }
+
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
 export function buildStoryBibleSectionTask(
   base: StoryBibleTaskInput,
   section: StoryBibleSection,

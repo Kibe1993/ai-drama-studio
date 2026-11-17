@@ -24,6 +24,8 @@ export type StoryPrompt = {
   continuityContext?: string;
   /** Application-owned narrative constraints for this generation. */
   narrativeAuthority?: string;
+  /** Approved Story Bible rendered as readable text — characters, world, narrative direction, themes, boundaries. */
+  bibleContext?: string;
   /** Optional episode scene policy. Duration supplies the range when omitted. */
   sceneRange?: { min: number; max: number } | null;
   /** CASNA Stage G: the approved Season Plan for this series. */

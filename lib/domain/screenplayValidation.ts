@@ -8,6 +8,7 @@ import type { StoryBibleContent } from "@/lib/validation/storyBible";
 import type { CanonicalEntityRegistry } from "@/lib/validation/canonicalRegistry";
 import { resolveSceneRange, type SceneRange } from "@/lib/providers/llm/budget";
 import { resolveCanonicalId, hasAppearedBy, isIntroducedBy } from "@/lib/domain/canonicalRegistry";
+import { createHash } from "node:crypto";
 
 /**
  * CASNA Stage H: validate a completed screenplay against the approved canon,
@@ -135,6 +136,49 @@ function firstSceneWithCharacter(screenplay: ScreenplayScene[], name: string): n
 }
 
 /**
+ * Screenplays commonly use first-name-only speaker labels ("Daniel" for
+ * "Daniel Mwangi"). resolveIdentity deliberately does not match first-name-only
+ * references because that is ambiguous for canon resolution. For the character
+ * introduction check we use a more lenient matching: exact, first-name, or
+ * last-name match against any established character name.
+ */
+function speakerIsEstablished(speaker: string, establishedNames: Set<string>): boolean {
+  const normalized = normalize(speaker);
+  if (establishedNames.has(normalized)) return true;
+  const parts = normalized.split(" ").filter((p) => p.length > 0);
+  if (parts.length === 0) return false;
+  const first = parts[0]!;
+  const last = parts[parts.length - 1]!;
+  for (const name of establishedNames) {
+    if (name === normalized) return true;
+    const nameParts = name.split(" ").filter((p) => p.length > 0);
+    if (nameParts.length === 0) continue;
+    if (first.length >= 3 && nameParts[0] === first) return true;
+    if (parts.length === 1 && last.length >= 4 && nameParts[nameParts.length - 1] === last) return true;
+  }
+  return false;
+}
+
+function findingId(category: string, message: string, sceneNumber?: number): string {
+  return createHash("sha256")
+    .update([category, message.slice(0, 200), String(sceneNumber ?? "")].join("|"))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function dedupeEpisodeFindings(findings: EpisodeValidationFinding[]): EpisodeValidationFinding[] {
+  const seen = new Set<string>();
+  const unique: EpisodeValidationFinding[] = [];
+  for (const finding of findings) {
+    const key = finding.id ?? findingId(finding.category, finding.message, finding.sceneNumber);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(finding);
+  }
+  return unique;
+}
+
+/**
  * Characters the story has already introduced through approved material: the
  * Story Bible, the Continuity Ledger, previous approved episodes, or the
  * approved Season Plan episode entry.
@@ -161,6 +205,11 @@ function establishedCharacters(input: ScreenplayValidationInput): {
     }
   } else {
     for (const character of input.bible?.characters.characters ?? []) add(character.name);
+    for (const entity of input.canon?.entities ?? []) {
+      if (entity.kind !== "character") continue;
+      add(entity.name);
+      for (const alias of entity.aliases) add(alias);
+    }
   }
   for (const state of input.ledger?.characterStates ?? []) add(state.name);
   for (const episode of input.previousEpisodes) {
@@ -244,12 +293,14 @@ export function validateEpisodeScreenplay(
   const established = establishedCharacters(input);
   const castIsKnown = Boolean(input.bible) || (input.ledger?.characterStates.length ?? 0) > 0 || input.previousEpisodes.length > 0 || Boolean(input.registry);
   if (castIsKnown) for (const name of speakingNames(screenplay)) {
-    if (established.names.has(normalize(name))) continue;
+    if (speakerIsEstablished(name, established.names)) continue;
     if (wasIntroducedByPlan(name, established.planText, input.registry, input.episodeNumber)) continue;
+    const sceneNumber = firstSceneWithSpeaker(screenplay, name);
     findings.push({
+      id: findingId("canon", `speaker-not-introduced:${name}`, sceneNumber),
       category: "canon",
       severity: "error",
-      sceneNumber: firstSceneWithSpeaker(screenplay, name),
+      sceneNumber,
       message: `"${name}" speaks in this episode but is not introduced by the Story Bible, the Season Plan, a previous episode, or the Continuity Ledger.`,
     });
   }
@@ -468,9 +519,10 @@ export function validateEpisodeScreenplay(
     }
   }
 
+  const uniqueFindings = dedupeEpisodeFindings(findings);
   return {
-    passed: !findings.some((finding) => finding.severity === "error"),
-    findings,
+    passed: !uniqueFindings.some((finding) => finding.severity === "error"),
+    findings: uniqueFindings,
     validatedAt: new Date().toISOString(),
     ...(narrativeCanonVersion !== undefined
       ? { narrativeCanonVersion, narrativeValidationLayers, narrativeDecision }

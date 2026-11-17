@@ -94,11 +94,15 @@ export function createLiveEngines(options: {
         throw new JobError(casna.gate.reason ?? "This episode is locked.", casna.gate.code, false);
       }
       if (casna?.episodePlanValidation && !casna.episodePlanValidation.passed) {
-        const error = casna.episodePlanValidation.findings.find((finding) => finding.severity === "error");
+        const errors = casna.episodePlanValidation.findings.filter((f) => f.severity === "error");
+        const summary = errors.length > 0
+          ? errors.map((e, i) => `${i + 1}. ${e.message}`).join("\n")
+          : "The episode plan conflicts with the approved Season Plan.";
         throw new JobError(
-          error?.message ?? "The episode plan conflicts with the approved Season Plan.",
+          summary,
           "plan_conflict",
-          false
+          false,
+          { findings: casna.episodePlanValidation.findings },
         );
       }
       const casnaPrompt = casna ? compactCasnaPromptContext(casna) : null;
@@ -352,9 +356,12 @@ export function createLiveEngines(options: {
         artifactsStale: false,
       });
       if (validation && !validation.passed) {
-        const error = validation.findings.find((finding) => finding.severity === "error");
+        const errors = validation.findings.filter((f) => f.severity === "error");
+        const summary = errors.length > 0
+          ? errors.map((e, i) => `${i + 1}. ${e.message}`).join("\n")
+          : "The screenplay conflicts with approved canon.";
         throw new JobError(
-          error?.message ?? "The screenplay conflicts with approved canon.",
+          summary,
           "screenplay_conflict",
           false,
           {

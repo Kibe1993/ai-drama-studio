@@ -18,6 +18,32 @@ import {
 
 const OPEN = new Set(["queued", "processing"]);
 
+type JobErrorFinding = { category: string; severity: string; sceneNumber?: number; message: string; code?: string; evidence?: string };
+
+function extractFindings(error: unknown): JobErrorFinding[] | undefined {
+  if (error instanceof JobError && error.details && "findings" in error.details) {
+    const raw = error.details.findings;
+    if (Array.isArray(raw)) {
+      return raw as JobErrorFinding[];
+    }
+  }
+  return undefined;
+}
+
+function jobErrorFrom(error: unknown, defaultCode: string, retryable: boolean) {
+  const failure = error instanceof JobError ? error : new JobError(
+    error instanceof Error ? error.message : "The stage failed",
+    defaultCode,
+    retryable,
+  );
+  return {
+    code: failure.code,
+    message: failure.message,
+    retryable: failure.retryable,
+    findings: extractFindings(failure),
+  };
+}
+
 const NON_TRANSIENT_CODES = new Set([
   "configuration",
   "authentication",
@@ -377,7 +403,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       const retry = failure.retryable && job.attempts < job.maxAttempts && llmSequenceRetryAllowed(error, job);
       if (retry) {
         job.status = "queued";
-        job.error = { code: failure.code, message: failure.message, retryable: true };
+        job.error = { code: failure.code, message: failure.message, retryable: true, findings: extractFindings(failure) };
         job.progress = { stage: job.jobType, message: "Developing story draft. Retrying" };
         await deps.jobs.save(job);
         log.error("worker", "story draft job retry", { jobId: job.id, projectId: job.projectId, code: failure.code, attempt: job.attempts, detail, ms: Date.now() - started });
@@ -386,7 +412,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       // No draft is persisted on failure, so an approved draft stays intact and
       // the workflow does not advance.
       job.status = "failed";
-      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.error = { code: failure.code, message: failure.message, retryable: false, findings: extractFindings(failure) };
       job.completedAt = new Date().toISOString();
       job.progress = { stage: job.jobType, message: failure.message };
       await deps.jobs.save(job);
@@ -441,7 +467,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
         && (!(error instanceof LlmSequenceError) || preservedCount > 0);
       if (retry) {
         job.status = "queued";
-        job.error = { code: failure.code, message: failure.message, retryable: true };
+        job.error = { code: failure.code, message: failure.message, retryable: true, findings: extractFindings(failure) };
         job.progress = {
           stage: job.jobType,
           message: preservedCount > 0
@@ -456,7 +482,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
         throw failure;
       }
       job.status = "failed";
-      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.error = { code: failure.code, message: failure.message, retryable: false, findings: extractFindings(failure) };
       job.completedAt = new Date().toISOString();
       job.progress = { stage: job.jobType, message: failure.message };
       await deps.jobs.save(job);
@@ -503,14 +529,14 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       const retry = failure.retryable && job.attempts < job.maxAttempts && llmSequenceRetryAllowed(error, job);
       if (retry) {
         job.status = "queued";
-        job.error = { code: failure.code, message: failure.message, retryable: true };
+        job.error = { code: failure.code, message: failure.message, retryable: true, findings: extractFindings(failure) };
         job.progress = { stage: job.jobType, message: "Developing episode idea. Retrying" };
         await deps.jobs.save(job);
         log.error("worker", "episode suggestion job retry", { jobId: job.id, projectId: job.projectId, code: failure.code, attempt: job.attempts, ms: Date.now() - started });
         throw failure;
       }
       job.status = "failed";
-      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.error = { code: failure.code, message: failure.message, retryable: false, findings: extractFindings(failure) };
       job.completedAt = new Date().toISOString();
       job.progress = { stage: job.jobType, message: failure.message };
       await deps.jobs.save(job);
@@ -555,14 +581,14 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       const retry = failure.retryable && job.attempts < job.maxAttempts && llmSequenceRetryAllowed(error, job);
       if (retry) {
         job.status = "queued";
-        job.error = { code: failure.code, message: failure.message, retryable: true };
+        job.error = { code: failure.code, message: failure.message, retryable: true, findings: extractFindings(failure) };
         job.progress = { stage: job.jobType, message: "Developing season plan. Retrying" };
         await deps.jobs.save(job);
         log.error("worker", "season plan job retry", { jobId: job.id, projectId: job.projectId, code: failure.code, attempt: job.attempts, ms: Date.now() - started });
         throw failure;
       }
       job.status = "failed";
-      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.error = { code: failure.code, message: failure.message, retryable: false, findings: extractFindings(failure) };
       job.completedAt = new Date().toISOString();
       job.progress = { stage: job.jobType, message: failure.message };
       await deps.jobs.save(job);
@@ -635,14 +661,14 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       const retry = failure.retryable && job.attempts < job.maxAttempts;
       if (retry) {
         job.status = "queued";
-        job.error = { code: failure.code, message: failure.message, retryable: true };
+        job.error = { code: failure.code, message: failure.message, retryable: true, findings: extractFindings(failure) };
         job.progress = { stage: job.jobType, message: "Assembling timeline. Retrying" };
         await deps.jobs.save(job);
         log.error("worker", "assembly job retry", { jobId: job.id, code: failure.code, attempt: job.attempts });
         throw failure;
       }
       job.status = "failed";
-      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.error = { code: failure.code, message: failure.message, retryable: false, findings: extractFindings(failure) };
       job.completedAt = new Date().toISOString();
       job.progress = { stage: job.jobType, message: failure.message };
       await deps.jobs.save(job);
@@ -740,7 +766,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
     } catch (error) {
       const failure = error instanceof JobError ? error : new JobError("Render failed.", "render_failed", false);
       job.status = "failed";
-      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.error = { code: failure.code, message: failure.message, retryable: false, findings: extractFindings(failure) };
       job.completedAt = new Date().toISOString();
       job.progress = { stage: job.jobType, message: failure.message };
       await deps.jobs.save(job);
@@ -835,14 +861,14 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       });
       if (retry) {
         job.status = "queued";
-        job.error = { code: failure.code, message: failure.message, retryable: true };
+        job.error = { code: failure.code, message: failure.message, retryable: true, findings: extractFindings(failure) };
         job.progress = { stage: job.jobType, message: "Generating audio. Retrying" };
         await deps.jobs.save(job);
         log.error("worker", "audio job retry", { jobId: job.id, segmentId, code: failure.code, attempt: job.attempts });
         throw failure;
       }
       job.status = "failed";
-      job.error = { code: failure.code, message: failure.message, retryable: false };
+      job.error = { code: failure.code, message: failure.message, retryable: false, findings: extractFindings(failure) };
       job.completedAt = new Date().toISOString();
       job.progress = { stage: job.jobType, message: failure.message };
       await deps.jobs.save(job);
@@ -906,14 +932,14 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
     const retry = failure.retryable && job.attempts < job.maxAttempts && llmSequenceRetryAllowed(error, job);
     if (retry) {
       job.status = "queued";
-      job.error = { code: failure.code, message: failure.message, retryable: true };
+      job.error = { code: failure.code, message: failure.message, retryable: true, findings: extractFindings(failure) };
       job.progress = { stage: job.jobType, message: `${stageMessage(job)}. Retrying` };
       await deps.jobs.save(job);
       log.error("worker", "retry", { jobType: job.jobType, jobId: job.id, code: failure.code, attempt: job.attempts });
       throw failure;
     }
     job.status = "failed";
-    job.error = { code: failure.code, message: failure.message, retryable: false };
+    job.error = { code: failure.code, message: failure.message, retryable: false, findings: extractFindings(failure) };
     job.completedAt = new Date().toISOString();
     job.progress = { stage: job.jobType, message: failure.message };
     await deps.jobs.save(job);

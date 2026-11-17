@@ -139,7 +139,7 @@ export type JobRecord = {
   progress: { stage: string; message: string };
   attempts: number;
   maxAttempts: number;
-  error: { code: string; message: string; retryable: boolean } | null;
+  error: { code: string; message: string; retryable: boolean; findings?: Array<{ category: string; severity: string; sceneNumber?: number; message: string; code?: string; evidence?: string }> } | null;
   idempotencyKey: string;
   bullJobId: string | null;
   startedAt: string | null;

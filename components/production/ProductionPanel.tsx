@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { StoryReview } from "@/components/production/StoryReview";
+import { StoryReview, ValidationFindings } from "@/components/production/StoryReview";
 import { EpisodePlanReview } from "@/components/production/EpisodePlanReview";
 import { ScreenplayEditor } from "@/components/production/ScreenplayEditor";
 import { ScenePlanner } from "@/components/production/ScenePlanner";
@@ -228,9 +228,12 @@ export function ProductionPanel({
         ) : null}
         {storyWaiting && story ? (
           story.validationFindings && !story.validationFindings.passed ? (
-            <p className="text-sm text-[#dfc18a]">
-              This screenplay failed canon validation. Regenerate the episode before approving it.
-            </p>
+            <div className="grid gap-2">
+              <p className="text-sm text-[#dfc18a]">
+                This screenplay failed canon validation. Regenerate the episode before approving it.
+              </p>
+              <ValidationFindings validation={story.validationFindings} />
+            </div>
           ) : (
             <Button disabled={busy} onClick={() => approveStory.mutate(story.id)}>
               {approveStory.isPending ? "Approving story" : "Approve story"}

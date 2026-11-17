@@ -12,13 +12,16 @@ import {
   type StoryRecord,
   type StoryStatus,
 } from "@/lib/validation/story";
+import { storyContractSchema, type StoryContract } from "@/lib/validation/storyContract";
 import {
   episodeCanonSummarySchema,
   episodePlanSchema,
   episodeValidationSchema,
+  mergeResolutions,
   type EpisodeCanonSummary,
   type EpisodePlan,
   type EpisodeValidation,
+  type EpisodeValidationFinding,
 } from "@/lib/validation/casna";
 
 type StoryDoc = StoryShape & {
@@ -49,6 +52,8 @@ function toRecord(doc: StoryDoc): StoryRecord {
     fallbackFrom: doc.fallbackFrom || null,
     plan: parsePlan(doc.plan),
     validationFindings: parseValidation(doc.validationFindings),
+    storyContract: parseContract(doc.storyContract),
+    sourceCanonVersion: typeof doc.sourceCanonVersion === "number" ? doc.sourceCanonVersion : null,
     canonSummary: parseCanon(doc.canonSummary),
     repairHistory: parseRepairHistory(doc.repairHistory),
     createdAt: doc.createdAt.toISOString(),
@@ -58,6 +63,11 @@ function toRecord(doc: StoryDoc): StoryRecord {
 
 function parsePlan(raw: unknown): EpisodePlan | null {
   const parsed = episodePlanSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+function parseContract(raw: unknown): StoryContract | null {
+  const parsed = storyContractSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
 }
 
@@ -113,7 +123,9 @@ export type ProjectStoryDraft = GeneratedStory & {
   fallbackFrom?: string | null;
   validationFindings?: EpisodeValidation | null;
   sourceCanonVersion?: number | null;
+  storyContract?: StoryContract | null;
 };
+
 
 export const storyRepository = {
   async upsertAwaiting(input: StoryDraft): Promise<StoryRecord> {
@@ -198,6 +210,7 @@ export const storyRepository = {
       fallbackFrom: input.fallbackFrom || null,
       validationFindings: input.validationFindings ?? null,
       sourceCanonVersion: input.sourceCanonVersion ?? null,
+      storyContract: input.storyContract ?? null,
       canonStale: false,
       canonStaleReason: "",
       status: "awaiting_approval" satisfies StoryStatus,
@@ -327,5 +340,65 @@ export const storyRepository = {
       .sort({ updatedAt: -1 })
       .lean<StoryDoc | null>();
     return doc ? toRecord(doc) : null;
+  },
+
+  /**
+   * Update a single validation finding's resolution status. The finding is
+   * matched by its `id` field (stable hash from the narrative control system).
+   * Returns the updated story record, or null if the story or finding was not
+   * found.
+   */
+  async updateFindingResolution(
+    clerkUserId: string,
+    storyId: string,
+    findingId: string,
+    resolution: { status: string; note?: string; resolvedAt: string },
+  ): Promise<StoryRecord | null> {
+    const { Story } = await models();
+    const doc = await Story.findOne(ownedQuery(clerkUserId, storyId)).lean<StoryDoc | null>();
+    if (!doc) return null;
+    const validation = parseValidation(doc.validationFindings);
+    if (!validation) return null;
+    const updatedFindings = validation.findings.map((finding) => {
+      if (finding.id !== findingId) return finding;
+      return {
+        ...finding,
+        resolutionStatus: resolution.status as EpisodeValidationFinding["resolutionStatus"],
+        ...(resolution.note ? { resolutionNote: resolution.note } : {}),
+        resolvedAt: resolution.resolvedAt,
+      };
+    });
+    const updated: EpisodeValidation = { ...validation, findings: updatedFindings };
+    const result = await Story.findOneAndUpdate(
+      ownedQuery(clerkUserId, storyId),
+      { $set: { validationFindings: updated } },
+      { new: true },
+    ).lean<StoryDoc | null>();
+    return result ? toRecord(result) : null;
+  },
+
+  /**
+   * Replace the validation findings on a story draft. Used after revalidation
+   * runs. Carries forward any existing finding resolutions by matching on
+   * finding `id`, then by `code + category + sceneNumber` as a fallback.
+   */
+  async updateValidationFindings(
+    clerkUserId: string,
+    storyId: string,
+    validation: EpisodeValidation,
+  ): Promise<StoryRecord | null> {
+    const { Story } = await models();
+    const existing = await Story.findOne(ownedQuery(clerkUserId, storyId)).lean<StoryDoc | null>();
+    if (!existing) return null;
+    const previousValidation = parseValidation(existing.validationFindings);
+    const merged = previousValidation
+      ? mergeResolutions(previousValidation, validation)
+      : validation;
+    const result = await Story.findOneAndUpdate(
+      ownedQuery(clerkUserId, storyId),
+      { $set: { validationFindings: merged } },
+      { new: true },
+    ).lean<StoryDoc | null>();
+    return result ? toRecord(result) : null;
   },
 };

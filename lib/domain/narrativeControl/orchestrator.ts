@@ -209,6 +209,9 @@ function structuralFinding(explanation: string, actual: string): NarrativeFindin
     automaticRepairSafe: false,
     signature: `structural:version:${actual}`,
     requiresCanonAuthorization: false,
+    title: "Structural mismatch",
+    confidence: "high",
+    affectedAct: null,
   };
 }
 

@@ -4,6 +4,7 @@ import type {
   EpisodePlan,
   EpisodeValidation,
 } from "@/lib/validation/casna";
+import type { StoryContract } from "@/lib/validation/storyContract";
 
 export const dialogueLineSchema = z.object({
   characterName: z.string().trim().min(1).max(80),
@@ -57,16 +58,18 @@ export type StoryStatus = (typeof STORY_STATUSES)[number];
  * story draft of the guided workflow.
  */
 export const storyDraftGenerationJobInputSchema = z.object({
-  operation: z.enum(["generate", "revise", "regenerate"]),
+  operation: z.enum(["generate", "revise", "regenerate", "targeted_revision"]),
   instruction: z.string().trim().max(2000).default(""),
   creativeDirection: z.string().trim().max(2000).default(""),
+  targetFindingId: z.string().trim().max(40).optional(),
 });
 export type StoryDraftGenerationJobInput = z.infer<typeof storyDraftGenerationJobInputSchema>;
 
 export const storyDraftRequestSchema = z.object({
-  operation: z.enum(["generate", "revise", "regenerate"]).default("generate"),
+  operation: z.enum(["generate", "revise", "regenerate", "targeted_revision"]).default("generate"),
   instruction: z.string().trim().max(2000).optional(),
   creativeDirection: z.string().trim().max(2000).optional(),
+  targetFindingId: z.string().trim().max(40).optional(),
 });
 export type StoryDraftRequest = z.infer<typeof storyDraftRequestSchema>;
 
@@ -87,6 +90,19 @@ export const screenplayEditSchema = z.object({
   expectedUpdatedAt: z.string().trim().min(1).max(40).optional(),
 });
 export type ScreenplayEdit = z.infer<typeof screenplayEditSchema>;
+
+export const findingResolutionRequestSchema = z.object({
+  findingId: z.string().trim().min(1).max(40),
+  status: z.enum([
+    "open",
+    "revision_requested",
+    "resolved",
+    "accepted_as_intentional",
+    "recheck_required",
+  ]),
+  note: z.string().trim().max(1000).optional(),
+});
+export type FindingResolutionRequest = z.infer<typeof findingResolutionRequestSchema>;
 
 export type SceneRepairRecord = {
   attempt: number;
@@ -120,6 +136,8 @@ export type StoryRecord = GeneratedStory & {
   repairHistory?: SceneRepairRecord[];
   /** Canon version this screenplay was validated against. */
   sourceCanonVersion?: number | null;
+  /** Provisional narrative claims for this draft revision. Not a second canon store. */
+  storyContract?: StoryContract | null;
   canonStale?: boolean;
   canonStaleReason?: string;
   createdAt: string;

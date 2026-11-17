@@ -15,10 +15,12 @@ import {
   type CanonPort,
 } from "@/lib/domain/narrativeControl";
 import { storyBibleBrief } from "@/lib/providers/llm/storyBibleSections";
+import { deriveStoryContract } from "@/lib/domain/storyContract";
+import type { ContractLayer } from "@/lib/validation/storyContract";
 import type { ControlDecision } from "@/lib/domain/narrativeControl/orchestrator";
 import { validateEpisodeScreenplay } from "@/lib/domain/screenplayValidation";
 import type { CanonState } from "@/lib/validation/narrativeControl";
-import type { EpisodeValidation } from "@/lib/validation/casna";
+import type { EpisodeValidation, EpisodeValidationFinding } from "@/lib/validation/casna";
 import type { StoryBibleContent, StoryBibleSnapshot } from "@/lib/validation/storyBible";
 import {
   storyDraftGenerationJobInputSchema,
@@ -61,6 +63,17 @@ export function createStoryDraftEngine(
       if (!parsed.success) throw new JobError("The story draft request is invalid.", "invalid_input", false);
       const request = parsed.data;
       const previous = await stories.findProjectDraft(job.clerkUserId, job.projectId);
+      const targetFinding: EpisodeValidationFinding | null = (() => {
+        if (request.operation !== "targeted_revision" || !request.targetFindingId || !previous?.validationFindings) return null;
+        return previous.validationFindings.findings.find((f) => f.id === request.targetFindingId) ?? null;
+      })();
+      if (request.operation === "targeted_revision" && !targetFinding) {
+        throw new JobError(
+          "The specified validation finding was not found on the current draft. Revalidate and try again.",
+          "finding_not_found",
+          false,
+        );
+      }
       const bible = await sources?.bible?.findApproved(job.clerkUserId, job.projectId) ?? null;
       const derived = bible?.content
         ? canonFromApprovedSources({
@@ -77,7 +90,7 @@ export function createStoryDraftEngine(
             port: canon,
           })
         : null;
-      const knowledge = buildContext(request.operation, request.instruction, request.creativeDirection, previous);
+      const knowledge = buildContext(request.operation, request.instruction, request.creativeDirection, previous, targetFinding);
       const authority = working ? narrativeAuthority(working, job.projectId, request.instruction || request.operation) : undefined;
       const continuityContext = [knowledge, previous ? screenplayContext(previous) : undefined].filter(Boolean).join("\n\n") || undefined;
       const promptBase: StoryPrompt = {
@@ -113,6 +126,7 @@ export function createStoryDraftEngine(
       });
       let validation: EpisodeValidation | null = null;
       let rounds = 1;
+      let semantic: ContractLayer = "not_executed";
 
       if (working) {
         const cycle = await runControlledRevision({
@@ -182,9 +196,12 @@ export function createStoryDraftEngine(
           decision: cycle.decision,
         });
         if (!accepted) {
-          const error = validation.findings.find((finding) => finding.severity === "error");
+          const errors = validation.findings.filter((f) => f.severity === "error");
+          const summary = errors.length > 0
+            ? errors.map((e, i) => `${i + 1}. ${e.message}`).join("\n")
+            : "The revision conflicts with approved canon.";
           throw new JobError(
-            error?.message ?? "The revision conflicts with approved canon.",
+            summary,
             "narrative_rejected",
             false,
             {
@@ -197,10 +214,29 @@ export function createStoryDraftEngine(
             },
           );
         }
+      } else {
+        validation = validateDraft(project, current, null, null);
+        if (!validation.passed) {
+          const errors = validation.findings.filter((f) => f.severity === "error");
+          const summary = errors.length > 0
+            ? errors.map((e, i) => `${i + 1}. ${e.message}`).join("\n")
+            : "The draft's synopsis, acts, and screenplay do not agree.";
+          throw new JobError(
+            summary,
+            "narrative_rejected",
+            false,
+            {
+              kind: "narrative_validation",
+              findings: validation.findings,
+              canonCommitted: false,
+              artifactsStale: false,
+            },
+          );
+        }
       }
 
       if (validation && working && llm.critiqueStory) {
-        validation = await applyStoryCritique({
+        const reviewed = await applyStoryCritique({
           llm,
           project,
           story: current,
@@ -209,10 +245,15 @@ export function createStoryDraftEngine(
           validation,
           job,
         });
+        validation = reviewed.validation;
+        semantic = reviewed.semantic;
         if (!validation.passed) {
-          const error = validation.findings.find((finding) => finding.severity === "error");
+          const errors = validation.findings.filter((f) => f.severity === "error");
+          const summary = errors.length > 0
+            ? errors.map((e, i) => `${i + 1}. ${e.message}`).join("\n")
+            : "The revision conflicts with approved canon.";
           throw new JobError(
-            error?.message ?? "The revision conflicts with approved canon.",
+            summary,
             "narrative_rejected",
             false,
             {
@@ -228,6 +269,14 @@ export function createStoryDraftEngine(
       }
 
       const trace = traceOf(current, llm);
+      const storyContract = validation
+        ? deriveStoryContract({
+            story: current,
+            validation,
+            creatorIdea: project.originalStoryIdea,
+            semantic,
+          })
+        : null;
       const saved = await stories.upsertProjectDraft({
         title: current.title,
         synopsis: current.synopsis,
@@ -240,6 +289,7 @@ export function createStoryDraftEngine(
         fallbackFrom: trace.fallbackFrom,
         validationFindings: validation,
         sourceCanonVersion: working?.version ?? null,
+        storyContract,
       });
       log.info("story-draft", "saved", {
         projectId: job.projectId,
@@ -277,8 +327,8 @@ async function applyStoryCritique(input: {
   canon: CanonState;
   validation: EpisodeValidation;
   job: JobRecord;
-}): Promise<EpisodeValidation> {
-  if (!input.llm.critiqueStory) return input.validation;
+}): Promise<{ validation: EpisodeValidation; semantic: ContractLayer }> {
+  if (!input.llm.critiqueStory) return { validation: input.validation, semantic: "not_executed" };
   try {
     const critique = await input.llm.critiqueStory(
       {
@@ -293,7 +343,7 @@ async function applyStoryCritique(input: {
       },
       { runId: input.job.id, jobId: input.job.id },
     );
-    if (critique.findings.length === 0) return input.validation;
+    if (critique.findings.length === 0) return { validation: input.validation, semantic: "passed" };
     const adjudicated = adjudicateCriticFindings({
       canon: input.canon,
       episode: 1,
@@ -312,10 +362,13 @@ async function applyStoryCritique(input: {
       canonCommitted: false,
     });
     return {
-      ...input.validation,
-      passed: input.validation.passed && !blocked,
-      validatedAt: new Date().toISOString(),
-      findings: [...input.validation.findings, ...adjudicated],
+      validation: {
+        ...input.validation,
+        passed: input.validation.passed && !blocked,
+        validatedAt: new Date().toISOString(),
+        findings: [...input.validation.findings, ...adjudicated],
+      },
+      semantic: blocked ? "failed" : "passed",
     };
   } catch (error) {
     log.error("story-draft", "continuity critique failed", {
@@ -323,14 +376,14 @@ async function applyStoryCritique(input: {
       jobId: input.job.id,
       detail: error instanceof Error ? error.message : "unknown",
     });
-    return input.validation;
+    return { validation: input.validation, semantic: "not_executed" };
   }
 }
 
 function validateDraft(
   project: ProjectRecord,
   story: GeneratedStory,
-  canon: CanonState,
+  canon: CanonState | null,
   bible: StoryBibleContent | null,
 ): EpisodeValidation {
   return validateEpisodeScreenplay({
@@ -346,7 +399,7 @@ function validateDraft(
     canon,
     structure: story.structure,
     sceneRange: project.sceneRange,
-    requireCanonCoverage: true,
+    requireCanonCoverage: canon != null,
   });
 }
 
@@ -410,15 +463,31 @@ function buildContext(
   operation: string,
   instruction: string,
   creativeDirection: string,
-  previous: StoryRecord | null
+  previous: StoryRecord | null,
+  targetFinding?: EpisodeValidationFinding | null,
 ): string | undefined {
   const parts: string[] = [];
   if (creativeDirection) parts.push(`Creative direction:\n${creativeDirection}`);
-  if (operation === "revise" && previous) {
+  if ((operation === "revise" || operation === "targeted_revision") && previous) {
     parts.push(
       `The current draft is:\nTitle: ${previous.title}\nSynopsis: ${previous.synopsis}\n` +
         `Keep everything the creator did not ask to change.`
     );
+  }
+  if (operation === "targeted_revision" && targetFinding) {
+    const findingParts = [
+      `Targeted revision for a single validation finding. Change only what is needed to address this issue. Do not rewrite the rest of the story.`,
+      `Finding: ${targetFinding.message}`,
+    ];
+    if (targetFinding.title) findingParts.push(`Title: ${targetFinding.title}`);
+    if (targetFinding.category) findingParts.push(`Category: ${targetFinding.category}`);
+    if (targetFinding.sceneNumber) findingParts.push(`Affected scene: ${targetFinding.sceneNumber}`);
+    if (targetFinding.affectedAct) findingParts.push(`Affected act: ${targetFinding.affectedAct}`);
+    if (targetFinding.expected) findingParts.push(`Expected: ${targetFinding.expected}`);
+    if (targetFinding.actual) findingParts.push(`Actual: ${targetFinding.actual}`);
+    if (targetFinding.evidence) findingParts.push(`Evidence: ${targetFinding.evidence}`);
+    if (targetFinding.suggestedCorrection) findingParts.push(`Suggested correction: ${targetFinding.suggestedCorrection}`);
+    parts.push(findingParts.join("\n"));
   }
   if (instruction) parts.push(`Required changes:\n${instruction}`);
   return parts.length > 0 ? parts.join("\n\n") : undefined;

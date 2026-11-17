@@ -1,5 +1,5 @@
 import type { CanonState } from "@/lib/validation/narrativeControl";
-import { agreementFindings, contradictionChanges, evaluateProposal, type NarrativeFinding } from "@/lib/domain/narrativeControl";
+import { agreementFindings, contradictionChanges, draftConsistencyFindings, evaluateProposal, type NarrativeFinding } from "@/lib/domain/narrativeControl";
 import type { EpisodePlan, EpisodeValidation, EpisodeValidationCategory, EpisodeValidationFinding } from "@/lib/validation/casna";
 import type { ContinuityLedger } from "@/lib/validation/continuityLedger";
 import type { SeasonPlan } from "@/lib/validation/seasonPlan";
@@ -242,7 +242,8 @@ export function validateEpisodeScreenplay(
 
   // -- Canon -------------------------------------------------------------
   const established = establishedCharacters(input);
-  for (const name of speakingNames(screenplay)) {
+  const castIsKnown = Boolean(input.bible) || (input.ledger?.characterStates.length ?? 0) > 0 || input.previousEpisodes.length > 0 || Boolean(input.registry);
+  if (castIsKnown) for (const name of speakingNames(screenplay)) {
     if (established.names.has(normalize(name))) continue;
     if (wasIntroducedByPlan(name, established.planText, input.registry, input.episodeNumber)) continue;
     findings.push({
@@ -391,6 +392,24 @@ export function validateEpisodeScreenplay(
     });
   }
 
+  const draftFindings = draftConsistencyFindings({
+    episode: input.episodeNumber,
+    title: input.story.title,
+    synopsis: input.story.synopsis,
+    acts: input.structure ?? null,
+    scenes: screenplay.map((scene) => ({
+      sceneNumber: scene.sceneNumber,
+      heading: scene.heading,
+      visualDescription: scene.visualDescription,
+      action: scene.action,
+      dialogue: scene.dialogue.map((line) => `${line.characterName}: ${line.line}`).join("\n"),
+    })),
+  });
+  for (const finding of draftFindings) {
+    const mapped = toEpisodeFinding(finding);
+    if (mapped) findings.push(mapped);
+  }
+
   let narrativeCanonVersion: number | undefined;
   let narrativeValidationLayers: EpisodeValidation["narrativeValidationLayers"];
   let narrativeDecision: EpisodeValidation["narrativeDecision"];
@@ -479,6 +498,16 @@ function toEpisodeFinding(finding: NarrativeFinding): EpisodeValidationFinding |
     ...(finding.evidence.trim() ? { evidence: finding.evidence.slice(0, 400) } : {}),
     ...(finding.sceneNumber ? { sceneNumber: finding.sceneNumber } : {}),
     message: finding.explanation.slice(0, 600),
+    id: finding.id,
+    title: finding.title.slice(0, 120),
+    ...(finding.expected.trim() ? { expected: finding.expected.slice(0, 400) } : {}),
+    ...(finding.actual.trim() ? { actual: finding.actual.slice(0, 400) } : {}),
+    ...(finding.suggestedCorrection.trim() ? { suggestedCorrection: finding.suggestedCorrection.slice(0, 600) } : {}),
+    confidence: finding.confidence,
+    ...(finding.affectedAct ? { affectedAct: finding.affectedAct } : {}),
+    requiresCanonAuthorization: finding.requiresCanonAuthorization,
+    automaticRepairSafe: finding.automaticRepairSafe,
+    resolutionStatus: "open",
   };
 }
 

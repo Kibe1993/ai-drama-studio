@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/hooks/api";
 import { useUpdateStory } from "@/hooks/useProduction";
+import { ValidationFindings } from "@/components/production/StoryReview";
 import type { DialogueLine, ScreenplayScene, StoryRecord } from "@/lib/validation/story";
 
 /**
@@ -162,16 +163,31 @@ export function ScreenplayEditor({
           {update.isPending ? "Saving…" : "Save edit and revalidate"}
         </Button>
         {error ? (
-          <p role="alert" className="text-sm text-[#e7b2a8]">
-            {error instanceof ApiError ? error.message : "The screenplay could not be saved."}
-          </p>
+          <div className="grid gap-1">
+            <p role="alert" className="text-sm text-[#e7b2a8]">
+              {error instanceof ApiError ? error.message : "The screenplay could not be saved."}
+            </p>
+            {error instanceof ApiError && error.findings && error.findings.length > 0 ? (
+              <ul className="grid gap-1">
+                {error.findings.map((finding, index) => (
+                  <li key={index} className={`text-xs ${finding.severity === "error" ? "text-[#e7b2a8]" : "text-[739b8f]"}`}>
+                    [{finding.severity}] {finding.category}
+                    {finding.sceneNumber ? ` (scene ${finding.sceneNumber})` : ""}: {finding.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
         ) : null}
         {validation && !error ? (
-          <p role="status" className="text-sm text-[#dfc18a]">
-            {validation.passed
-              ? "Saved. The episode passes validation."
-              : "Saved, but validation errors remain. Resolve them before approving."}
-          </p>
+          <div className="grid gap-1">
+            <p role="status" className="text-sm text-[#dfc18a]">
+              {validation.passed
+                ? "Saved. The episode passes validation."
+                : "Saved, but validation errors remain. Resolve them before approving."}
+            </p>
+            {!validation.passed ? <ValidationFindings validation={validation} /> : null}
+          </div>
         ) : null}
       </div>
     </details>

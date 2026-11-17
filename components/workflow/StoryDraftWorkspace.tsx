@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { StoryReview } from "@/components/production/StoryReview";
+import { ActionableFindings } from "@/components/production/ActionableFindings";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/hooks/api";
 import {
@@ -11,6 +12,7 @@ import {
   useStoryDraft,
   useStoryDraftJob,
 } from "@/hooks/useStoryDraft";
+import { validationPassesForApproval } from "@/lib/validation/casna";
 import type { Project } from "@/hooks/useProjects";
 import type { StoryDraftRequest } from "@/lib/validation/story";
 
@@ -49,10 +51,16 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
       : error
       ? "The story draft request could not be completed."
       : null;
+  const errorFindings = error instanceof ApiError ? error.findings : undefined;
   const jobError =
     activeJob?.status === "failed"
       ? activeJob.error?.message ?? "Story generation failed."
       : null;
+
+  const validationFindings = story?.validationFindings;
+  const hasValidationErrors = Boolean(
+    validationFindings && !validationPassesForApproval(validationFindings),
+  );
 
   return (
     <div className="mt-6 grid gap-6">
@@ -72,14 +80,45 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
           <p role="alert" className="text-sm text-[#e7b2a8]">
             {jobError ?? "Story generation failed. You can retry."}
           </p>
+          {activeJob?.error?.findings && activeJob.error.findings.length > 0 ? (
+            <ul className="mt-2 grid gap-1">
+              {activeJob.error.findings.map((finding, index) => (
+                <li key={index} className={`text-xs ${finding.severity === "error" ? "text-[#e7b2a8]" : "text-[#a39b8f]"}`}>
+                  [{finding.severity}] {finding.category}
+                  {finding.sceneNumber ? ` (scene ${finding.sceneNumber})` : ""}: {finding.message}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
 
       {errorMessage ? (
-        <p role="alert" className="text-sm text-[#e7b2a8]">{errorMessage}</p>
+        <div className="rounded border border-[#6b3a32] p-4">
+          <p role="alert" className="text-sm text-[#e7b2a8]">{errorMessage}</p>
+          {errorFindings && errorFindings.length > 0 ? (
+            <ul className="mt-2 grid gap-1">
+              {errorFindings.map((finding, index) => (
+                <li key={index} className={`text-xs ${finding.severity === "error" ? "text-[#e7b2a8]" : "text-[#a39b8f]"}`}>
+                  [{finding.severity}] {finding.category}
+                  {finding.sceneNumber ? ` (scene ${finding.sceneNumber})` : ""}: {finding.message}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
 
-      {story ? <StoryReview story={story} /> : null}
+      {story && validationFindings && validationFindings.findings.length > 0 ? (
+        <ActionableFindings
+          validation={validationFindings}
+          projectId={projectId}
+          storyId={story.id}
+          disabled={pending}
+        />
+      ) : null}
+
+      {story ? <StoryReview story={story} hideValidationFindings /> : null}
 
       {story && story.provider ? (
         <p className="text-sm text-[#a39b8f]">
@@ -98,16 +137,25 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
 
       {/* Revision instructions */}
       {story && !isApproved ? (
-        <label className="grid gap-2 text-sm">
-          <span>Revision instructions (optional)</span>
-          <textarea
-            className="studio-field min-h-20"
-            maxLength={2000}
-            value={instruction}
-            onChange={(e) => setInstruction(e.target.value)}
-            placeholder="Describe changes you want, or leave blank to regenerate from scratch"
-          />
-        </label>
+        <div className="grid gap-2 text-sm">
+          {hasValidationErrors ? (
+            <p className="text-xs text-[#dfc18a]">
+              The draft has validation errors listed above. Describe how to fix them, or regenerate from scratch.
+            </p>
+          ) : null}
+          <label className="grid gap-2">
+            <span>Revision instructions (optional)</span>
+            <textarea
+              className="studio-field min-h-24"
+              maxLength={2000}
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              placeholder={hasValidationErrors
+                ? "e.g. Fix scene 3: the character Sarah has not been introduced yet. Add her entrance before her dialogue."
+                : "Describe changes you want, or leave blank to regenerate from scratch"}
+            />
+          </label>
+        </div>
       ) : null}
 
       {isApproved ? (
@@ -144,9 +192,15 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
         ) : null}
 
         {story && story.status === "awaiting_approval" && !isGenerating ? (
-          <Button disabled={pending || isGenerating} onClick={() => approve.mutate(story.id)}>
-            {approve.isPending ? "Approving…" : "Approve story and continue"}
+          <Button disabled={pending || isGenerating || hasValidationErrors} onClick={() => approve.mutate(story.id)}>
+            {approve.isPending ? "Approving…" : hasValidationErrors ? "Resolve validation errors first" : "Approve story and continue"}
           </Button>
+        ) : null}
+
+        {story && story.status === "awaiting_approval" && hasValidationErrors && !isGenerating ? (
+          <p className="text-xs text-[#a39b8f]">
+            The draft has validation errors. Revise or regenerate to fix them before approving.
+          </p>
         ) : null}
 
         {isApproved && instruction.trim() ? (

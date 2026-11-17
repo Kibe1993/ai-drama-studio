@@ -1,6 +1,8 @@
+import type { StoryStructure } from "@/lib/validation/story";
 import type { CanonState, NarrativeFact } from "@/lib/validation/narrativeControl";
 import { isProtectedFact } from "@/lib/validation/narrativeControl";
 import { makeFinding, type NarrativeFinding } from "@/lib/domain/narrativeControl/findings";
+import { proposedIntervalConflict } from "@/lib/domain/narrativeControl/worldRules";
 import { normalizeName } from "@/lib/domain/narrativeControl/text";
 
 const STOP = new Set([
@@ -217,6 +219,219 @@ function brokenLink(fact: NarrativeFact, names: string[], text: string): string 
   if (linked) return null;
   if (!mentioned.some((name) => text.toLocaleLowerCase().includes(name.toLocaleLowerCase()))) return null;
   return stakeSentences[0] ?? null;
+}
+
+const PROMISED = ["map", "compartment", "countdown", "unlock", "unlocks", "unlocked", "victim", "warning", "warnings", "ledger"];
+const MECHANISM = /\b(disappears?|disappearances?|erases?|erased|vanishes?|vanished)\b/i;
+const CHOICE = /whether to ([^.?!]+) or ([^.?!]+)/i;
+const KEY_COMPANIONS = ["unlock", "compartment", "countdown"];
+const SLUG = new Set([
+  "morning", "evening", "afternoon", "midnight", "continuous", "interior", "exterior",
+  "upstairs", "downstairs", "basement", "chamber", "kitchen", "bedroom", "hallway",
+  "outside", "sunrise", "sunset", "living", "family", "street", "secret", "front",
+]);
+
+/**
+ * Compare a draft with itself. These checks do not need a Story Bible.
+ * A promised beat, choice, or cause that the screenplay never plays is an error.
+ */
+export function draftConsistencyFindings(input: {
+  episode: number;
+  title: string;
+  synopsis: string;
+  acts: StoryStructure | null;
+  scenes: { sceneNumber: number; heading: string; visualDescription: string; action: string; dialogue: string }[];
+}): NarrativeFinding[] {
+  const findings: NarrativeFinding[] = [];
+  const beats = beatTexts(input.acts);
+  const promisedText = [input.synopsis, ...beats].join("\n");
+  const screenplay = input.scenes.map((scene) => [scene.heading, scene.visualDescription, scene.action, scene.dialogue].join("\n")).join("\n");
+  const action = input.scenes.map((scene) => scene.action).join("\n");
+  const screenplayLower = screenplay.toLocaleLowerCase();
+
+  const missing = [...new Set(PROMISED.filter((word) =>
+    beats.some((beat) => hasWord(beat, word)) && !hasWord(screenplay, word),
+  ))];
+  if (missing.length > 0) {
+    findings.push(draftFinding(
+      input.episode,
+      "draft_agreement",
+      missing.join(", "),
+      `The acts promise ${missing.join(", ")}, and the screenplay never establishes them.`,
+      "Dramatize each promised beat in the screenplay, or remove it from the acts.",
+    ));
+  }
+
+  const interval = proposedIntervalConflict(promisedText, screenplay);
+  if (interval) {
+    findings.push(draftFinding(
+      input.episode,
+      "world_rules",
+      interval.proposed,
+      `The screenplay changes the interval from "${interval.expected}" to "${interval.proposed}".`,
+      "Keep the interval stated by the premise, or request authorization to change it.",
+    ));
+  }
+
+  if (MECHANISM.test(promisedText) && !MECHANISM.test(action)) {
+    findings.push(draftFinding(
+      input.episode,
+      "draft_mechanism",
+      promisedText.match(MECHANISM)?.[0] ?? "disappearance",
+      "The story states a disappearance or erasure, but no scene shows it happening.",
+      "Show the disappearance in a scene's action. Stating the rule in dialogue does not establish it.",
+    ));
+  }
+
+  const choice = CHOICE.exec(input.synopsis) ?? CHOICE.exec(beats.join("\n"));
+  if (choice) {
+    const left = contentWords(choice[1] ?? "");
+    const right = contentWords(choice[2] ?? "");
+    const leftMissing = left.length > 0 && left.every((word) => !screenplayLower.includes(word));
+    const rightMissing = right.length > 0 && right.every((word) => !screenplayLower.includes(word));
+    if (leftMissing || rightMissing) {
+      findings.push(draftFinding(
+        input.episode,
+        "draft_choice",
+        choice[0].slice(0, 180),
+        "The synopsis states a choice, and the screenplay does not dramatize it.",
+        "Play the decision on screen, including what the character gives up or refuses.",
+      ));
+    }
+  }
+
+  const companions = KEY_COMPANIONS.filter((word) => hasWord(promisedText, word) || (word === "unlock" && hasWord(promisedText, "unlocks")));
+  if (hasWord(promisedText, "key") && companions.length > 0) {
+    const unmet = companions.filter((word) => !hasWord(screenplay, word) && !(word === "unlock" && hasWord(screenplay, "unlocks")));
+    if (!hasWord(screenplay, "key") || unmet.length > 0) {
+      findings.push(draftFinding(
+        input.episode,
+        "draft_causality",
+        unmet.join(", ") || "key",
+        "The story promises a key that opens or triggers something, and the screenplay does not show that cause.",
+        "Show where the key comes from, what it opens, and what that action causes.",
+      ));
+    }
+  }
+
+  for (const scene of input.scenes) {
+    if (samePassage(scene.visualDescription, scene.action)) {
+      findings.push(draftFinding(
+        input.episode,
+        "scene_action",
+        scene.visualDescription.slice(0, 180),
+        `Scene ${scene.sceneNumber} repeats its description as the action and does not add a dramatic event.`,
+        "Replace the repeated description with the event that changes the scene.",
+        scene.sceneNumber,
+      ));
+    }
+  }
+
+  const names = properNouns(`${input.title}. ${input.synopsis}`);
+  for (const scene of input.scenes) {
+    for (const token of headingWords(scene.heading)) {
+      if (names.some((name) => name.toLocaleLowerCase() === token)) continue;
+      const near = names.find((name) => {
+        const canonical = name.toLocaleLowerCase();
+        if (canonical.length < 8 || token.length < 8) return false;
+        return editDistance(canonical, token) <= 2;
+      });
+      if (!near) continue;
+      findings.push(draftFinding(
+        input.episode,
+        "place_name",
+        token,
+        `Scene ${scene.sceneNumber} spells ${near} as ${token}.`,
+        "Use the same place and character names in the screenplay as in the synopsis.",
+        scene.sceneNumber,
+      ));
+      break;
+    }
+  }
+
+  return findings;
+}
+
+function draftFinding(
+  episode: number,
+  algorithm: string,
+  evidence: string,
+  explanation: string,
+  suggestedCorrection: string,
+  sceneNumber?: number,
+): NarrativeFinding {
+  return makeFinding({
+    algorithm,
+    severity: "ERROR",
+    category: "structural",
+    episode,
+    ...(sceneNumber ? { sceneNumber } : {}),
+    evidence,
+    expected: "The screenplay plays the story the synopsis and acts tell.",
+    actual: evidence,
+    explanation,
+    suggestedCorrection,
+  });
+}
+
+function beatTexts(structure: StoryStructure | null): string[] {
+  if (!structure) return [];
+  return [
+    structure.act1.incitingIncident,
+    structure.act2.risingTension,
+    structure.act2.obstacles,
+    structure.act2.characterDecisions,
+    structure.act2.turningPoint,
+    structure.act3.climax,
+    structure.act3.resolution,
+    structure.act3.finalOutcome,
+  ];
+}
+
+function contentWords(value: string): string[] {
+  return [...new Set(normalizeName(value).split(" ").filter((word) => word.length >= 6 && !STOP.has(word)))];
+}
+
+function hasWord(text: string, word: string): boolean {
+  return new RegExp(`\\b${word}\\b`, "i").test(text);
+}
+
+function samePassage(left: string, right: string): boolean {
+  const a = left.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  const b = right.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  if (a.length < 40 || b.length < 40) return false;
+  return a === b;
+}
+
+function properNouns(text: string): string[] {
+  return [...new Set(text.match(/\b[A-Z][a-z]{6,}\b/g) ?? [])];
+}
+
+function headingWords(heading: string): string[] {
+  return heading
+    .split(/[^A-Za-z]+/)
+    .map((word) => word.toLocaleLowerCase())
+    .filter((word) => word.length >= 7 && !SLUG.has(word));
+}
+
+function editDistance(left: string, right: string): number {
+  if (Math.abs(left.length - right.length) > 1) return 2;
+  const rows = left.length + 1;
+  const columns = right.length + 1;
+  const grid = Array.from({ length: rows }, () => Array<number>(columns).fill(0));
+  for (let row = 0; row < rows; row += 1) grid[row]![0] = row;
+  for (let column = 0; column < columns; column += 1) grid[0]![column] = column;
+  for (let row = 1; row < rows; row += 1) {
+    for (let column = 1; column < columns; column += 1) {
+      const cost = left[row - 1] === right[column - 1] ? 0 : 1;
+      grid[row]![column] = Math.min(
+        grid[row - 1]![column]! + 1,
+        grid[row]![column - 1]! + 1,
+        grid[row - 1]![column - 1]! + cost,
+      );
+    }
+  }
+  return grid[left.length]![right.length]!;
 }
 
 function tokens(value: string): string[] {

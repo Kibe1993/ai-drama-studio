@@ -30,6 +30,12 @@ Browser
 
 Hosting the Next.js application does not run video models. If a GPU or an API key is missing, that provider stays disabled. The project and its completed work remain.
 
+## Story Contract
+
+The project-level Story Draft is validated before a Story Bible exists. `deriveStoryContract` records the draft's characters, interval rules, act events, and scene outcomes on the story document, with the source field and a hash of that revision. Approval refuses a draft that has no completed validation, a contract for a different revision, or a failed structural or agreement layer. The contract is provisional until the creator approves the draft. It is not a second canon collection. The Continuity Ledger and `CanonState` remain the authorities after approval. `narrativeGraph`, `narrativeRegistry`, and `canonicalRegistry` repositories are not on the story-draft path. Season-plan validation still uses `planValidation` and the narrative engine for plans only.
+
+A missing semantic review is stored as `not_executed`. It is not treated as a pass. A Story Bible whose world rules change a loss-event interval in the approved contract is rejected.
+
 ## Five engines
 
 | Engine | Owns | Does not own |

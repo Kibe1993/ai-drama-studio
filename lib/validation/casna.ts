@@ -71,6 +71,24 @@ export const EPISODE_PLAN_CATEGORIES = [
 
 export type EpisodeValidationCategory = (typeof EPISODE_PLAN_CATEGORIES)[number];
 
+export const FINDING_RESOLUTION_STATUSES = [
+  "open",
+  "revision_requested",
+  "resolved",
+  "accepted_as_intentional",
+  "recheck_required",
+] as const;
+
+export type FindingResolutionStatus = (typeof FINDING_RESOLUTION_STATUSES)[number];
+
+export const findingResolutionSchema = z.object({
+  status: z.enum(FINDING_RESOLUTION_STATUSES),
+  note: z.string().trim().max(1000).optional(),
+  resolvedAt: z.string().trim().min(1).max(40).optional(),
+});
+
+export type FindingResolution = z.infer<typeof findingResolutionSchema>;
+
 export const episodeValidationFindingSchema = z.object({
   category: z.enum(EPISODE_PLAN_CATEGORIES),
   severity: z.enum(["warning", "error"]),
@@ -80,6 +98,30 @@ export const episodeValidationFindingSchema = z.object({
   code: z.string().trim().min(1).max(80).optional(),
   /** Quoted proposal text that triggered the finding. */
   evidence: z.string().trim().min(1).max(400).optional(),
+  /** Stable finding identifier (16-char hex hash from the narrative control system). */
+  id: z.string().trim().min(1).max(40).optional(),
+  /** Short human-readable title summarising the finding. */
+  title: z.string().trim().min(1).max(120).optional(),
+  /** The narrative requirement the validator expected to hold. */
+  expected: z.string().trim().min(1).max(400).optional(),
+  /** The narrative content the validator actually observed. */
+  actual: z.string().trim().min(1).max(400).optional(),
+  /** Suggested correction the creator or model can apply. */
+  suggestedCorrection: z.string().trim().min(1).max(600).optional(),
+  /** Confidence level of the finding. */
+  confidence: z.enum(["high", "medium", "low"]).optional(),
+  /** Which act (1, 2, or 3) the finding affects, when known. */
+  affectedAct: z.number().int().min(1).max(3).optional(),
+  /** When true, the creator cannot accept this as intentional — it must be fixed. */
+  requiresCanonAuthorization: z.boolean().optional(),
+  /** When true, the system can attempt automatic repair without human guidance. */
+  automaticRepairSafe: z.boolean().optional(),
+  /** Current resolution status. Absent (treated as "open") on legacy findings. */
+  resolutionStatus: z.enum(FINDING_RESOLUTION_STATUSES).optional(),
+  /** Creator's explanation when accepting as intentional. */
+  resolutionNote: z.string().trim().max(1000).optional(),
+  /** ISO timestamp of the last resolution status change. */
+  resolvedAt: z.string().trim().min(1).max(40).optional(),
 });
 
 export type EpisodeValidationFinding = z.infer<typeof episodeValidationFindingSchema>;
@@ -94,6 +136,70 @@ export const episodeValidationSchema = z.object({
 });
 
 export type EpisodeValidation = z.infer<typeof episodeValidationSchema>;
+
+/**
+ * Returns true when a finding blocks story approval. A finding blocks approval
+ * when it is an error that has not been accepted as intentional AND does not
+ * require canon authorization (which means the creator cannot override it).
+ */
+export function isBlockingFinding(finding: EpisodeValidationFinding): boolean {
+  if (finding.severity !== "error") return false;
+  const status = finding.resolutionStatus ?? "open";
+  if (status === "accepted_as_intentional") return false;
+  if (status === "resolved") return false;
+  return true;
+}
+
+/**
+ * Returns true when the creator is permitted to accept a finding as an
+ * intentional creative choice. Findings that require canon authorization
+ * cannot be overridden by the creator.
+ */
+export function canAcceptAsIntentional(finding: EpisodeValidationFinding): boolean {
+  return !finding.requiresCanonAuthorization;
+}
+
+/**
+ * Returns true when every error-severity finding in the validation is either
+ * resolved or accepted as intentional (and thus does not block approval).
+ */
+export function validationPassesForApproval(validation: EpisodeValidation): boolean {
+  return validation.findings.every((finding) => !isBlockingFinding(finding));
+}
+
+/**
+ * Carry forward creator resolutions from a previous validation to a new one.
+ * Findings are matched by stable `id` first, then by `code + category +
+ * sceneNumber` as a fallback. This lets a creator's "accepted as intentional"
+ * decision survive a revalidation that re-detects the same issue.
+ */
+export function mergeResolutions(
+  previous: EpisodeValidation,
+  next: EpisodeValidation,
+): EpisodeValidation {
+  const resolutionById = new Map<string, EpisodeValidationFinding>();
+  const resolutionByKey = new Map<string, EpisodeValidationFinding>();
+  for (const finding of previous.findings) {
+    const status = finding.resolutionStatus;
+    if (!status || status === "open") continue;
+    if (finding.id) resolutionById.set(finding.id, finding);
+    const key = `${finding.code ?? ""}:${finding.category}:${finding.sceneNumber ?? 0}`;
+    resolutionByKey.set(key, finding);
+  }
+  const mergedFindings = next.findings.map((finding) => {
+    if (finding.id && resolutionById.has(finding.id)) {
+      const prev = resolutionById.get(finding.id)!;
+      return { ...finding, resolutionStatus: prev.resolutionStatus, resolutionNote: prev.resolutionNote, resolvedAt: prev.resolvedAt };
+    }
+    const key = `${finding.code ?? ""}:${finding.category}:${finding.sceneNumber ?? 0}`;
+    if (resolutionByKey.has(key)) {
+      const prev = resolutionByKey.get(key)!;
+      return { ...finding, resolutionStatus: prev.resolutionStatus, resolutionNote: prev.resolutionNote, resolvedAt: prev.resolvedAt };
+    }
+    return finding;
+  });
+  return { ...next, findings: mergedFindings };
+}
 
 /**
  * CASNA Stage I: the authoritative summary of an approved episode. It is built

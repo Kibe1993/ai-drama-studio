@@ -21,6 +21,6 @@ export { markStaleArtifacts, provenanceIsStale, canonProvenance } from "@/lib/do
 export type { StaleArtifact, VersionedArtifact } from "@/lib/domain/narrativeControl/staleness";
 export { validateEntityUse } from "@/lib/domain/narrativeControl/temporal";
 export { validateFinale, validateThreads } from "@/lib/domain/narrativeControl/threads";
-export { agreementFindings } from "@/lib/domain/narrativeControl/agreement";
+export { agreementFindings, draftConsistencyFindings } from "@/lib/domain/narrativeControl/agreement";
 export { contradictionChanges, describeWorldRule, validateWorldRules } from "@/lib/domain/narrativeControl/worldRules";
 export { defineCanon, defineEntity, proposeChange } from "@/lib/domain/narrativeControl/builders";

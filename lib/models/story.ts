@@ -30,6 +30,7 @@ export type StoryShape = {
   sourceCanonVersion?: number | null;
   canonStale?: boolean;
   canonStaleReason?: string;
+  storyContract?: Record<string, unknown> | null;
 };
 
 const StorySchema = new Schema(
@@ -51,6 +52,7 @@ const StorySchema = new Schema(
     validationFindings: { type: Schema.Types.Mixed, default: null },
     canonSummary: { type: Schema.Types.Mixed, default: null },
     repairHistory: { type: [Schema.Types.Mixed], default: [] },
+    storyContract: { type: Schema.Types.Mixed, default: null },
     sourceCanonVersion: { type: Number, default: null },
     canonStale: { type: Boolean, default: false },
     canonStaleReason: { type: String, default: "", maxlength: 600 },

@@ -15,6 +15,15 @@ const NUMBER_WORDS: Record<string, number> = {
   ten: 10,
   eleven: 11,
   twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  thirty: 30,
 };
 
 const SKIP = new Set([
@@ -107,6 +116,15 @@ interface IntervalClaim {
   index: number;
 }
 
+function sameLossEvent(left: string, right: string): boolean {
+  return lossEvent(left) && lossEvent(right);
+}
+
+function lossEvent(text: string): boolean {
+  return /\b(disappears?|disappearances?|erases?|erased|vanishes?|vanished|sacrifice|sacrifices)\b/i.test(text)
+    || (/\btakes?\b/i.test(text) && /\b(resident|person|people|someone|victim|life|lives|memory|memories)\b/i.test(text));
+}
+
 function firstAffirmativeInterval(text: string): IntervalClaim | null {
   return intervalClaims(text).find((claim) => !negatedAt(text, claim.index)) ?? null;
 }
@@ -115,7 +133,8 @@ function intervalContradiction(rule: WorldRule, text: string): string | null {
   if (!rule.canonicalInterval) return null;
   const subjects = subjectTokens(rule.description);
   for (const sentence of sentences(text)) {
-    if (subjects.length > 0 && !subjects.some((token) => sentence.includes(token))) continue;
+    const sharesSubject = subjects.length === 0 || subjects.some((token) => sentence.includes(token));
+    if (!sharesSubject && !sameLossEvent(rule.description, sentence)) continue;
     for (const claim of intervalClaims(sentence)) {
       if (negatedAt(sentence, claim.index)) continue;
       if (claim.count === rule.canonicalInterval.count && claim.unit === rule.canonicalInterval.unit) continue;
@@ -189,6 +208,21 @@ function negationWords(text: string): string[] {
 
 function subjectTokens(description: string): string[] {
   return [...new Set(normalizeName(description).split(" ").filter((word) => word.length >= 6 && !SKIP.has(word)))];
+}
+
+/** A premise interval and a proposal interval for the same kind of loss. */
+export function proposedIntervalConflict(premise: string, proposal: string): { proposed: string; expected: string } | null {
+  const base = firstAffirmativeInterval(premise);
+  if (!base || !lossEvent(premise)) return null;
+  for (const sentence of sentences(proposal)) {
+    if (!lossEvent(sentence)) continue;
+    for (const claim of intervalClaims(sentence)) {
+      if (negatedAt(sentence, claim.index)) continue;
+      if (claim.count === base.count && claim.unit === base.unit) continue;
+      return { proposed: claim.raw, expected: base.raw };
+    }
+  }
+  return null;
 }
 
 function sentences(text: string): string[] {

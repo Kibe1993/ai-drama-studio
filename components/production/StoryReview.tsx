@@ -1,4 +1,5 @@
 import type { StoryRecord } from "@/lib/validation/story";
+import type { EpisodeValidation } from "@/lib/validation/casna";
 
 function Beat({ label, text }: { label: string; text: string }) {
   return (
@@ -9,10 +10,40 @@ function Beat({ label, text }: { label: string; text: string }) {
   );
 }
 
-export function StoryReview({ story }: { story: StoryRecord }) {
+export function ValidationFindings({ validation }: { validation: EpisodeValidation }) {
+  if (validation.findings.length === 0) return null;
+  const errors = validation.findings.filter((f) => f.severity === "error");
+  const warnings = validation.findings.filter((f) => f.severity === "warning");
+  return (
+    <section className="rounded border border-[#39342d] p-4">
+      <p className="text-sm text-[#cfc6b8]">
+        Validation: {validation.passed ? "Passed with notes" : `${errors.length} error${errors.length > 1 ? "s" : ""}${warnings.length > 0 ? `, ${warnings.length} warning${warnings.length > 1 ? "s" : ""}` : ""}`}
+      </p>
+      <ul className="mt-2 grid gap-1">
+        {errors.map((finding, index) => (
+          <li key={`err-${index}`} className="text-xs text-[#e7b2a8]">
+            [error] {finding.category}
+            {finding.sceneNumber ? ` (scene ${finding.sceneNumber})` : ""}: {finding.message}
+          </li>
+        ))}
+        {warnings.map((finding, index) => (
+          <li key={`warn-${index}`} className="text-xs text-[#a39b8f]">
+            [warning] {finding.category}
+            {finding.sceneNumber ? ` (scene ${finding.sceneNumber})` : ""}: {finding.message}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+export function StoryReview({ story, hideValidationFindings }: { story: StoryRecord; hideValidationFindings?: boolean }) {
   const { act1, act2, act3 } = story.structure;
   return (
     <article className="mt-6 space-y-6 text-[#cfc6b8]">
+      {!hideValidationFindings && story.validationFindings && story.validationFindings.findings.length > 0 ? (
+        <ValidationFindings validation={story.validationFindings} />
+      ) : null}
       <header>
         <h3 className="font-display text-3xl text-[#f3efe6]">{story.title}</h3>
         <p className="mt-3 whitespace-pre-wrap">{story.synopsis}</p>

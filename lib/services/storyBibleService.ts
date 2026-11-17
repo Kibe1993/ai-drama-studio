@@ -6,6 +6,7 @@ import { isObjectId } from "@/lib/repositories/ownership";
 import { projectRepository, type ProjectRecord } from "@/lib/repositories/projectRepository";
 import { storyRepository } from "@/lib/repositories/storyRepository";
 import { storyBibleRepository } from "@/lib/repositories/storyBibleRepository";
+import { bibleBreaksContract } from "@/lib/domain/storyContract";
 import { StudioError } from "@/lib/http/errors";
 import type { StoryBibleDraft, StoryBibleRecord } from "@/lib/validation/storyBible";
 
@@ -82,6 +83,19 @@ export function createStoryBibleService(
       // An empty or partially generated Bible cannot be mistaken for approved canon.
       if (!bibleHasContent(current)) {
         throw new StudioError("Generate the Story Bible before approving it", 409, "bible_incomplete");
+      }
+      const draft = await stories.findProjectDraft(actor.userId, projectId);
+      const bibleRules = [
+        ...(current?.content?.world.rules ?? []),
+        ...(current?.worldRules ?? []),
+      ];
+      const conflict = draft?.storyContract ? bibleBreaksContract(bibleRules, draft.storyContract) : null;
+      if (conflict) {
+        throw new StudioError(
+          `The Story Bible changes an interval the approved story established: ${conflict}`,
+          409,
+          "story_invalid",
+        );
       }
       const bible = await repository.approve(actor.userId, projectId, expectedVersion, expectedDraftRevision);
       if (!bible) throw new StudioError("The Story Bible changed or could not be approved. Reload and review it.", 409, "stale_bible");

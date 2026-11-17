@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canonFromApprovedSources, validateKnowledge, validateWorldRules } from "@/lib/domain/narrativeControl";
+import { describeWorldRule } from "@/lib/domain/narrativeControl/worldRules";
+import { canonStateSchema } from "@/lib/validation/narrativeControl";
 import { createLiveEngines } from "@/lib/pipeline/liveEngines";
 import { createStoryDraftEngine } from "@/lib/pipeline/storyDraftEngine";
 import { JobError, type JobRecord, type RunRecord } from "@/lib/pipeline/types";
@@ -255,6 +257,22 @@ describe("world rules and concealed facts", () => {
     expect(validateKnowledge(canon, 1, leaked).some((finding) => finding.severity === "ERROR")).toBe(true);
     expect(validateKnowledge(canon, 1, "Amara: I will not say what the entity knows.").filter((finding) => finding.severity === "ERROR")).toEqual([]);
   });
+
+  it("rejects a yearly disappearance against a thirteen-year taking", () => {
+    const description = "The house takes one resident every thirteen years.";
+    const state = canonStateSchema.parse({
+      projectId,
+      version: 0,
+      rules: [{
+        id: "house-rule",
+        description,
+        canonicalInterval: describeWorldRule(description).canonicalInterval,
+        approvalStatus: "approved",
+      }],
+    });
+    expect(validateWorldRules(state, 1, "Every year, someone in Greyhaven disappears.").some((finding) => finding.algorithm === "world_rules")).toBe(true);
+    expect(validateWorldRules(state, 1, "The ferry arrives every year.")).toEqual([]);
+  });
 });
 
 describe("story revise workflow", () => {
@@ -393,6 +411,9 @@ describe("story revise workflow", () => {
     expect(result.validationPassed).toBe(true);
     expect(saved).toHaveLength(2);
     expect(saved[1]!.status).toBe("awaiting_approval");
+    expect(saved[1]!.storyContract?.status).toBe("provisional");
+    expect(saved[1]!.storyContract?.layers.semantic).toBe("not_executed");
+    expect(saved[1]!.storyContract?.layers.agreement).toBe("passed");
     expect(commits).toEqual([]);
 
     const service = createStoryDraftService({
@@ -547,7 +568,7 @@ function memoryStories(saved: StoryRecord[]) {
     async findProjectDraft() {
       return [...saved].reverse().find((draft) => draft.status !== "failed") ?? null;
     },
-    async upsertProjectDraft(input: GeneratedStory & { validationFindings?: EpisodeValidation | null; sourceCanonVersion?: number | null }) {
+    async upsertProjectDraft(input: GeneratedStory & { validationFindings?: EpisodeValidation | null; sourceCanonVersion?: number | null; storyContract?: StoryRecord["storyContract"] }) {
       const record: StoryRecord = {
         ...input,
         id: "e".repeat(24),
@@ -561,6 +582,7 @@ function memoryStories(saved: StoryRecord[]) {
         fallbackFrom: null,
         validationFindings: input.validationFindings ?? null,
         sourceCanonVersion: input.sourceCanonVersion ?? null,
+        storyContract: input.storyContract ?? null,
         createdAt: now,
         updatedAt: now,
       };
@@ -644,6 +666,141 @@ function pipelineHarness(story: StoryRecord, commits: CanonState[]): {
 function episodeJob(): JobRecord {
   return { ...job(), jobType: "story.generate", runId: "b".repeat(24), input: {} };
 }
+
+function houseStory(): GeneratedStory {
+  const description = "Dust motes dance in shafts of early light through the abandoned Greyhaven house, and a single framed photograph hangs crooked on the wall.";
+  const scene = (sceneNumber: number, heading: string, location: string, dialogue: { characterName: string; line: string }[]): ScreenplayScene => ({
+    sceneNumber,
+    heading,
+    location,
+    timeOfDay: "Night",
+    charactersPresent: dialogue.map((line) => line.characterName),
+    visualDescription: description,
+    action: description,
+    dialogue,
+  });
+  return {
+    title: "The House That Remembers",
+    synopsis: "When architect Daniel Mwangi inherits an abandoned house in Greyhaven, the house erases a town resident every thirteen years. He must decide whether to sacrifice the truth to save his family or let the house consume him.",
+    structure: {
+      act1: {
+        introduction: "Daniel arrives in Greyhaven.",
+        mainCharacters: "Daniel Mwangi, Miriam, and Ruth.",
+        setting: "An abandoned house in Greyhaven.",
+        initialSituation: "Daniel moves into the inherited house.",
+        incitingIncident: "He finds a photograph of Ruth, who never lived in Greyhaven.",
+      },
+      act2: {
+        risingTension: "An old ledger hints that someone disappears every thirteen years.",
+        obstacles: "Daniel's father's warnings echo through the walls.",
+        characterDecisions: "Daniel follows the ledger despite Miriam's fear.",
+        turningPoint: "They discover a town map with a red X marking the house's next victim.",
+      },
+      act3: {
+        climax: "The house reveals a hidden compartment with a rusted key.",
+        resolution: "Daniel uses the key to unlock the compartment and triggers the countdown.",
+        finalOutcome: "The door opens on the next victim, and Daniel's fate stays uncertain.",
+      },
+    },
+    screenplay: [
+      scene(1, "INT. GREAWHAVEN FAMILY HOUSE - LIVING ROOM - DAWN", "Greyhaven Family House", [
+        { characterName: "Daniel", line: "Ruth? She never came to Greyhaven." },
+        { characterName: "Miriam", line: "It's a house, Daniel. Not a museum." },
+      ]),
+      scene(2, "INT. GREAWHAVEN FAMILY HOUSE - STUDY - AFTERNOON", "Greyhaven Family House", [
+        { characterName: "Miriam", line: "Every thirteen years it takes one of us." },
+      ]),
+      scene(3, "EXT. GREAWHAVEN FAMILY HOUSE - FRONT YARD - SUNSET", "Greyhaven Family House", [
+        { characterName: "Daniel", line: "This key was in my father's desk." },
+      ]),
+      scene(4, "INT. GREAWHAVEN FAMILY HOUSE - BASEMENT - MIDNIGHT", "Greyhaven Family House", [
+        { characterName: "Daniel", line: "Here goes nothing." },
+      ]),
+      scene(5, "INT. GREAWHAVEN FAMILY HOUSE - SECRET CHAMBER - MIDNIGHT", "Greyhaven Family House", [
+        { characterName: "Daniel", line: "Ruth, I'm sorry." },
+      ]),
+      scene(6, "EXT. GREAWHAVEN FAMILY HOUSE - FRONT YARD - DAWN", "Greyhaven Family House", [
+        { characterName: "Daniel", line: "Not again." },
+      ]),
+    ],
+  };
+}
+
+describe("story draft before a Story Bible", () => {
+  it("rejects a screenplay that does not play the acts, and does not save it", async () => {
+    const saved: StoryRecord[] = [];
+    const commits: CanonState[] = [];
+    const engine = createStoryDraftEngine(
+      stub(() => houseStory()) as unknown as LLMProvider,
+      memoryStories(saved),
+      undefined,
+      canonPort(commits),
+      { bible: { async findApproved() { return null; } } },
+    );
+    const error = await engine.run(job(), project()).then(() => null, (caught: unknown) => caught);
+    expect(error).toBeInstanceOf(JobError);
+    const failure = error as JobError;
+    expect(failure.code).toBe("narrative_rejected");
+    expect(failure.retryable).toBe(false);
+    expect(codes((failure.details?.findings ?? []) as { code?: string; message: string }[])).toEqual(
+      expect.arrayContaining(["draft_agreement", "draft_mechanism", "draft_choice", "draft_causality", "scene_action", "place_name"]),
+    );
+    expect(saved).toHaveLength(0);
+    expect(commits).toEqual([]);
+  });
+
+  it("saves a consistent draft before a Story Bible exists", async () => {
+    const saved: StoryRecord[] = [];
+    const engine = createStoryDraftEngine(
+      stub(() => faithfulStory()) as unknown as LLMProvider,
+      memoryStories(saved),
+      undefined,
+      canonPort([]),
+      { bible: { async findApproved() { return null; } } },
+    );
+    const result = await engine.run(job(), project());
+    expect(result.storyId).toBeTruthy();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.validationFindings?.passed).toBe(true);
+  });
+
+  it("refuses to approve the same draft when no Story Bible exists", async () => {
+    const story = houseStory();
+    let approved = false;
+    const service = createStoryDraftService({
+      projects: { async findOwned() { return project(); }, async update() { return project(); } },
+      stories: {
+        async findOwned() {
+          return {
+            ...story,
+            id: "d".repeat(24),
+            clerkUserId: userId,
+            projectId,
+            productionRunId: null,
+            status: "awaiting_approval" as const,
+            version: 1,
+            provider: "stub",
+            model: "stub",
+            fallbackFrom: null,
+            createdAt: now,
+            updatedAt: now,
+          };
+        },
+        async markApproved() {
+          approved = true;
+          return null;
+        },
+      },
+      jobs: { async listByKeyPrefix() { return []; } },
+      queueFactory: () => ({ async enqueue() {} }),
+      bibles: { async findApproved() { return null; } },
+      narrativeCanon: canonPort([]),
+    } as never);
+    await expect(service.approve({ userId, isAdmin: false, email: "", name: "", imageUrl: "" }, projectId, "d".repeat(24)))
+      .rejects.toMatchObject({ code: "story_invalid", status: 409 });
+    expect(approved).toBe(false);
+  });
+});
 
 function episodeRun(): RunRecord {
   return {

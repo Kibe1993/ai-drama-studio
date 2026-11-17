@@ -18,6 +18,9 @@ export interface NarrativeFinding {
   automaticRepairSafe: boolean;
   signature: string;
   requiresCanonAuthorization: boolean;
+  title: string;
+  confidence: "high" | "medium" | "low";
+  affectedAct: number | null;
 }
 
 export interface ValidationTrace {
@@ -44,6 +47,9 @@ type FindingInput = {
   suggestedCorrection?: string;
   automaticRepairSafe?: boolean;
   requiresCanonAuthorization?: boolean;
+  title?: string;
+  confidence?: "high" | "medium" | "low";
+  affectedAct?: number | null;
 };
 
 export function makeFinding(input: FindingInput): NarrativeFinding {
@@ -74,6 +80,9 @@ export function makeFinding(input: FindingInput): NarrativeFinding {
     automaticRepairSafe: input.automaticRepairSafe ?? false,
     signature,
     requiresCanonAuthorization: input.requiresCanonAuthorization ?? false,
+    title: input.title ?? input.explanation.slice(0, 80),
+    confidence: input.confidence ?? "medium",
+    affectedAct: input.affectedAct ?? null,
   };
 }
 

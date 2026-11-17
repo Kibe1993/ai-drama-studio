@@ -217,11 +217,15 @@ export function createPipelineService(deps: PipelineDeps) {
       // CASNA Stage H: a screenplay that failed canon validation can never be
       // approved into the story's established canon.
       if (story.validationFindings && !story.validationFindings.passed) {
-        const error = story.validationFindings.findings.find((finding) => finding.severity === "error");
+        const errors = story.validationFindings.findings.filter((f) => f.severity === "error");
+        const summary = errors.length > 0
+          ? errors.map((e, i) => `${i + 1}. ${e.message}`).join("\n")
+          : "This screenplay did not pass canon validation. Regenerate it before approving.";
         throw new StudioError(
-          error?.message ?? "This screenplay did not pass canon validation. Regenerate it before approving.",
+          summary,
           409,
-          "story_invalid"
+          "story_invalid",
+          errors,
         );
       }
       if (story.status === "approved" || run.stageResults.story?.approved) {
@@ -274,11 +278,15 @@ export function createPipelineService(deps: PipelineDeps) {
         seriesTitle: project.title,
       });
       if (enforced && !enforced.passed) {
-        const error = enforced.findings.find((finding) => finding.severity === "error");
+        const errors = enforced.findings.filter((f) => f.severity === "error");
+        const summary = errors.length > 0
+          ? errors.map((e, i) => `${i + 1}. ${e.message}`).join("\n")
+          : "This screenplay did not pass canon validation. Regenerate it before approving.";
         throw new StudioError(
-          error?.message ?? "This screenplay did not pass canon validation. Regenerate it before approving.",
+          summary,
           409,
           "story_invalid",
+          errors,
         );
       }
       const range = resolveSceneRange(targetSeconds, project.sceneRange);
@@ -393,11 +401,15 @@ export function createPipelineService(deps: PipelineDeps) {
         };
       }
       if (!validationFindings.passed) {
-        const error = validationFindings.findings.find((finding) => finding.severity === "error");
+        const errors = validationFindings.findings.filter((f) => f.severity === "error");
+        const summary = errors.length > 0
+          ? errors.map((e, i) => `${i + 1}. ${e.message}`).join("\n")
+          : "This screenplay conflicts with approved canon, so the previous version was kept.";
         throw new StudioError(
-          error?.message ?? "This screenplay conflicts with approved canon, so the previous version was kept.",
+          summary,
           409,
           "story_invalid",
+          errors,
         );
       }
       if (!deps.stories.updateScreenplay) {

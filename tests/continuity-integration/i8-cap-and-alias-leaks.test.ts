@@ -69,7 +69,7 @@ describe("I-8: cap and alias leaks", () => {
     expect(summary.unresolvedThreads.some((t) => t.thread === "New thread B that should be retained")).toBe(true);
   });
 
-  it.fails("canon entities have aliases populated from the bible", () => {
+  it("canon entities have aliases populated from the bible", () => {
     const bible = makeStoryBible({
       characters: {
         characters: [

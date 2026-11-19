@@ -24,7 +24,7 @@ type LedgerPort = Pick<typeof continuityLedgerRepository, "findLatest" | "upsert
 type EpisodePort = Pick<typeof episodeRepository, "listOwned">;
 type StoryPort = Pick<
   typeof storyRepository,
-  "findLatestAwaitingEpisode" | "saveCanonSummary" | "findOwned"
+  "findLatestAwaitingEpisode" | "saveCanonSummary" | "findOwned" | "markStaleByCanonVersion"
 >;
 
 /**
@@ -289,6 +289,15 @@ export function createContinuityService(
         basedOnPlanVersion: plan.version,
       });
       await stories.saveCanonSummary(clerkUserId, story.id, summary);
+      const staleCount = await stories.markStaleByCanonVersion(clerkUserId, projectId, saved.version);
+      if (staleCount > 0) {
+        log.info("continuity", "marked downstream drafts stale after canon advance", {
+          projectId,
+          episodeNumber,
+          ledgerVersion: saved.version,
+          staleCount,
+        });
+      }
       log.info("continuity", "ledger updated after episode approval", {
         projectId,
         episodeNumber,

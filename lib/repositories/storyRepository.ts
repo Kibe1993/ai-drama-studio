@@ -449,4 +449,33 @@ export const storyRepository = {
     ).lean<StoryDoc | null>();
     return result ? toRecord(result) : null;
   },
+
+  /**
+   * Mark unapproved story drafts in a project as stale when the canon version
+   * advances. Approved stories are left untouched — they are the source of
+   * canon, not consumers of it. Returns the count of stories marked stale.
+   */
+  async markStaleByCanonVersion(
+    clerkUserId: string,
+    projectId: string,
+    currentCanonVersion: number,
+  ): Promise<number> {
+    const { Story } = await models();
+    const result = await Story.updateMany(
+      {
+        clerkUserId,
+        projectId,
+        status: { $ne: "approved" },
+        sourceCanonVersion: { $type: "int", $lt: currentCanonVersion },
+        canonStale: { $ne: true },
+      },
+      {
+        $set: {
+          canonStale: true,
+          canonStaleReason: `Canon advanced to version ${currentCanonVersion} after this draft was generated.`,
+        },
+      },
+    );
+    return result.modifiedCount;
+  },
 };

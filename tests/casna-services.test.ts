@@ -933,6 +933,7 @@ function continuityHarness(existing: ContinuityLedgerRecord | null = null) {
       unresolvedThreads: ["Where is the second copy?"],
     },
   });
+  const staleCalls: { projectId: string; version: number }[] = [];
   const service = createContinuityService(
     { async findOwned() { return project(); } },
     { async findApproved() { return planRecord({ status: "approved" }); } },
@@ -957,9 +958,13 @@ function continuityHarness(existing: ContinuityLedgerRecord | null = null) {
         canonSummaries.push(summary);
         return null;
       },
+      async markStaleByCanonVersion(_userId: string, projectId: string, version: number) {
+        staleCalls.push({ projectId, version });
+        return 2;
+      },
     }
   );
-  return { service, upserts, canonSummaries, draft };
+  return { service, upserts, canonSummaries, draft, staleCalls };
 }
 
 describe("continuity ledger updates (Stage I)", () => {
@@ -976,6 +981,18 @@ describe("continuity ledger updates (Stage I)", () => {
     expect((upserts[0]!.events as unknown[]).length).toBeGreaterThan(0);
     expect(canonSummaries).toHaveLength(1);
     expect(result).toMatchObject({ asOfEpisode: 2 });
+  });
+
+  it("marks downstream drafts stale after canon advance", async () => {
+    const { service, staleCalls } = continuityHarness();
+    await service.onEpisodeApproved({
+      clerkUserId: owner.userId,
+      projectId,
+      episodeNumber: 2,
+      story: storyRecord({ status: "approved" }),
+    });
+    expect(staleCalls).toHaveLength(1);
+    expect(staleCalls[0]).toMatchObject({ projectId, version: 1 });
   });
 
   it("does not touch the ledger for an unapproved draft", async () => {
@@ -1064,6 +1081,7 @@ describe("continuity ledger rebuild", () => {
           summaries.push(id);
           return null;
         },
+        async markStaleByCanonVersion() { return 0; },
       }
     );
     return { service, upserts, summaries };

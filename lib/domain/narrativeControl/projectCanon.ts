@@ -64,6 +64,11 @@ export function canonFromApprovedSources(input: {
         id: slugId("character", character.name),
         kind: "character",
         name: character.name,
+        aliases: extractAliases(character.name, [
+          character.roleDescription,
+          character.physicalDescription,
+          character.background,
+        ]),
         description: character.roleDescription,
         role: character.storyRole,
         motivations: character.motivations,
@@ -374,4 +379,29 @@ function overlapsEstablished(secret: string, statements: string[]): boolean {
 
 function contentTokens(value: string): string[] {
   return normalizeName(value).split(" ").filter((word) => word.length >= 4 && !TOKEN_STOP.has(word));
+}
+/**
+ * Extract alternate names (aliases) for a character from their text fields.
+ * Looks for patterns like "called Robert", "named Alice", "known as Bob",
+ * "aka Robert" in the role description, physical description, and background.
+ * The character's own name is excluded, as are duplicates.
+ */
+function extractAliases(canonicalName: string, texts: string[]): string[] {
+  const aliases = new Set<string>();
+  const normalizedSelf = normalizeName(canonicalName);
+  const selfParts = new Set(normalizedSelf.split(" ").filter((p) => p.length > 0));
+  const pattern = /\b(?:called|named|known\s+as|aka|a\.k\.a\.?)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b/g;
+  for (const text of texts) {
+    if (!text) continue;
+    for (const match of text.matchAll(pattern)) {
+      const alias = match[1]!.trim();
+      if (!alias) continue;
+      const normalized = normalizeName(alias);
+      if (normalized === normalizedSelf) continue;
+      if (selfParts.has(normalized)) continue;
+      if (normalizedSelf.split(" ").includes(normalized)) continue;
+      aliases.add(alias);
+    }
+  }
+  return [...aliases].slice(0, 24);
 }

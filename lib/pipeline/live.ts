@@ -25,6 +25,8 @@ import { createRedisConnection } from "@/lib/pipeline/redis";
 import { createStoryBibleEngine } from "@/lib/pipeline/storyBibleEngine";
 import { createStoryDraftEngine } from "@/lib/pipeline/storyDraftEngine";
 import { narrativeCanonRepository } from "@/lib/repositories/narrativeCanonRepository";
+import { canonStore } from "@/lib/canon/store";
+import { canonLockRepository } from "@/lib/repositories/canonLockRepository";
 import type { JobQueue } from "@/lib/pipeline/types";
 
 function unavailableQueue(): JobQueue {
@@ -86,6 +88,17 @@ function buildLivePipelineDeps(): PipelineDeps {
     bibles: storyBibleRepository,
     casna: {
       load: casnaContext.load,
+      /**
+       * @deprecated LEGACY continuity ledger write path.
+       *
+       * The writer prompt and the continuity gate still depend on the old
+       * ContinuityLedger, so this hook remains active during Step 2 of the
+       * Canon Authority rebuild. It will be removed in Step 6 (Legacy
+       * Consolidation) once all readers have migrated to the Canon Fact Log.
+       *
+       * Do NOT add new readers of the old ledger. New code must read from
+       * `canonStore.latestState()` instead.
+       */
       onEpisodeApproved: continuityService.onEpisodeApproved,
     },
     narrativeCanon: narrativeCanonRepository,
@@ -127,6 +140,11 @@ function buildLivePipelineDeps(): PipelineDeps {
       narrativeCanon: narrativeCanonRepository,
       canonExtraction: createCanonFactExtractionService(
         makeCanonFactLLMPort(llm),
+        storyRepository,
+        episodeRepository,
+        canonStore,
+        canonLockRepository,
+        continuityLedgerRepository,
       ),
       onStoryStatus: async (job, message) => {
         const current = await generationJobRepository.findById(job.id);
@@ -141,7 +159,14 @@ export function liveCanonExtractionService() {
   return createCanonExtractionService(getLlm(), storyRepository, continuityLedgerRepository);
 }
 export function liveCanonFactExtractionService() {
-  return createCanonFactExtractionService(makeCanonFactLLMPort(getLlm()));
+  return createCanonFactExtractionService(
+    makeCanonFactLLMPort(getLlm()),
+    storyRepository,
+    episodeRepository,
+    canonStore,
+    canonLockRepository,
+    continuityLedgerRepository,
+  );
 }
 
 export function liveCanonExtractionDispatcher() {

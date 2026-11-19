@@ -4,6 +4,8 @@ import type { CanonFactEntry, DerivedCanonState } from "@/lib/canon/schema";
 import { createCanonFactExtractionService } from "@/lib/services/canonFactExtractionService";
 import { createCanonExtractionDispatcher } from "@/lib/services/canonExtractionDispatcher";
 import { makeCanonFactLLMPort, liveCanonExtractionDispatcher } from "@/lib/pipeline/live";
+import { compareCanonShadow } from "@/lib/domain/canonShadowComparison";
+import type { ContinuityLedger } from "@/lib/validation/continuityLedger";
 import type { StoryRecord } from "@/lib/validation/story";
 import type { ScreenplayScene } from "@/lib/validation/story";
 import type { EpisodeRecord } from "@/lib/validation/episode";
@@ -1250,5 +1252,205 @@ describe("canonExtractionDispatcher", () => {
     expect(typeof dispatcher.reconcileCrashes).toBe("function");
     expect(typeof dispatcher.dispatchPending).toBe("function");
     expect(typeof dispatcher.dispatchPendingGlobal).toBe("function");
+  });
+});
+describe("canon shadow comparison (Step 2 corrections)", () => {
+  it("scripted fake LLM commits facts with verified evidence episode number", async () => {
+    const store = new InMemoryCanonFactStore();
+    const canon = wrapInMemoryStore(store);
+    const story = makeStory({ episodeId: "ep-7" });
+    const episode = makeEpisode({ episodeNumber: 7 });
+    const llm = makeLLMPort([makeExtractedFact()]);
+    const locks = makeMockLockPort(store);
+    const stories = makeMockStoryPort(story);
+    const episodes = makeMockEpisodePort(episode);
+
+    const service = createCanonFactExtractionService(
+      llm, stories, episodes, canon, locks,
+    );
+
+    const result = await service.extractAndCommit({
+      clerkUserId: CLERK,
+      projectId: PROJECT,
+      episodeId: "ep-7",
+      storyId: STORY_ID,
+      episodeNumber: 7,
+      jobId: JOB_ID,
+    });
+
+    expect(result.committed).toBe(1);
+    expect(result.status).toBe("canon_committed");
+    const entries = store.list(PROJECT);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.evidence).not.toBeNull();
+    expect(entries[0]!.evidence!.episode).toBe(7);
+    expect(entries[0]!.evidence!.episodeId).toBe("ep-7");
+  });
+
+  it("a quote not in the scene is rejected into issues, not committed", async () => {
+    const store = new InMemoryCanonFactStore();
+    const canon = wrapInMemoryStore(store);
+    const story = makeStory();
+    const episode = makeEpisode();
+    const llm = makeLLMPort([
+      makeExtractedFact({
+        quote: "This exact text appears nowhere in the screenplay scene.",
+      }),
+    ]);
+    const locks = makeMockLockPort(store);
+    const stories = makeMockStoryPort(story);
+    const episodes = makeMockEpisodePort(episode);
+
+    const service = createCanonFactExtractionService(
+      llm, stories, episodes, canon, locks,
+    );
+
+    const result = await service.extractAndCommit({
+      clerkUserId: CLERK,
+      projectId: PROJECT,
+      episodeId: EPISODE_ID,
+      storyId: STORY_ID,
+      episodeNumber: 1,
+      jobId: JOB_ID,
+    });
+
+    expect(result.committed).toBe(0);
+    expect(result.issues).toBe(1);
+    expect(result.status).toBe("canon_committed_with_issues");
+    expect(store.list(PROJECT)).toHaveLength(0);
+    expect(stories.saveCanonExtractionIssues).toHaveBeenCalledTimes(1);
+    const savedIssues = stories.saveCanonExtractionIssues.mock.calls[0]![2] as CanonExtractionIssueRecord[];
+    expect(savedIssues[0]!.code).toBe("quote_not_found");
+  });
+
+  it("empty extraction on a multi-scene screenplay yields extraction_failed", async () => {
+    const store = new InMemoryCanonFactStore();
+    const canon = wrapInMemoryStore(store);
+    const multiSceneStory = makeStory({
+      screenplay: [
+        makeScene({ sceneNumber: 1 }),
+        makeScene({ sceneNumber: 2, heading: "EXT. GARDEN - DAY" }),
+        makeScene({ sceneNumber: 3, heading: "INT. KITCHEN - NIGHT" }),
+      ],
+    });
+    const episode = makeEpisode();
+    const llm = makeLLMPort([]);
+    const locks = makeMockLockPort(store);
+    const stories = makeMockStoryPort(multiSceneStory);
+    const episodes = makeMockEpisodePort(episode);
+
+    const service = createCanonFactExtractionService(
+      llm, stories, episodes, canon, locks,
+    );
+
+    const result = await service.extractAndCommit({
+      clerkUserId: CLERK,
+      projectId: PROJECT,
+      episodeId: EPISODE_ID,
+      storyId: STORY_ID,
+      episodeNumber: 1,
+      jobId: JOB_ID,
+    });
+
+    expect(result.status).toBe("extraction_failed");
+    expect(result.committed).toBe(0);
+    expect(result.issues).toBe(0);
+    expect(store.list(PROJECT)).toHaveLength(0);
+    expect(episodes.updateCanonExtractionStatus).toHaveBeenCalledWith(
+      CLERK, PROJECT, EPISODE_ID, "extraction_failed",
+      expect.any(String),
+    );
+  });
+
+  it("shadow diff reports a planted plan-vs-screenplay mismatch", () => {
+    const ledger: ContinuityLedger = {
+      events: [],
+      characterStates: [
+        {
+          name: "Alice",
+          currentLocation: "Living Room",
+          currentObjective: "Find the hidden treasure chest",
+          knowledge: ["The treasure is buried in the garden"],
+          beliefs: [],
+          motivations: [],
+          emotionalState: "determined and hopeful",
+          physicalState: "",
+          relationships: [],
+        },
+      ],
+      locationStates: [],
+      objectStates: [],
+      revealedSecrets: [],
+      unresolvedThreads: [],
+      consequences: [],
+      timelineNotes: "",
+    };
+
+    const canonState: DerivedCanonState = {
+      schemaVersion: 1,
+      projectId: PROJECT,
+      sequence: 1,
+      asOfEpisode: 1,
+      factCount: 1,
+      entities: [
+        {
+          id: "char-alice",
+          kind: "character",
+          name: "Alice",
+          aliases: [],
+          description: "The protagonist.",
+          role: "protagonist",
+          motivations: [],
+          goals: ["Escape the locked room"],
+          firstIntroductionEpisode: 1,
+          firstAppearanceEpisode: 1,
+          appearances: [1],
+          lifecycle: "active",
+          arc: "panicked and desperate",
+          secrets: [],
+          permitsNonlivingAppearance: false,
+          endedEpisode: null,
+          ownerId: null,
+          locationId: null,
+          properties: [],
+          significance: "",
+          transfers: [],
+          modifications: [],
+          locationRules: [],
+        },
+      ],
+      relationships: [],
+      events: [],
+      threads: [],
+      facts: [],
+      knowledge: [],
+      rules: [],
+      retracted: [],
+      subjective: [],
+    };
+
+    const diff = compareCanonShadow(ledger, canonState);
+
+    expect(diff.characterStateDifferences.length).toBeGreaterThanOrEqual(2);
+    const objectiveDiff = diff.characterStateDifferences.find(
+      (d) => d.field === "currentObjective",
+    );
+    expect(objectiveDiff).toBeDefined();
+    expect(objectiveDiff!.ledgerValue).toBe("Find the hidden treasure chest");
+    expect(objectiveDiff!.canonValue).toBe("Escape the locked room");
+
+    const emotionalDiff = diff.characterStateDifferences.find(
+      (d) => d.field === "emotionalState",
+    );
+    expect(emotionalDiff).toBeDefined();
+    expect(emotionalDiff!.ledgerValue).toBe("determined and hopeful");
+    expect(emotionalDiff!.canonValue).toBe("panicked and desperate");
+
+    const knowledgeDiff = diff.characterStateDifferences.find(
+      (d) => d.field === "knowledge",
+    );
+    expect(knowledgeDiff).toBeDefined();
+    expect(knowledgeDiff!.ledgerValue).toBe("The treasure is buried in the garden");
+    expect(knowledgeDiff!.canonValue).toBe("(not found in canon)");
   });
 });

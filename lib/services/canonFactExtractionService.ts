@@ -31,6 +31,8 @@ import {
   type PreparedFact,
   type ReconciledFact,
 } from "@/lib/domain/canonReconciliation";
+import type { ContinuityLedger } from "@/lib/validation/continuityLedger";
+import { compareCanonShadow, logShadowDiff } from "@/lib/domain/canonShadowComparison";
 
 export type CanonExtractionResult = {
   committed: number;
@@ -68,6 +70,10 @@ type LockPort = Pick<
   "acquire" | "release" | "renew"
 >;
 
+type LedgerPort = {
+  findLatest(clerkUserId: string, projectId: string): Promise<{ events: unknown[]; characterStates: unknown[]; locationStates: unknown[]; objectStates: unknown[]; revealedSecrets: string[]; unresolvedThreads: unknown[]; consequences: string[]; timelineNotes: string } | null>;
+};
+
 
 function parseLLMResponse(text: string): ExtractedFact[] {
   const json = JSON.parse(text);
@@ -80,11 +86,12 @@ function buildEvidence(
   story: StoryRecord,
   episodeId: string,
   sourceHash: string,
+  episodeNumber: number,
 ): Evidence {
   return {
     quote: fact.quote,
     sceneNumber: fact.sceneNumber,
-    episode: story.episodeId ? parseInt(story.episodeId, 10) || 1 : 1,
+    episode: episodeNumber,
     episodeId,
     storyId: story.id,
     storyVersion: story.version,
@@ -100,7 +107,7 @@ function prepareFact(
   episodeNumber: number,
   scene: ScreenplayScene,
 ): { prepared: PreparedFact } | { issue: { code: string; message: string; fact: PreparedFact } } {
-  const evidence = buildEvidence(fact, story, episodeId, sourceHash);
+  const evidence = buildEvidence(fact, story, episodeId, sourceHash, episodeNumber);
 
   const verification = verifyEvidenceInScene(scene, fact.quote);
   if (!verification.ok) {
@@ -209,7 +216,7 @@ export function createCanonFactExtractionService(
   episodes: EpisodePort = episodeRepository,
   canon: CanonPort = canonStore,
   locks: LockPort = canonLockRepository,
-
+  ledger?: LedgerPort,
 ) {
   return {
     async extractAndCommit(input: {
@@ -284,6 +291,18 @@ export function createCanonFactExtractionService(
         return { committed: 0, issues: 0, status: "extraction_failed" };
       }
 
+      if (extractedFacts.length === 0 && story.screenplay.length >= 3) {
+        const message = "Extraction returned zero facts for a screenplay with 3+ scenes.";
+        await episodes.updateCanonExtractionStatus(
+          input.clerkUserId,
+          input.projectId,
+          input.episodeId,
+          "extraction_failed",
+          message,
+        );
+        return { committed: 0, issues: 0, status: "extraction_failed" };
+      }
+
       const acquireResult = await locks.acquire({
         clerkUserId: input.clerkUserId,
         projectId: input.projectId,
@@ -321,7 +340,7 @@ export function createCanonFactExtractionService(
                 kind: fact.kind,
                 targetId: fact.targetId,
                 payload: fact.payload,
-                evidence: buildEvidence(fact, story, input.episodeId, sourceHash),
+                evidence: buildEvidence(fact, story, input.episodeId, sourceHash, input.episodeNumber),
                 narrativeMode: fact.narrativeMode,
                 assertionKind: "character_statement",
                 factualStatus: "not_established",
@@ -418,6 +437,26 @@ export function createCanonFactExtractionService(
           issues: allIssues.length,
           status,
         });
+
+        if (ledger) {
+          try {
+            const [legacyLedger, canonState] = await Promise.all([
+              ledger.findLatest(input.clerkUserId, input.projectId),
+              canon.latestState(input.clerkUserId, input.projectId),
+            ]);
+            const diff = compareCanonShadow(
+              legacyLedger as ContinuityLedger | null,
+              canonState,
+            );
+            logShadowDiff(diff, {
+              projectId: input.projectId,
+              episodeId: input.episodeId,
+              episodeNumber: input.episodeNumber,
+            });
+          } catch {
+            // Shadow comparison is log-only and must never block extraction.
+          }
+        }
 
         return {
           committed: committedCount,
@@ -570,6 +609,3 @@ export function createCanonFactExtractionService(
   };
 }
 
-export const canonFactExtractionService = createCanonFactExtractionService(
-  {} as LLMPort,
-);

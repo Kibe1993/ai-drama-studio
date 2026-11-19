@@ -245,12 +245,23 @@ export function createPipelineService(deps: PipelineDeps) {
         // Idempotent: re-approval after a partial failure re-applies canon only
         // when the ledger has not already caught up with this episode.
         if (deps.casna && run.episode) {
-          await deps.casna.onEpisodeApproved({
-            clerkUserId: actor.userId,
-            projectId,
-            episodeNumber: run.episode.number,
-            story,
-          });
+          try {
+            await deps.casna.onEpisodeApproved({
+              clerkUserId: actor.userId,
+              projectId,
+              episodeNumber: run.episode.number,
+              story,
+            });
+          } catch {
+            if (deps.stories.revertApproval) {
+              await deps.stories.revertApproval(actor.userId, story.id);
+            }
+            throw new StudioError(
+              "The episode was not approved because its continuity record could not be saved. Try approving it again.",
+              503,
+              "canon_update_failed"
+            );
+          }
         }
         const project = await deps.projects.findOwned(actor.userId, projectId);
         if (project?.status === "planning" && canTransition(project.status, "story_ready")) {
@@ -276,6 +287,7 @@ export function createPipelineService(deps: PipelineDeps) {
         targetDurationSeconds: targetSeconds,
         sceneRange: project.sceneRange,
         seriesTitle: project.title,
+        productionMode: project.productionMode,
       });
       if (enforced && !enforced.passed) {
         const errors = enforced.findings.filter((f) => f.severity === "error");
@@ -652,22 +664,44 @@ async function enforceStoryCanon(
     targetDurationSeconds: number;
     sceneRange?: { min: number; max: number } | null;
     seriesTitle: string;
+    productionMode?: string;
   },
 ): Promise<EpisodeValidation | null> {
   if (!deps.bibles?.findApproved && !deps.narrativeCanon) return null;
   const bible = await deps.bibles?.findApproved?.(clerkUserId, projectId) ?? null;
   const canon = await workingCanonFor(deps, clerkUserId, projectId, bible?.content, bible?.version ?? 0);
   if (!canon || (canon.facts.length === 0 && canon.rules.length === 0)) return null;
+  let seasonPlan = null;
+  let episodePlan = null;
+  let ledger = null;
+  let previousEpisodes: Parameters<typeof validateEpisodeScreenplay>[0]["previousEpisodes"] = [];
+  if (deps.casna && scope.productionMode) {
+    try {
+      const context = await deps.casna.load({
+        clerkUserId,
+        projectId,
+        productionMode: scope.productionMode,
+        episodeNumber: scope.episodeNumber,
+        bibleApprovedVersion: bible?.version ?? 0,
+      });
+      seasonPlan = context.plan;
+      episodePlan = context.episodePlan;
+      ledger = context.ledger;
+      previousEpisodes = context.previousEpisodes;
+    } catch {
+      // If the CASNA context cannot be loaded, fall back to canon-only validation.
+    }
+  }
   const validation = validateEpisodeScreenplay({
     episodeNumber: scope.episodeNumber,
     seriesTitle: scope.seriesTitle,
     story: { title: story.title, synopsis: story.synopsis, screenplay: story.screenplay },
     targetDurationSeconds: scope.targetDurationSeconds,
     bible: isUsableBible(bible?.content) ? bible.content : null,
-    seasonPlan: null,
-    episodePlan: null,
-    ledger: null,
-    previousEpisodes: [],
+    seasonPlan,
+    episodePlan,
+    ledger,
+    previousEpisodes,
     canon,
     structure: story.structure,
     sceneRange: scope.sceneRange,

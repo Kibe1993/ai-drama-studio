@@ -280,7 +280,6 @@ export function createContinuityService(
         episodePlan,
         ledger: existing,
       });
-      await stories.saveCanonSummary(clerkUserId, story.id, summary);
       const merged = applyCanonToLedger(existing, summary);
       const saved = await ledgers.upsert({
         ...merged,
@@ -289,6 +288,7 @@ export function createContinuityService(
         asOfEpisode: episodeNumber,
         basedOnPlanVersion: plan.version,
       });
+      await stories.saveCanonSummary(clerkUserId, story.id, summary);
       log.info("continuity", "ledger updated after episode approval", {
         projectId,
         episodeNumber,

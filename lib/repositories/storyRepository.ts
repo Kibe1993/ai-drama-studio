@@ -18,6 +18,7 @@ import {
   episodePlanSchema,
   episodeValidationSchema,
   mergeResolutions,
+  normalizeFindingIds,
   type EpisodeCanonSummary,
   type EpisodePlan,
   type EpisodeValidation,
@@ -75,7 +76,7 @@ function parseContract(raw: unknown): StoryContract | null {
 
 function parseValidation(raw: unknown): EpisodeValidation | null {
   const parsed = episodeValidationSchema.safeParse(raw);
-  return parsed.success ? parsed.data : null;
+  return parsed.success ? normalizeFindingIds(parsed.data) : null;
 }
 
 function parseCanon(raw: unknown): EpisodeCanonSummary | null {
@@ -365,6 +366,8 @@ export const storyRepository = {
     if (!doc) return null;
     const validation = parseValidation(doc.validationFindings);
     if (!validation) return null;
+    const findingExists = validation.findings.some((f) => f.id === findingId);
+    if (!findingExists) return null;
     const updatedFindings = validation.findings.map((finding) => {
       if (finding.id !== findingId) return finding;
       return {
@@ -376,7 +379,10 @@ export const storyRepository = {
     });
     const updated: EpisodeValidation = { ...validation, findings: updatedFindings };
     const result = await Story.findOneAndUpdate(
-      ownedQuery(clerkUserId, storyId),
+      {
+        ...ownedQuery(clerkUserId, storyId),
+        updatedAt: doc.updatedAt,
+      },
       { $set: { validationFindings: updated } },
       { new: true },
     ).lean<StoryDoc | null>();

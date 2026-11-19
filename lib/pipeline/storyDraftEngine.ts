@@ -81,11 +81,11 @@ export function createStoryDraftEngine(
       if (pinnedBibleVersion && sources?.bible?.findApprovedVersion) {
         bible = await sources.bible.findApprovedVersion(job.clerkUserId, job.projectId, pinnedBibleVersion);
         if (!bible) {
-          log.info("story-draft", "pinned bible version not found, falling back to latest approved", {
-            projectId: job.projectId,
-            jobId: job.id,
-            pinnedBibleVersion,
-          });
+          throw new JobError(
+            `The pinned Story Bible version ${pinnedBibleVersion} was not found. It may have been deleted or not yet approved.`,
+            "bible_version_not_found",
+            false,
+          );
         }
       }
       if (!bible) {
@@ -112,7 +112,7 @@ export function createStoryDraftEngine(
       const knowledge = buildContext(request.operation, request.instruction, request.creativeDirection, previous, targetFinding);
       const authority = working ? narrativeAuthority(working, job.projectId, request.instruction || request.operation) : undefined;
       const bibleContext = bible?.content ? renderStoryBibleBrief(bible.content) : undefined;
-      const continuityContext = [knowledge, previous ? screenplayContext(previous) : undefined].filter(Boolean).join("\n\n") || undefined;
+      const continuityContext = [knowledge, previous ? `Current candidate:\n${renderStoryForRevision(previous)}` : undefined].filter(Boolean).join("\n\n") || undefined;
       const promptBase: StoryPrompt = {
         title: project.title,
         idea: project.originalStoryIdea,
@@ -568,18 +568,6 @@ function buildContext(
   return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
 
-function screenplayContext(previous: StoryRecord): string {
-  const scenes = previous.screenplay.slice(0, 12).map((scene) => {
-    const lines = scene.dialogue.slice(0, 8).map((line) => `${line.characterName}: ${line.line}`).join("\n");
-    return [
-      `Scene ${scene.sceneNumber}. ${scene.heading}`,
-      scene.action.slice(0, 500),
-      lines,
-    ].filter(Boolean).join("\n");
-  });
-  const body = scenes.join("\n\n").slice(0, 8000);
-  return `Approved screenplay:\n${body}`;
-}
 
 function renderStory(story: GeneratedStory): string {
   const acts = [

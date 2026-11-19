@@ -109,9 +109,16 @@ function audienceReady(fact: NarrativeFact, episode: number): boolean {
 
 /**
  * Infer knowledge from what a line presupposes.
- * A suspicion is allowed only after the character's knowledge entry allows it.
- * A certain assertion is allowed only when that character is certain and the
- * audience is allowed to hear it.
+ * Speaker knowledge and audience disclosure are evaluated independently:
+ *
+ * A. Speaker knowledge: Does the speaking character actually know the fact?
+ *    A character who does not know a secret cannot confidently reveal it.
+ * B. Audience disclosure: Is the fact permitted to be revealed to the audience?
+ *    A character who knows a secret may discuss it when the narrative
+ *    circumstances permit it (audience is ready or the line is indirect).
+ * C. Speculation: A character may speculate about a concealed fact without
+ *    triggering a confirmed-disclosure error, but speculating about a fact
+ *    they have no knowledge of at all is a speaker-knowledge warning.
  */
 export function impliedKnowledgeFindings(canon: CanonState, episode: number, text: string): NarrativeFinding[] {
   const names = canon.entities.filter((entity) => entity.kind === "character").map((entity) => entity.name);
@@ -129,26 +136,30 @@ export function impliedKnowledgeFindings(canon: CanonState, episode: number, tex
               : null;
           })()
         : null;
-      const subjects = fact.subjectEntityIds.length > 0
-        ? fact.subjectEntityIds
-        : speaker && !audienceReady(fact, episode) ? [speaker.id] : [];
       const covered = coveredByAudienceFact(line.text, fact, canon, episode, names);
-      if (level === "certain" && !audienceReady(fact, episode) && !covered) {
-        findings.push(impliedFinding(fact, episode, line.text, "The line states a concealed fact before the audience may hear it."));
-      }
-      for (const characterId of subjects) {
-        const view = knowledgeAt(canon, characterId, fact.id, episode);
-        const character = canon.entities.find((entity) => entity.id === characterId);
-        const label = character?.name ?? characterId;
+      const audienceCanHear = audienceReady(fact, episode);
+
+      // A. Speaker knowledge — evaluate the actual speaking character.
+      //    Public facts (ESTABLISHED_CANON, AUDIENCE_KNOWLEDGE) are known to
+      //    everyone; only check speaker knowledge for facts that a character
+      //    might not know (CHARACTER_KNOWLEDGE, HIDDEN_TRUTH, AUTHOR_TRUTH).
+      const isPublicFact = fact.classification === "ESTABLISHED_CANON" || fact.classification === "AUDIENCE_KNOWLEDGE";
+      if (speaker && !isPublicFact) {
+        const view = knowledgeAt(canon, speaker.id, fact.id, episode);
         if (level === "certain" && view.certainty !== "certain") {
-          findings.push(impliedFinding(fact, episode, line.text, `${label} speaks or is described as if they already know "${fact.statement}".`));
+          findings.push(speakerKnowledgeFinding(fact, episode, line, speaker.name, speaker.id, "error",
+            `${speaker.name} asserts "${fact.statement}" as established knowledge, but ${speaker.name} does not have certain knowledge of this fact in episode ${episode}.`));
         }
         if (level === "suspected" && view.certainty !== "suspected" && view.certainty !== "certain") {
-          findings.push(impliedFinding(fact, episode, line.text, `${label} raises "${fact.statement}" before the story allows even a suspicion.`));
+          findings.push(speakerKnowledgeFinding(fact, episode, line, speaker.name, speaker.id, "warning",
+            `${speaker.name} speculates about "${fact.statement}", but ${speaker.name} has no knowledge or suspicion of this fact in episode ${episode}.`));
         }
       }
-      if (level === "suspected" && subjects.length === 0 && !audienceReady(fact, episode)) {
-        findings.push(impliedFinding(fact, episode, line.text, "The line hints at a concealed fact before the audience may hear it."));
+
+      // B. Audience disclosure — only for certain assertions, not speculation
+      if (level === "certain" && !audienceCanHear && !covered) {
+        findings.push(audienceDisclosureFinding(fact, episode, line, speaker?.name ?? null, speaker?.id ?? null,
+          `The line reveals "${fact.statement}" to the audience before its permitted reveal episode${fact.audienceRevealEpisode ? ` ${fact.audienceRevealEpisode}` : ""}.`));
       }
     }
   }
@@ -181,21 +192,58 @@ function coveredByAudienceFact(
   });
 }
 
-function impliedFinding(fact: NarrativeFact, episode: number, evidence: string, explanation: string): NarrativeFinding {
+function speakerKnowledgeFinding(
+  fact: NarrativeFact,
+  episode: number,
+  line: SpokenLine,
+  speakerName: string,
+  speakerId: string,
+  severity: "error" | "warning",
+  explanation: string,
+): NarrativeFinding {
   return makeFinding({
-    algorithm: "implication",
+    algorithm: "implication:speaker_knowledge",
+    severity: severity === "error" ? "ERROR" : "WARNING",
+    category: "knowledge",
+    entityId: speakerId,
+    episode,
+    evidence: line.text.slice(0, 180),
+    expected: `${speakerName} should not know "${fact.statement}" in episode ${episode}.`,
+    actual: `${speakerName} says: "${line.text.slice(0, 120)}"`,
+    explanation,
+    suggestedCorrection: severity === "error"
+      ? `Remove the assertion, or add a knowledge entry allowing ${speakerName} to know this fact by episode ${episode}.`
+      : `Remove the speculation, or add a knowledge entry allowing ${speakerName} to suspect this fact by episode ${episode}.`,
+    automaticRepairSafe: true,
+    title: `Speaker knowledge: ${speakerName}`,
+    confidence: "high",
+  });
+}
+
+function audienceDisclosureFinding(
+  fact: NarrativeFact,
+  episode: number,
+  line: SpokenLine,
+  speakerName: string | null,
+  speakerId: string | null,
+  explanation: string,
+): NarrativeFinding {
+  return makeFinding({
+    algorithm: "implication:audience_disclosure",
     severity: "ERROR",
     category: "knowledge",
-    entityId: fact.subjectEntityIds[0] ?? null,
+    entityId: speakerId ?? fact.subjectEntityIds[0] ?? null,
     episode,
-    evidence: evidence.slice(0, 180),
+    evidence: line.text.slice(0, 180),
     expected: fact.audienceRevealEpisode
-      ? `No certain disclosure before episode ${fact.audienceRevealEpisode}.`
-      : "This fact stays concealed until a knowledge entry allows it.",
-    actual: evidence.slice(0, 180),
+      ? `Audience reveal no earlier than episode ${fact.audienceRevealEpisode}.`
+      : "This fact stays concealed from the audience.",
+    actual: `Disclosed in episode ${episode}${speakerName ? ` by ${speakerName}` : ""}.`,
     explanation,
-    suggestedCorrection: "Remove the implication, or wait until the knowledge ledger allows it.",
+    suggestedCorrection: "Remove the disclosure from this episode, or wait until the audience reveal episode.",
     automaticRepairSafe: true,
+    title: `Audience disclosure: ${fact.key}`,
+    confidence: "high",
   });
 }
 

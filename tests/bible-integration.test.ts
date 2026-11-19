@@ -515,7 +515,7 @@ describe("Bible version provenance", () => {
     expect(saved[0]!.sourceBibleVersion).toBe(3);
   });
 
-  it("falls back to latest approved when pinned version is not found", async () => {
+  it("rejects when pinned version is not found instead of falling back", async () => {
     const saved: StoryRecord[] = [];
     const calls: { method: string; version?: number }[] = [];
     const engine = createStoryDraftEngine(
@@ -533,9 +533,9 @@ describe("Bible version provenance", () => {
         },
       },
     );
-    await engine.run(job("generate", 99), project());
+    await expect(engine.run(job("generate", 99), project())).rejects.toThrow(/pinned Story Bible version 99 was not found/);
     expect(calls.some((c) => c.method === "findApprovedVersion" && c.version === 99)).toBe(true);
-    expect(calls.some((c) => c.method === "findApproved")).toBe(true);
-    expect(saved[0]!.sourceBibleVersion).toBe(2);
+    expect(calls.some((c) => c.method === "findApproved")).toBe(false);
+    expect(saved).toHaveLength(0);
   });
 });

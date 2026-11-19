@@ -107,6 +107,7 @@ export function canonFromApprovedSources(input: {
     for (const statement of bible.guidelines.mustRemainConsistent) addFact("consistent", statement, "ESTABLISHED_CANON", true);
     for (const statement of bible.canon.hiddenInformation) addFact("hidden", statement, "HIDDEN_TRUTH", true);
     for (const statement of bible.canon.proposedDetails) addFact("proposed", statement, "PROVISIONAL", false);
+    for (const statement of bible.canon.audienceKnowledge) addFact("audience", statement, "AUDIENCE_KNOWLEDGE", true);
     for (const character of bible.characters.characters) {
       const characterId = slugId("character", character.name);
       for (const secret of character.secrets) {

@@ -1,6 +1,7 @@
 import { JobError, type JobRecord } from "@/lib/pipeline/types";
 import type { ProjectRecord } from "@/lib/repositories/projectRepository";
 import { legacyStoryBibleFields, storyBibleContentSchema, storyBibleGenerationJobInputSchema, type StoryBibleContent, type StoryBibleDraft } from "@/lib/validation/storyBible";
+import { validateStoryBibleRevision } from "@/lib/validation/storyBibleRevision";
 import { mergeStoryBibleResult, validateStoryBibleTaskResult, type StoryBibleTaskInput } from "@/lib/providers/llm/storyBibleTask";
 import {
   buildStoryBibleSectionTask,
@@ -185,6 +186,21 @@ export function createStoryBibleEngine(
               ],
             },
           });
+        }
+        const revisionValidation = validateStoryBibleRevision(content, {
+          original: request.operation === "generate" ? null : (approved ?? bible.content ?? null),
+          skipCanonCheck: request.operation === "generate",
+          skipPreservationCheck: request.operation === "generate" || request.freshInterpretation,
+        });
+        if (!revisionValidation.passed) {
+          const summary = revisionValidation.diagnostics
+            .map((d) => `[${d.code}] ${d.message}`)
+            .join("; ");
+          throw new JobError(
+            `The revised Story Bible failed validation: ${summary}`,
+            "revision_validation_failed",
+            false,
+          );
         }
         const decisions = request.instruction
           ? [...new Set([...bible.creatorDecisions, request.instruction])].slice(-40)

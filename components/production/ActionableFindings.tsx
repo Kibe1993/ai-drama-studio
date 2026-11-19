@@ -22,19 +22,17 @@ const STATUS_COLORS: Record<string, string> = {
   recheck_required: "text-[#dfc18a]",
 };
 
-function findingKey(finding: EpisodeValidationFinding, index: number): string {
+function reactKey(finding: EpisodeValidationFinding, index: number): string {
   return finding.id ?? `${finding.code ?? ""}:${finding.category}:${finding.sceneNumber ?? 0}:${index}`;
 }
 
 function FindingRow({
   finding,
-  index,
   projectId,
   storyId,
   disabled,
 }: {
   finding: EpisodeValidationFinding;
-  index: number;
   projectId: string;
   storyId: string;
   disabled: boolean;
@@ -45,14 +43,16 @@ function FindingRow({
   const resolveFinding = useResolveFinding(projectId, storyId);
   const startDraft = useStartStoryDraft(projectId);
 
-  const key = findingKey(finding, index);
   const status = finding.resolutionStatus ?? "open";
   const isError = finding.severity === "error";
   const canAccept = canAcceptAsIntentional(finding);
   const isResolved = status === "resolved" || status === "accepted_as_intentional";
   const busy = resolveFinding.isPending || startDraft.isPending || disabled;
+  const hasBackendId = Boolean(finding.id);
+  const mutationError = resolveFinding.error ? String(resolveFinding.error) : null;
 
   function requestRevision() {
+    if (!finding.id) return;
     startDraft.mutate({
       operation: "targeted_revision",
       targetFindingId: finding.id,
@@ -61,15 +61,16 @@ function FindingRow({
   }
 
   function acceptAsIntentional() {
-    if (!note.trim()) return;
+    if (!note.trim() || !finding.id) return;
     resolveFinding.mutate(
-      { findingId: finding.id ?? key, status: "accepted_as_intentional", note: note.trim() },
+      { findingId: finding.id, status: "accepted_as_intentional", note: note.trim() },
       { onSuccess: () => { setAccepting(false); setNote(""); } },
     );
   }
 
   function markResolved() {
-    resolveFinding.mutate({ findingId: finding.id ?? key, status: "resolved" });
+    if (!finding.id) return;
+    resolveFinding.mutate({ findingId: finding.id, status: "resolved" });
   }
 
   return (
@@ -134,9 +135,19 @@ function FindingRow({
             <p className="text-xs text-[#a39b8f]">Resolved at {finding.resolvedAt}</p>
           ) : null}
 
+          {mutationError ? (
+            <p className="text-xs text-[#e7b2a8]">Resolution failed: {mutationError}. Revalidate and try again.</p>
+          ) : null}
+
+          {!hasBackendId ? (
+            <p className="text-xs text-[#dfc18a]">
+              This finding has no stable identifier. Revalidate the draft to assign one before resolving.
+            </p>
+          ) : null}
+
           {!isResolved && !disabled ? (
             <div className="mt-2 flex flex-wrap gap-2">
-              <Button size="sm" variant="quiet" disabled={busy} onClick={requestRevision}>
+              <Button size="sm" variant="quiet" disabled={busy || !hasBackendId} onClick={requestRevision}>
                 {startDraft.isPending ? "Queuing…" : "Request targeted revision"}
               </Button>
               {canAccept ? (
@@ -150,7 +161,7 @@ function FindingRow({
                       placeholder="Explain why this is an intentional creative choice"
                     />
                     <div className="flex gap-2">
-                      <Button size="sm" disabled={busy || !note.trim()} onClick={acceptAsIntentional}>
+                      <Button size="sm" disabled={busy || !note.trim() || !hasBackendId} onClick={acceptAsIntentional}>
                         {resolveFinding.isPending ? "Saving…" : "Confirm acceptance"}
                       </Button>
                       <Button size="sm" variant="quiet" disabled={busy} onClick={() => { setAccepting(false); setNote(""); }}>
@@ -159,7 +170,7 @@ function FindingRow({
                     </div>
                   </div>
                 ) : (
-                  <Button size="sm" variant="quiet" disabled={busy} onClick={() => setAccepting(true)}>
+                  <Button size="sm" variant="quiet" disabled={busy || !hasBackendId} onClick={() => setAccepting(true)}>
                     Accept as intentional
                   </Button>
                 )
@@ -168,7 +179,7 @@ function FindingRow({
                   This finding requires canon authorization and cannot be accepted as intentional.
                 </p>
               )}
-              <Button size="sm" variant="quiet" disabled={busy} onClick={markResolved}>
+              <Button size="sm" variant="quiet" disabled={busy || !hasBackendId} onClick={markResolved}>
                 Mark resolved
               </Button>
             </div>
@@ -213,9 +224,9 @@ export function ActionableFindings({
       <ul className="mt-3 grid gap-2">
         {validation.findings.map((finding, index) => (
           <FindingRow
-            key={findingKey(finding, index)}
+            key={reactKey(finding, index)}
             finding={finding}
-            index={index}
+
             projectId={projectId}
             storyId={storyId}
             disabled={Boolean(disabled)}

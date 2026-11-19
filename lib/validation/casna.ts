@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   characterStateSchema,
@@ -136,6 +137,31 @@ export const episodeValidationSchema = z.object({
 });
 
 export type EpisodeValidation = z.infer<typeof episodeValidationSchema>;
+
+/**
+ * Compute a stable finding ID from category, message, and scene number.
+ * Used to normalize legacy findings that were persisted without an `id`.
+ */
+export function stableFindingId(category: string, message: string, sceneNumber?: number): string {
+  return createHash("sha256")
+    .update([category, message.slice(0, 200), String(sceneNumber ?? "")].join("|"))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+/**
+ * Ensure every finding in an EpisodeValidation has a stable `id`.
+ * Findings that already have an `id` are preserved unchanged.
+ * Findings without an `id` receive one computed from their category,
+ * message, and scene number. This normalizes legacy findings loaded
+ * from MongoDB so they can be resolved by ID.
+ */
+export function normalizeFindingIds(validation: EpisodeValidation): EpisodeValidation {
+  const findings = validation.findings.map((f) =>
+    f.id ? f : { ...f, id: stableFindingId(f.category, f.message, f.sceneNumber) },
+  );
+  return { ...validation, findings };
+}
 
 /**
  * Returns true when a finding blocks story approval. A finding blocks approval

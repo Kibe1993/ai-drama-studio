@@ -44,7 +44,7 @@ export type StoryBibleTaskResult =
 
 export type StoryBibleTaskTransport = {
   label: string;
-  request(system: string, prompt: string, schema: Record<string, unknown>, signal: AbortSignal): Promise<{ text: string; usage?: TokenUsage }>;
+  request(system: string, prompt: string, schema: Record<string, unknown>, signal: AbortSignal): Promise<{ text: string; usage?: TokenUsage; truncated?: boolean }>;
 };
 
 type JsonSchema = Record<string, unknown>;
@@ -342,15 +342,30 @@ export async function requestStoryBible(
       response.text,
       SECTION_VALIDATORS[section],
       `Story Bible ${section}`,
-      (value) => unwrapSection(section, value)
+      (value) => unwrapSection(section, value),
+      response.truncated
     );
     return { result: { mode: "section", section, value: parsed as StoryBibleSectionValue }, usage: response.usage };
   }
   if (input.mode === "revise") {
-    const parsed = parseStructured(transport.label, response.text, z.object({ patch: patchSchema }), "Story Bible revision");
+    const parsed = parseStructured(
+      transport.label,
+      response.text,
+      z.object({ patch: patchSchema }),
+      "Story Bible revision",
+      undefined,
+      response.truncated
+    );
     return { result: { mode: "patch", patch: parsed.patch as Partial<StoryBibleContent> }, usage: response.usage };
   }
-  const parsed = parseStructured(transport.label, response.text, z.object({ content: storyBibleContentSchema }), "Story Bible");
+  const parsed = parseStructured(
+    transport.label,
+    response.text,
+    z.object({ content: storyBibleContentSchema }),
+    "Story Bible",
+    undefined,
+    response.truncated
+  );
   return { result: { mode: "complete", content: parsed.content as StoryBibleContent }, usage: response.usage };
 }
 

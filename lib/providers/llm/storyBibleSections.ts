@@ -106,77 +106,77 @@ function identityBrief(identity: StoryBibleContent["identity"]): LooseSection {
 function worldBrief(world: StoryBibleContent["world"]): LooseSection {
   return {
     description: clip(world.description, 900),
-    geographyAndLocations: world.geographyAndLocations.slice(0, 5).map((location) => ({
+    geographyAndLocations: world.geographyAndLocations.map((location) => ({
       name: location.name,
       description: clip(location.description, 250),
       storyFunction: clip(location.storyFunction, 180),
     })),
-    socialStructuresAndCultures: clipList(world.socialStructuresAndCultures, 4, 250),
-    historyAndPastEvents: clipList(world.historyAndPastEvents, 4, 250),
-    rules: clipList(world.rules, 8, 300),
-    definingSystems: world.definingSystems.slice(0, 3).map((system) => ({
+    socialStructuresAndCultures: clipList(world.socialStructuresAndCultures, 10, 250),
+    historyAndPastEvents: clipList(world.historyAndPastEvents, 12, 250),
+    rules: clipList(world.rules, 16, 300),
+    definingSystems: world.definingSystems.map((system) => ({
       name: system.name,
       description: clip(system.description, 300),
-      limitations: clipList(system.limitations, 3, 180),
-      consequences: clipList(system.consequences, 3, 180),
+      limitations: clipList(system.limitations, 8, 180),
+      consequences: clipList(system.consequences, 8, 180),
     })),
   };
 }
 
 function charactersBrief(characters: StoryBibleContent["characters"]): LooseSection {
   return {
-    characters: characters.characters.slice(0, 6).map((character) => ({
+    characters: characters.characters.map((character) => ({
       name: character.name,
       storyRole: character.storyRole,
       roleDescription: clip(character.roleDescription, 220),
       personality: clip(character.personality, 260),
-      motivations: clipList(character.motivations, 3, 160),
-      fearsAndWeaknesses: clipList(character.fearsAndWeaknesses, 2, 160),
-      relationships: character.relationships.slice(0, 4).map((relationship) => ({
+      motivations: clipList(character.motivations, 8, 160),
+      fearsAndWeaknesses: clipList(character.fearsAndWeaknesses, 8, 160),
+      relationships: character.relationships.map((relationship) => ({
         characterName: relationship.characterName,
         relationship: clip(relationship.relationship, 120),
         tensionOrChange: clip(relationship.tensionOrChange, 120),
       })),
     })),
-    relationshipDynamics: clipList(characters.relationshipDynamics, 6, 220),
+    relationshipDynamics: clipList(characters.relationshipDynamics, 12, 220),
   };
 }
 
 function narrativeBrief(narrative: StoryBibleContent["narrative"]): LooseSection {
   return {
     mainStoryline: clip(narrative.mainStoryline, 1200),
-    majorConflicts: clipList(narrative.majorConflicts, 6, 300),
+    majorConflicts: clipList(narrative.majorConflicts, 10, 300),
     longTermDirection: clip(narrative.longTermDirection, 800),
-    subplots: clipList(narrative.subplots, 5, 250),
-    unresolvedMysteries: clipList(narrative.unresolvedMysteries, 5, 220),
-    potentialFutureRevelations: clipList(narrative.potentialFutureRevelations, 4, 220),
-    majorNarrativeQuestions: clipList(narrative.majorNarrativeQuestions, 4, 200),
+    subplots: clipList(narrative.subplots, 10, 250),
+    unresolvedMysteries: clipList(narrative.unresolvedMysteries, 10, 220),
+    potentialFutureRevelations: clipList(narrative.potentialFutureRevelations, 10, 220),
+    majorNarrativeQuestions: clipList(narrative.majorNarrativeQuestions, 10, 200),
     serializedEndingGuidance: clip(narrative.serializedEndingGuidance, 400),
   };
 }
 
 function guidelinesBrief(guidelines: StoryBibleContent["guidelines"]): LooseSection {
   return {
-    mainThemes: clipList(guidelines.mainThemes, 6, 200),
-    secondaryThemes: clipList(guidelines.secondaryThemes, 6, 200),
+    mainThemes: clipList(guidelines.mainThemes, 8, 200),
+    secondaryThemes: clipList(guidelines.secondaryThemes, 10, 200),
     storytellingStyle: clip(guidelines.storytellingStyle, 500),
-    boundaries: clipList(guidelines.boundaries, 8, 250),
-    mustRemainConsistent: clipList(guidelines.mustRemainConsistent, 10, 250),
+    boundaries: clipList(guidelines.boundaries, 16, 250),
+    mustRemainConsistent: clipList(guidelines.mustRemainConsistent, 20, 250),
   };
 }
 
 function canonBrief(canon: StoryBibleContent["canon"]): LooseSection {
   return {
-    confirmedFacts: clipList(canon.confirmedFacts, 15, 300),
-    proposedDetails: clipList(canon.proposedDetails, 8, 250),
-    unresolvedQuestions: clipList(canon.unresolvedQuestions, 8, 220),
-    hiddenInformation: clipList(canon.hiddenInformation, 6, 250),
-    characterKnowledge: canon.characterKnowledge.slice(0, 8).map((knowledge) => ({
+    confirmedFacts: clipList(canon.confirmedFacts, 40, 300),
+    proposedDetails: clipList(canon.proposedDetails, 30, 250),
+    unresolvedQuestions: clipList(canon.unresolvedQuestions, 20, 220),
+    hiddenInformation: clipList(canon.hiddenInformation, 16, 250),
+    characterKnowledge: canon.characterKnowledge.map((knowledge) => ({
       characterName: knowledge.characterName,
-      knows: clipList(knowledge.knows, 4, 180),
-      believes: clipList(knowledge.believes, 3, 150),
+      knows: clipList(knowledge.knows, 10, 180),
+      believes: clipList(knowledge.believes, 10, 150),
     })),
-    audienceKnowledge: clipList(canon.audienceKnowledge, 10, 220),
+    audienceKnowledge: clipList(canon.audienceKnowledge, 20, 220),
   };
 }
 
@@ -321,6 +321,10 @@ export function renderStoryBibleBrief(sections: Partial<StoryBibleContent>): str
     if (subplots) lines.push(`Subplots: ${subplots}`);
     const mysteries = joinList(n.unresolvedMysteries);
     if (mysteries) lines.push(`Unresolved mysteries: ${mysteries}`);
+    const futureRevelations = joinList(n.potentialFutureRevelations);
+    if (futureRevelations) lines.push(`Potential future revelations: ${futureRevelations}`);
+    const questions = joinList(n.majorNarrativeQuestions);
+    if (questions) lines.push(`Major narrative questions: ${questions}`);
     if (typeof n.serializedEndingGuidance === "string" && n.serializedEndingGuidance) lines.push(`Ending guidance: ${n.serializedEndingGuidance}`);
     parts.push(lines.join("\n"));
   }
@@ -330,6 +334,8 @@ export function renderStoryBibleBrief(sections: Partial<StoryBibleContent>): str
     const lines: string[] = ["[GUIDELINES]"];
     const themes = joinList(g.mainThemes);
     if (themes) lines.push(`Main themes: ${themes}`);
+    const secondaryThemes = joinList(g.secondaryThemes);
+    if (secondaryThemes) lines.push(`Secondary themes: ${secondaryThemes}`);
     if (typeof g.storytellingStyle === "string" && g.storytellingStyle) lines.push(`Storytelling style: ${g.storytellingStyle}`);
     const boundaries = joinList(g.boundaries);
     if (boundaries) lines.push(`Boundaries: ${boundaries}`);
@@ -343,6 +349,12 @@ export function renderStoryBibleBrief(sections: Partial<StoryBibleContent>): str
     const lines: string[] = ["[CANON]"];
     const facts = joinList(c.confirmedFacts);
     if (facts) lines.push(`Confirmed facts: ${facts}`);
+    const hidden = joinList(c.hiddenInformation);
+    if (hidden) lines.push(`Hidden information (not yet revealed to audience): ${hidden}`);
+    const proposed = joinList(c.proposedDetails);
+    if (proposed) lines.push(`Proposed details (provisional, not canon): ${proposed}`);
+    const unresolved = joinList(c.unresolvedQuestions);
+    if (unresolved) lines.push(`Unresolved questions: ${unresolved}`);
     if (Array.isArray(c.characterKnowledge) && c.characterKnowledge.length) {
       lines.push("Character knowledge:");
       for (const ck of c.characterKnowledge) {

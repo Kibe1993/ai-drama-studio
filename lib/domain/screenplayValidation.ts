@@ -136,6 +136,61 @@ function firstSceneWithCharacter(screenplay: ScreenplayScene[], name: string): n
 }
 
 /**
+ * Whether a character name is referenced in scene context text. Matches the
+ * full name or any significant part (first/last, length >= 3) so "Elder Grey"
+ * is found when the scene says "Grey" or "Elder".
+ */
+function nameReferencedInContext(normalizedName: string, context: string): boolean {
+  if (normalizedName && context.includes(normalizedName)) return true;
+  const parts = normalizedName.split(" ").filter((p) => p.length >= 3);
+  return parts.some((part) => context.includes(part));
+}
+
+/**
+ * Characters introduced within the current screenplay. A character is
+ * introduced when they appear in `charactersPresent` and their name is
+ * referenced in the scene's action or visual description, giving the
+ * audience enough context to identify them. This is distinct from being
+ * approved as a permanent canonical entity.
+ */
+function currentEpisodeIntroductions(screenplay: ScreenplayScene[]): { names: Set<string>; byName: Map<string, number> } {
+  const names = new Set<string>();
+  const byName = new Map<string, number>();
+  for (const scene of screenplay) {
+    const context = normalize(`${scene.action} ${scene.visualDescription}`);
+    for (const name of scene.charactersPresent) {
+      const normalized = normalize(name);
+      if (byName.has(normalized)) continue;
+      if (nameReferencedInContext(normalized, context)) {
+        names.add(normalized);
+        byName.set(normalized, scene.sceneNumber);
+      }
+    }
+  }
+  return { names, byName };
+}
+
+/**
+ * Characters that appear in `charactersPresent` of any scene, even if not
+ * formally described in the scene text. Used to distinguish "present but
+ * undescribed" (warning) from "not present at all" (error).
+ */
+function currentEpisodePresence(screenplay: ScreenplayScene[]): { names: Set<string>; byName: Map<string, number> } {
+  const names = new Set<string>();
+  const byName = new Map<string, number>();
+  for (const scene of screenplay) {
+    for (const name of scene.charactersPresent) {
+      const normalized = normalize(name);
+      if (!names.has(normalized)) {
+        names.add(normalized);
+        byName.set(normalized, scene.sceneNumber);
+      }
+    }
+  }
+  return { names, byName };
+}
+
+/**
  * Screenplays commonly use first-name-only speaker labels ("Daniel" for
  * "Daniel Mwangi"). resolveIdentity deliberately does not match first-name-only
  * references because that is ambiguous for canon resolution. For the character
@@ -170,10 +225,10 @@ function dedupeEpisodeFindings(findings: EpisodeValidationFinding[]): EpisodeVal
   const seen = new Set<string>();
   const unique: EpisodeValidationFinding[] = [];
   for (const finding of findings) {
-    const key = finding.id ?? findingId(finding.category, finding.message, finding.sceneNumber);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(finding);
+    const id = finding.id ?? findingId(finding.category, finding.message, finding.sceneNumber);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    unique.push(finding.id ? finding : { ...finding, id });
   }
   return unique;
 }
@@ -292,16 +347,29 @@ export function validateEpisodeScreenplay(
   // -- Canon -------------------------------------------------------------
   const established = establishedCharacters(input);
   const castIsKnown = Boolean(input.bible) || (input.ledger?.characterStates.length ?? 0) > 0 || input.previousEpisodes.length > 0 || Boolean(input.registry);
+  const currentIntroduced = currentEpisodeIntroductions(screenplay);
+  const currentPresent = currentEpisodePresence(screenplay);
   if (castIsKnown) for (const name of speakingNames(screenplay)) {
     if (speakerIsEstablished(name, established.names)) continue;
     if (wasIntroducedByPlan(name, established.planText, input.registry, input.episodeNumber)) continue;
+    if (speakerIsEstablished(name, currentIntroduced.names)) continue;
     const sceneNumber = firstSceneWithSpeaker(screenplay, name);
+    if (speakerIsEstablished(name, currentPresent.names)) {
+      findings.push({
+        id: findingId("canon", `speaker-not-described:${name}`, sceneNumber),
+        category: "canon",
+        severity: "warning",
+        sceneNumber,
+        message: `"${name}" appears in this episode but is not described in any scene. Introduce the character through scene action or visual description before they speak.`,
+      });
+      continue;
+    }
     findings.push({
       id: findingId("canon", `speaker-not-introduced:${name}`, sceneNumber),
       category: "canon",
       severity: "error",
       sceneNumber,
-      message: `"${name}" speaks in this episode but is not introduced by the Story Bible, the Season Plan, a previous episode, or the Continuity Ledger.`,
+      message: `"${name}" speaks in this episode but is not introduced by the Story Bible, the Season Plan, a previous episode, the Continuity Ledger, or the current screenplay.`,
     });
   }
   const deadCharacters = new Set(

@@ -286,6 +286,14 @@ export function createStoryDraftService(deps = {
       if (!draft || draft.projectId !== projectId || draft.productionRunId !== null) {
         throw new StudioError("Story draft not found", 404, "not_found");
       }
+      const latest = await deps.stories.findProjectDraft(actor.userId, projectId);
+      if (!latest || latest.id !== storyId) {
+        throw new StudioError(
+          "This story draft has been superseded by a newer version. Refresh and try again.",
+          409,
+          "stale_revision",
+        );
+      }
       if (!draft.validationFindings) {
         throw new StudioError("This draft has no validation findings.", 409, "no_findings");
       }
@@ -345,6 +353,14 @@ export function createStoryDraftService(deps = {
       }
       if (draft.status === "approved") {
         throw new StudioError("An approved story cannot be revalidated directly. Revise it first.", 409, "story_approved");
+      }
+      const latest = await deps.stories.findProjectDraft(actor.userId, projectId);
+      if (!latest || latest.id !== storyId) {
+        throw new StudioError(
+          "This story draft has been superseded by a newer version. Refresh and try again.",
+          409,
+          "stale_revision",
+        );
       }
       const bible = await deps.bibles.findApproved(actor.userId, projectId);
       const canon = bible?.content?.canon && bible.content.world && bible.content.characters

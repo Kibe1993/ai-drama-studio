@@ -21,6 +21,11 @@ export interface CanonMerge {
 /**
  * Stored canon wins on conflicts. New approved bible or ledger facts are added.
  * A derived snapshot never replaces a committed fact.
+ *
+ * Merges facts, entities, rules, events, relationships, knowledge entries, and
+ * threads. Existing entity descriptions are updated from newer Bible versions
+ * (permitted descriptive metadata only — identity, lifecycle, and protected
+ * attributes are never overwritten).
  */
 export function mergeDerivedCanon(stored: CanonState | null, derived: CanonState): CanonMerge {
   if (!stored) return { state: derived, changed: true };
@@ -41,6 +46,39 @@ export function mergeDerivedCanon(stored: CanonState | null, derived: CanonState
     entityIds.add(entity.id);
     changed = true;
   }
+  // Update permitted descriptive metadata on existing entities from newer Bible.
+  // Never overwrite identity (id, kind, name), lifecycle state, or protected
+  // attributes (endedEpisode, permitsNonlivingAppearance).
+  if (derived.basedOnBibleVersion > next.basedOnBibleVersion) {
+    for (const entity of derived.entities) {
+      const existing = next.entities.find((e) => e.id === entity.id);
+      if (!existing) continue;
+      if (entity.description && entity.description !== existing.description) {
+        existing.description = entity.description;
+        changed = true;
+      }
+      if (entity.role && entity.role !== existing.role) {
+        existing.role = entity.role;
+        changed = true;
+      }
+      if (entity.motivations.length > 0 && entity.motivations.join("|") !== existing.motivations.join("|")) {
+        existing.motivations = entity.motivations;
+        changed = true;
+      }
+      if (entity.goals.length > 0 && entity.goals.join("|") !== existing.goals.join("|")) {
+        existing.goals = entity.goals;
+        changed = true;
+      }
+      if (entity.arc && entity.arc !== existing.arc) {
+        existing.arc = entity.arc;
+        changed = true;
+      }
+      if (entity.secrets.length > 0 && entity.secrets.join("|") !== existing.secrets.join("|")) {
+        existing.secrets = entity.secrets;
+        changed = true;
+      }
+    }
+  }
   const ruleText = new Set(next.rules.map((rule) => normalizeName(rule.description)));
   for (const rule of derived.rules) {
     const key = normalizeName(rule.description);
@@ -54,6 +92,33 @@ export function mergeDerivedCanon(stored: CanonState | null, derived: CanonState
     if (eventIds.has(event.id)) continue;
     next.events.push(event);
     eventIds.add(event.id);
+    changed = true;
+  }
+  // Merge relationships by ID. Stored canon wins — a derived snapshot never
+  // replaces a committed relationship.
+  const relationshipIds = new Set(next.relationships.map((rel) => rel.id));
+  for (const rel of derived.relationships) {
+    if (relationshipIds.has(rel.id)) continue;
+    next.relationships.push(rel);
+    relationshipIds.add(rel.id);
+    changed = true;
+  }
+  // Merge knowledge entries by ID. Knowledge is never transferred between
+  // characters — each entry is bound to its characterId and factId.
+  const knowledgeIds = new Set(next.knowledge.map((k) => k.id));
+  for (const k of derived.knowledge) {
+    if (knowledgeIds.has(k.id)) continue;
+    next.knowledge.push(k);
+    knowledgeIds.add(k.id);
+    changed = true;
+  }
+  // Merge threads by ID. Stored lifecycle status is preserved — a derived
+  // snapshot never changes a thread from "resolved" back to "active".
+  const threadIds = new Set(next.threads.map((t) => t.id));
+  for (const t of derived.threads) {
+    if (threadIds.has(t.id)) continue;
+    next.threads.push(t);
+    threadIds.add(t.id);
     changed = true;
   }
   if (derived.basedOnBibleVersion > next.basedOnBibleVersion) {

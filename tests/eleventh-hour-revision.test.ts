@@ -344,7 +344,7 @@ describe("story revise workflow", () => {
     },
     {
       name: "premature secret",
-      code: "implication",
+      code: "implication:audience_disclosure",
       story: withStory((story) => {
         story.screenplay[1]!.dialogue = [{ characterName: "Amara", line: "The entity knows Amara's childhood name." }];
       }),

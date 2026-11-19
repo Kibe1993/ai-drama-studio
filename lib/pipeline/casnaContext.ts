@@ -85,6 +85,25 @@ export function compactCasnaPromptContext(context: CasnaEpisodeContext): {
             objective: state.currentObjective,
             emotionalState: state.emotionalState,
             physicalState: state.physicalState,
+            knowledge: state.knowledge.slice(-6),
+            beliefs: state.beliefs.slice(-4),
+            motivations: state.motivations.slice(-4),
+            relationships: state.relationships.slice(-6).map((rel) => ({
+              characterName: rel.characterName,
+              relationship: rel.relationship,
+              tensionOrChange: rel.tensionOrChange,
+            })),
+          })),
+          locationStates: context.ledger.locationStates.slice(-10).map((loc) => ({
+            name: loc.name,
+            currentState: loc.currentState,
+            lastSeenEpisode: loc.lastSeenEpisode,
+          })),
+          objectStates: context.ledger.objectStates.slice(-10).map((obj) => ({
+            name: obj.name,
+            ownership: obj.ownership,
+            condition: obj.condition,
+            lastSeenEpisode: obj.lastSeenEpisode,
           })),
           revealedSecrets: context.ledger.revealedSecrets.slice(-8),
           unresolvedThreads: context.ledger.unresolvedThreads

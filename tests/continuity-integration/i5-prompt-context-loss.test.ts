@@ -40,7 +40,7 @@ function compactLedger(context: CasnaEpisodeContext): CompactLedger {
 }
 
 describe("I-5: prompt context drops most ledger state", () => {
-  it.fails("compact context includes character knowledge", () => {
+  it("compact context includes character knowledge", () => {
     const context = makeCasnaContext({
       characterStates: [
         makeCharacterState({
@@ -56,7 +56,7 @@ describe("I-5: prompt context drops most ledger state", () => {
     expect(cl.characterStates?.[0]?.knowledge).toHaveLength(2);
   });
 
-  it.fails("compact context includes character beliefs", () => {
+  it("compact context includes character beliefs", () => {
     const context = makeCasnaContext({
       characterStates: [
         makeCharacterState({
@@ -71,7 +71,7 @@ describe("I-5: prompt context drops most ledger state", () => {
     expect(cl.characterStates?.[0]?.beliefs).toHaveLength(1);
   });
 
-  it.fails("compact context includes character motivations", () => {
+  it("compact context includes character motivations", () => {
     const context = makeCasnaContext({
       characterStates: [
         makeCharacterState({
@@ -86,7 +86,7 @@ describe("I-5: prompt context drops most ledger state", () => {
     expect(cl.characterStates?.[0]?.motivations).toHaveLength(2);
   });
 
-  it.fails("compact context includes character relationships", () => {
+  it("compact context includes character relationships", () => {
     const context = makeCasnaContext({
       characterStates: [
         makeCharacterState({
@@ -103,7 +103,7 @@ describe("I-5: prompt context drops most ledger state", () => {
     expect(cl.characterStates?.[0]?.relationships).toHaveLength(1);
   });
 
-  it.fails("compact context includes location states", () => {
+  it("compact context includes location states", () => {
     const context = makeCasnaContext({
       locationStates: [
         { name: "The Old House", currentState: "Boarded up and abandoned.", lastSeenEpisode: 3 },
@@ -116,7 +116,7 @@ describe("I-5: prompt context drops most ledger state", () => {
     expect(cl.locationStates).toHaveLength(1);
   });
 
-  it.fails("compact context includes object states", () => {
+  it("compact context includes object states", () => {
     const context = makeCasnaContext({
       objectStates: [
         { name: "The Document", ownership: "Hidden by Bob", condition: "Aged but intact.", lastSeenEpisode: 2 },

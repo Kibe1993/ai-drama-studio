@@ -11,6 +11,7 @@ import { requestSceneRepair, type RepairScenesPrompt } from "@/lib/providers/llm
 import { requestEpisodeRevision, type EpisodeRevisionPrompt } from "@/lib/providers/llm/episodeRevision";
 import { requestStoryCritique, type StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 import { requestCanonExtraction, type CanonExtractionPrompt } from "@/lib/providers/llm/canonExtractionTask";
+import { requestCanonFactExtraction, type CanonFactExtractionTaskInput } from "@/lib/providers/llm/canonFactExtractionTask";
 
 type ChatStageOptions = {
   label: string;
@@ -58,7 +59,7 @@ export function storyBibleResponseFormat(
 
 export function bindChatStages(options: ChatStageOptions): Pick<
   LLMProvider,
-  "generateCharacters" | "generateScenes" | "generateStoryBible" | "generateEpisodeSuggestion" | "generateSeasonPlan" | "generateSeasonArchitecture" | "generateEpisodeDetails" | "repairScenes" | "reviseEpisode" | "critiqueStory" | "continueStory" | "generateCanonSuggestions"
+  "generateCharacters" | "generateScenes" | "generateStoryBible" | "generateEpisodeSuggestion" | "generateSeasonPlan" | "generateSeasonArchitecture" | "generateEpisodeDetails" | "repairScenes" | "reviseEpisode" | "critiqueStory" | "continueStory" | "generateCanonSuggestions" | "generateCanonFacts"
 > {
   const transport = (): StageTransport => ({
     label: options.label,
@@ -133,6 +134,7 @@ export function bindChatStages(options: ChatStageOptions): Pick<
     critiqueStory: (input: StoryCriticPrompt, callOptions) => requestStoryCritique(transport(), input, callOptions),
     continueStory: (input, written, callOptions) => requestStoryContinuation(transport(), input, written, callOptions),
     generateCanonSuggestions: (input: CanonExtractionPrompt, callOptions) => requestCanonExtraction(transport(), input, callOptions),
+    generateCanonFacts: (input: CanonFactExtractionTaskInput, callOptions) => requestCanonFactExtraction(transport(), input, callOptions),
     generateStoryBible: async (input: StoryBibleTaskInput, callOptions) => {
       const maxCompletionTokens = typeof options.storyBibleMaxCompletionTokens === "function"
         ? options.storyBibleMaxCompletionTokens(input)

@@ -144,7 +144,7 @@ export type CanonExtractionIssueRecord = {
   code: string;
   message: string;
   fact: PreparedFact;
-  status: "pending_review" | "accepted" | "rejected";
+  status: "pending_review" | "accepting" | "accepted" | "rejected";
   resolvedAt: string | null;
 };
 
@@ -541,5 +541,103 @@ export const storyRepository = {
       { $set: { "canonExtractionIssues.issues": updatedIssues } },
     );
     return { ...issue, status: resolution.status, resolvedAt: resolution.resolvedAt };
+  },
+
+  async claimIssue(
+    clerkUserId: string,
+    storyId: string,
+    issueId: string,
+  ): Promise<CanonExtractionIssueRecord | null> {
+    const { Story } = await models();
+    const result = await Story.findOneAndUpdate(
+      {
+        ...ownedQuery(clerkUserId, storyId),
+        "canonExtractionIssues.issues": {
+          $elemMatch: { factId: issueId, status: "pending_review" },
+        },
+      },
+      {
+        $set: {
+          "canonExtractionIssues.issues.$[issue].status": "accepting",
+        },
+      },
+      {
+        arrayFilters: [{ "issue.factId": issueId, "issue.status": "pending_review" }],
+        new: true,
+      },
+    ).lean<StoryDoc | null>();
+
+    if (!result) return null;
+    const raw = result.canonExtractionIssues as
+      | { issues: CanonExtractionIssueRecord[] }
+      | null;
+    if (!raw || !Array.isArray(raw.issues)) return null;
+    return raw.issues.find((i) => i.factId === issueId) ?? null;
+  },
+
+  async finalizeIssue(
+    clerkUserId: string,
+    storyId: string,
+    issueId: string,
+    resolution: { status: "accepted" | "rejected"; resolvedAt: string },
+  ): Promise<CanonExtractionIssueRecord | null> {
+    const { Story } = await models();
+    const result = await Story.findOneAndUpdate(
+      {
+        ...ownedQuery(clerkUserId, storyId),
+        "canonExtractionIssues.issues": {
+          $elemMatch: { factId: issueId, status: "accepting" },
+        },
+      },
+      {
+        $set: {
+          "canonExtractionIssues.issues.$[issue].status": resolution.status,
+          "canonExtractionIssues.issues.$[issue].resolvedAt": resolution.resolvedAt,
+        },
+      },
+      {
+        arrayFilters: [{ "issue.factId": issueId, "issue.status": "accepting" }],
+        new: true,
+      },
+    ).lean<StoryDoc | null>();
+
+    if (!result) return null;
+    const raw = result.canonExtractionIssues as
+      | { issues: CanonExtractionIssueRecord[] }
+      | null;
+    if (!raw || !Array.isArray(raw.issues)) return null;
+    return raw.issues.find((i) => i.factId === issueId) ?? null;
+  },
+
+  async rollbackIssue(
+    clerkUserId: string,
+    storyId: string,
+    issueId: string,
+  ): Promise<CanonExtractionIssueRecord | null> {
+    const { Story } = await models();
+    const result = await Story.findOneAndUpdate(
+      {
+        ...ownedQuery(clerkUserId, storyId),
+        "canonExtractionIssues.issues": {
+          $elemMatch: { factId: issueId, status: "accepting" },
+        },
+      },
+      {
+        $set: {
+          "canonExtractionIssues.issues.$[issue].status": "pending_review",
+        },
+      },
+      {
+        arrayFilters: [{ "issue.factId": issueId, "issue.status": "accepting" }],
+        new: true,
+      },
+    ).lean<StoryDoc | null>();
+
+    if (!result) return null;
+    const raw = result.canonExtractionIssues as
+      | { issues: CanonExtractionIssueRecord[] }
+      | null;
+    if (!raw || !Array.isArray(raw.issues)) return null;
+    return raw.issues.find((i) => i.factId === issueId) ?? null;
   },
 };

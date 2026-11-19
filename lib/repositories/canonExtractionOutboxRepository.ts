@@ -74,6 +74,33 @@ export const canonExtractionOutboxRepository = {
     return claimed;
   },
 
+  async claimPendingGlobal(input: {
+    limit?: number;
+  }): Promise<OutboxRecord[]> {
+    const connection = await connectDB();
+    const Outbox = canonExtractionOutboxModel(connection);
+    const now = new Date();
+    const docs = await Outbox.find({
+      status: "pending",
+    })
+      .sort({ createdAt: 1 })
+      .limit(input.limit ?? 10)
+      .lean<OutboxDoc[]>();
+
+    const claimed: OutboxRecord[] = [];
+    for (const doc of docs) {
+      const updated = await Outbox.findOneAndUpdate(
+        { _id: doc._id, status: "pending" },
+        { $set: { status: "dispatched" as OutboxStatus, dispatchedAt: now } },
+        { new: true },
+      ).lean<OutboxDoc | null>();
+      if (updated) {
+        claimed.push(updated);
+      }
+    }
+    return claimed;
+  },
+
   async markCompleted(input: {
     clerkUserId: string;
     commitBatchId: string;

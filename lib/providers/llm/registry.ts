@@ -29,6 +29,7 @@ import type { RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
 import type { EpisodeRevisionPrompt } from "@/lib/providers/llm/episodeRevision";
 import type { StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 import type { CanonExtractionPrompt } from "@/lib/providers/llm/canonExtractionTask";
+import type { CanonFactExtractionTaskInput } from "@/lib/providers/llm/canonFactExtractionTask";
 
 export const LLM_PROVIDER_IDS = [
   "ollama",
@@ -257,6 +258,14 @@ export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[]
             async generateCanonSuggestions(input: CanonExtractionPrompt, options: { signal: AbortSignal }) {
               const result = await provider!.generateCanonSuggestions!(input, { signal: options.signal });
               return { response: result.response, usage: result.usage };
+            },
+          }
+        : {}),
+      ...(provider && "generateCanonFacts" in provider && provider.generateCanonFacts
+        ? {
+            async generateCanonFacts(input: CanonFactExtractionTaskInput, options: { signal: AbortSignal }) {
+              const result = await provider!.generateCanonFacts!(input, { signal: options.signal });
+              return { text: result.text, usage: result.usage };
             },
           }
         : {}),

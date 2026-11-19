@@ -6,14 +6,14 @@ import { canonExtractionOutboxRepository } from "@/lib/repositories/canonExtract
 
 type EpisodePort = Pick<
   typeof episodeRepository,
-  "findOwned" | "updateCanonExtractionStatus" | "findApprovedWithoutExtraction" | "findExtractionProcessing"
+  "findOwned" | "updateCanonExtractionStatus" | "findApprovedWithoutExtraction" | "findExtractionProcessing" | "findAllExtractionCandidates"
 >;
 
 type StoryPort = Pick<typeof storyRepository, "findOwned">;
 
 type OutboxPort = Pick<
   typeof canonExtractionOutboxRepository,
-  "enqueue" | "claimPending" | "markCompleted" | "markFailed" | "findPending"
+  "enqueue" | "claimPending" | "claimPendingGlobal" | "markCompleted" | "markFailed" | "findPending"
 >;
 
 type ExtractionPort = {
@@ -160,6 +160,71 @@ export function createCanonExtractionDispatcher(
       return { dispatched: pending.length, succeeded, failed };
     },
 
+    async dispatchPendingGlobal(input: {
+      limit?: number;
+    }): Promise<{ dispatched: number; succeeded: number; failed: number }> {
+      const pending = await outbox.claimPendingGlobal({
+        limit: input.limit,
+      });
+
+      let succeeded = 0;
+      let failed = 0;
+
+      for (const event of pending) {
+        try {
+          const episode = await episodes.findOwned(
+            event.clerkUserId,
+            event.projectId,
+            event.episodeId,
+          );
+          if (!episode) {
+            await outbox.markFailed({
+              clerkUserId: event.clerkUserId,
+              commitBatchId: event.commitBatchId,
+              error: "Episode not found.",
+            });
+            failed += 1;
+            continue;
+          }
+
+          const result = await extraction.extractAndCommit({
+            clerkUserId: event.clerkUserId,
+            projectId: event.projectId,
+            episodeId: event.episodeId,
+            storyId: event.storyId,
+            episodeNumber: episode.episodeNumber,
+            jobId: `canon-dispatch:${event.commitBatchId}`,
+          });
+
+          await outbox.markCompleted({
+            clerkUserId: event.clerkUserId,
+            commitBatchId: event.commitBatchId,
+          });
+          succeeded += 1;
+
+          log.info("canon-dispatcher", "dispatched extraction", {
+            episodeId: event.episodeId,
+            committed: result.committed,
+            issues: result.issues,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Dispatch failed.";
+          await outbox.markFailed({
+            clerkUserId: event.clerkUserId,
+            commitBatchId: event.commitBatchId,
+            error: message,
+          });
+          failed += 1;
+          log.error("canon-dispatcher", "dispatch failed", {
+            episodeId: event.episodeId,
+            error: message,
+          });
+        }
+      }
+
+      return { dispatched: pending.length, succeeded, failed };
+    },
+
     async run(input: {
       clerkUserId: string;
       projectId: string;
@@ -171,6 +236,33 @@ export function createCanonExtractionDispatcher(
       });
       const { dispatched, succeeded, failed } = await this.dispatchPending({
         clerkUserId: input.clerkUserId,
+        limit: input.limit,
+      });
+      return { enqueued, dispatched, succeeded, failed };
+    },
+
+    async runGlobal(input: {
+      limit?: number;
+    }): Promise<{ enqueued: number; dispatched: number; succeeded: number; failed: number }> {
+      const candidates = await episodes.findAllExtractionCandidates();
+      let enqueued = 0;
+      for (const candidate of candidates) {
+        try {
+          const result = await this.reconcileCrashes({
+            clerkUserId: candidate.clerkUserId,
+            projectId: candidate.projectId,
+          });
+          enqueued += result.enqueued;
+        } catch (error) {
+          log.error("canon-dispatcher", "reconcileCrashes failed for candidate", {
+            clerkUserId: candidate.clerkUserId,
+            projectId: candidate.projectId,
+            error: error instanceof Error ? error.message : "unknown",
+          });
+        }
+      }
+
+      const { dispatched, succeeded, failed } = await this.dispatchPendingGlobal({
         limit: input.limit,
       });
       return { enqueued, dispatched, succeeded, failed };

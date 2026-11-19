@@ -16,8 +16,11 @@ import { createCasnaContext } from "@/lib/pipeline/casnaContext";
 import { continuityService } from "@/lib/services/continuityService";
 import { createCanonExtractionService } from "@/lib/services/canonExtractionService";
 import { createCanonFactExtractionService } from "@/lib/services/canonFactExtractionService";
+import { createCanonExtractionDispatcher } from "@/lib/services/canonExtractionDispatcher";
+import { canonExtractionOutboxRepository } from "@/lib/repositories/canonExtractionOutboxRepository";
 import type { PipelineDeps } from "@/lib/pipeline/ports";
 import { createStoryProvider } from "@/lib/providers/llm/registry";
+import type { LLMProvider } from "@/lib/providers/llm/types";
 import { createRedisConnection } from "@/lib/pipeline/redis";
 import { createStoryBibleEngine } from "@/lib/pipeline/storyBibleEngine";
 import { createStoryDraftEngine } from "@/lib/pipeline/storyDraftEngine";
@@ -31,6 +34,22 @@ function unavailableQueue(): JobQueue {
     },
   };
 }
+
+function makeCanonFactLLMPort(llm: LLMProvider): {
+  request(system: string, prompt: string): Promise<{ text: string }>;
+} {
+  return {
+    async request(system: string, prompt: string) {
+      if (!llm.generateCanonFacts) {
+        throw new Error("The configured LLM provider does not support canon fact extraction.");
+      }
+      const result = await llm.generateCanonFacts({ system, prompt });
+      return { text: result.text };
+    },
+  };
+}
+
+export { makeCanonFactLLMPort };
 
 export function livePipelineDeps(): PipelineDeps {
   if (cachedDeps) return cachedDeps;
@@ -106,11 +125,9 @@ function buildLivePipelineDeps(): PipelineDeps {
       casna: casnaContext,
       semanticCritique: /^(1|true|yes)$/i.test(process.env.CASNA_SEMANTIC_VALIDATION?.trim() ?? ""),
       narrativeCanon: narrativeCanonRepository,
-      canonExtraction: createCanonFactExtractionService({
-        async request() {
-          return { text: JSON.stringify({ facts: [] }) };
-        },
-      }),
+      canonExtraction: createCanonFactExtractionService(
+        makeCanonFactLLMPort(llm),
+      ),
       onStoryStatus: async (job, message) => {
         const current = await generationJobRepository.findById(job.id);
         if (!current || current.status !== "processing") return;
@@ -122,4 +139,16 @@ function buildLivePipelineDeps(): PipelineDeps {
 }
 export function liveCanonExtractionService() {
   return createCanonExtractionService(getLlm(), storyRepository, continuityLedgerRepository);
+}
+export function liveCanonFactExtractionService() {
+  return createCanonFactExtractionService(makeCanonFactLLMPort(getLlm()));
+}
+
+export function liveCanonExtractionDispatcher() {
+  return createCanonExtractionDispatcher(
+    liveCanonFactExtractionService(),
+    episodeRepository,
+    storyRepository,
+    canonExtractionOutboxRepository,
+  );
 }

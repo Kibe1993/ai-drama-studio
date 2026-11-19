@@ -137,4 +137,35 @@ export const episodeRepository = {
     }).lean<EpisodeDoc[]>();
     return docs.map(toRecord);
   },
+
+  async findAllExtractionCandidates(): Promise<{ clerkUserId: string; projectId: string }[]> {
+    const { Episode } = await models();
+    const results = await Episode.aggregate<{
+      clerkUserId: string;
+      projectId: string;
+    }>([
+      {
+        $match: {
+          $or: [
+            { status: "story_approved", canonExtractionStatus: null },
+            { canonExtractionStatus: "extraction_processing" },
+          ],
+        },
+      },
+      {
+        $group: {
+          _id: { clerkUserId: "$clerkUserId", projectId: "$projectId" },
+          clerkUserId: { $first: "$clerkUserId" },
+          projectId: { $first: "$projectId" },
+        },
+      },
+      {
+        $project: { _id: 0, clerkUserId: 1, projectId: 1 },
+      },
+    ]);
+    return results.map((r) => ({
+      clerkUserId: r.clerkUserId,
+      projectId: r.projectId.toString(),
+    }));
+  },
 };

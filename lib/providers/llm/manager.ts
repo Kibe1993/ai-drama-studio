@@ -25,7 +25,9 @@ import type { EpisodeRevisionPrompt } from "@/lib/providers/llm/episodeRevision"
 import type { StoryCriticFinding, StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
 import { storyCritiqueSchema } from "@/lib/providers/llm/storyCritic";
 import type { CanonExtractionPrompt } from "@/lib/providers/llm/canonExtractionTask";
+import type { CanonFactExtractionTaskInput } from "@/lib/providers/llm/canonFactExtractionTask";
 import { canonExtractionResponseSchema, type CanonExtractionResponse } from "@/lib/validation/canonExtraction";
+import { canonExtractionResultSchema } from "@/lib/validation/canonExtractionResult";
 import { assertScreenplayPacing } from "@/lib/providers/llm/stageTasks";
 import type {
   AttemptRecord,
@@ -42,6 +44,7 @@ import type {
 
   StoryCritiqueModelResult,
   CanonExtractionModelResult,
+  CanonFactExtractionModelResult,
   StoryModelResult,
   StoryPrompt,
   TokenUsage,
@@ -202,6 +205,10 @@ export type ProviderSlot = {
     input: CanonExtractionPrompt,
     options: { signal: AbortSignal }
   ): Promise<{ response: CanonExtractionResponse; usage?: TokenUsage }>;
+  generateCanonFacts?(
+    input: CanonFactExtractionTaskInput,
+    options: { signal: AbortSignal }
+  ): Promise<{ text: string; usage?: TokenUsage }>;
 };
 
 export class LlmSequenceError extends JobError {
@@ -530,6 +537,32 @@ export class StoryProviderManager implements LLMProvider {
     }, (slot) => Boolean(slot.generateCanonSuggestions));
     return {
       response: result.value,
+      provider: result.provider,
+      model: result.model,
+      fallbackFrom: result.fallbackFrom,
+      attempts: result.attempts,
+      usage: result.usage,
+    };
+  }
+
+  async generateCanonFacts(input: CanonFactExtractionTaskInput, context: StoryCallOptions = {}): Promise<CanonFactExtractionModelResult> {
+    const result = await this.runSequence(context, "canon_fact_extraction", "Extracting canon facts", async (slot, signal) => {
+      if (!slot.generateCanonFacts) {
+        throw new JobError(`${providerLabel(slot.id)} cannot extract canon facts.`, "configuration", false);
+      }
+      const generated = await slot.generateCanonFacts(input, { signal });
+      const parsed = canonExtractionResultSchema.safeParse(JSON.parse(generated.text));
+      if (!parsed.success) {
+        throw new JobError(
+          `${providerLabel(slot.id)} returned canon facts that did not match the schema.`,
+          "invalid_schema",
+          false
+        );
+      }
+      return { value: generated.text, usage: generated.usage };
+    }, (slot) => Boolean(slot.generateCanonFacts));
+    return {
+      text: result.value,
       provider: result.provider,
       model: result.model,
       fallbackFrom: result.fallbackFrom,

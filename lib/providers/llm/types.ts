@@ -10,7 +10,9 @@ import type { SeasonPlan, SeasonArchitecture, EpisodeDetailBatch } from "@/lib/v
 import type { SeasonPlanReasoningPrompt, AIReasoningResult } from "@/lib/providers/llm/seasonPlanReasoning";
 import type { EpisodeRevisionPrompt } from "@/lib/providers/llm/episodeRevision";
 import type { CanonExtractionPrompt } from "@/lib/providers/llm/canonExtractionTask";
+import type { CanonFactExtractionTaskInput } from "@/lib/providers/llm/canonFactExtractionTask";
 import type { CanonExtractionResponse } from "@/lib/validation/canonExtraction";
+
 import type { EpisodePlanItem } from "@/lib/validation/seasonPlan";
 
 export type StoryPrompt = {
@@ -200,6 +202,11 @@ export type LLMProvider = {
     input: CanonExtractionPrompt,
     options?: StoryCallOptions
   ): Promise<CanonExtractionModelResult>;
+  /** Step 2: structured canon fact extraction with evidence verification. */
+  generateCanonFacts?(
+    input: CanonFactExtractionTaskInput,
+    options?: StoryCallOptions
+  ): Promise<CanonFactExtractionModelResult>;
 };
 
 export type { CharacterPrompt, EpisodeSuggestionPrompt, ScenePrompt, SeasonPlanPrompt };
@@ -217,6 +224,16 @@ export type SeasonPlanReasoningModelResult = {
 
 export type CanonExtractionModelResult = {
   response: CanonExtractionResponse;
+  provider?: string;
+  model?: string;
+  fallbackFrom?: string | null;
+  attempts?: AttemptRecord[];
+  usage?: TokenUsage;
+};
+
+export type CanonFactExtractionModelResult = {
+
+  text: string;
   provider?: string;
   model?: string;
   fallbackFrom?: string | null;

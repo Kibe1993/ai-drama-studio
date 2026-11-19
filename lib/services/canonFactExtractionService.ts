@@ -50,7 +50,7 @@ type LLMPort = {
 
 type StoryPort = Pick<
   typeof storyRepository,
-  "findOwned" | "saveCanonExtractionIssues" | "getCanonExtractionIssues" | "updateIssueStatus"
+  "findOwned" | "saveCanonExtractionIssues" | "getCanonExtractionIssues" | "updateIssueStatus" | "claimIssue" | "finalizeIssue" | "rollbackIssue"
 >;
 
 type EpisodePort = Pick<
@@ -499,7 +499,56 @@ export function createCanonFactExtractionService(
       }
 
       try {
-        const claim = await stories.updateIssueStatus(
+        const claimed = await stories.claimIssue(
+          input.clerkUserId,
+          input.storyId,
+          input.issueId,
+        );
+        if (!claimed) return { resolved: false };
+
+        const prepared: PreparedFact = issue.fact;
+
+        try {
+          const baseState = await canon.latestState(
+            input.clerkUserId,
+            input.projectId,
+          );
+
+          const reconciliation = reconcileBatch({
+            projectId: input.projectId,
+            baseState,
+            facts: [prepared],
+          });
+
+          if (reconciliation.committed.length > 0) {
+            const expectedSequence = (await canon.getLatestSequence(
+              input.clerkUserId,
+              input.projectId,
+            )) + 1;
+
+            await canon.appendBatch({
+              clerkUserId: input.clerkUserId,
+              projectId: input.projectId,
+              expectedSequence,
+              commitBatchId: issueCommitBatchId,
+              entries: reconciliation.committed.map(toEntryInput),
+              fencing: {
+                projectId: input.projectId,
+                jobId: input.jobId,
+                fencingToken: acquireResult.fencingToken,
+              },
+            });
+          }
+        } catch (error) {
+          await stories.rollbackIssue(
+            input.clerkUserId,
+            input.storyId,
+            input.issueId,
+          );
+          throw error;
+        }
+
+        const finalized = await stories.finalizeIssue(
           input.clerkUserId,
           input.storyId,
           input.issueId,
@@ -508,41 +557,8 @@ export function createCanonFactExtractionService(
             resolvedAt: new Date().toISOString(),
           },
         );
-        if (!claim) return { resolved: false };
 
-        const prepared: PreparedFact = issue.fact;
-        const baseState = await canon.latestState(
-          input.clerkUserId,
-          input.projectId,
-        );
-
-        const reconciliation = reconcileBatch({
-          projectId: input.projectId,
-          baseState,
-          facts: [prepared],
-        });
-
-        if (reconciliation.committed.length > 0) {
-          const expectedSequence = (await canon.getLatestSequence(
-            input.clerkUserId,
-            input.projectId,
-          )) + 1;
-
-          await canon.appendBatch({
-            clerkUserId: input.clerkUserId,
-            projectId: input.projectId,
-            expectedSequence,
-            commitBatchId: issueCommitBatchId,
-            entries: reconciliation.committed.map(toEntryInput),
-            fencing: {
-              projectId: input.projectId,
-              jobId: input.jobId,
-              fencingToken: acquireResult.fencingToken,
-            },
-          });
-        }
-
-        return { resolved: true };
+        return { resolved: finalized !== null };
       } finally {
         await locks.release({
           clerkUserId: input.clerkUserId,

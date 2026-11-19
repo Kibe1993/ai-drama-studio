@@ -3,6 +3,7 @@ import { InMemoryCanonFactStore } from "@/lib/canon/inMemoryStore";
 import type { CanonFactEntry, DerivedCanonState } from "@/lib/canon/schema";
 import { createCanonFactExtractionService } from "@/lib/services/canonFactExtractionService";
 import { createCanonExtractionDispatcher } from "@/lib/services/canonExtractionDispatcher";
+import { makeCanonFactLLMPort, liveCanonExtractionDispatcher } from "@/lib/pipeline/live";
 import type { StoryRecord } from "@/lib/validation/story";
 import type { ScreenplayScene } from "@/lib/validation/story";
 import type { EpisodeRecord } from "@/lib/validation/episode";
@@ -194,6 +195,7 @@ type MockOutboxPort = {
   markCompleted: ReturnType<typeof vi.fn>;
   markFailed: ReturnType<typeof vi.fn>;
   claimPending: ReturnType<typeof vi.fn>;
+  claimPendingGlobal: ReturnType<typeof vi.fn>;
   findPending: ReturnType<typeof vi.fn>;
 };
 
@@ -203,6 +205,7 @@ function makeMockOutboxPort(): MockOutboxPort {
     markCompleted: vi.fn(async () => {}),
     markFailed: vi.fn(async () => {}),
     claimPending: vi.fn(async () => []),
+    claimPendingGlobal: vi.fn(async () => []),
     findPending: vi.fn(async () => []),
   };
 }
@@ -212,6 +215,9 @@ type MockStoryPort = {
   saveCanonExtractionIssues: ReturnType<typeof vi.fn>;
   getCanonExtractionIssues: ReturnType<typeof vi.fn>;
   updateIssueStatus: ReturnType<typeof vi.fn>;
+  claimIssue: ReturnType<typeof vi.fn>;
+  finalizeIssue: ReturnType<typeof vi.fn>;
+  rollbackIssue: ReturnType<typeof vi.fn>;
 };
 
 function makeMockStoryPort(story: StoryRecord, issues: CanonExtractionIssueRecord[] = []): MockStoryPort {
@@ -220,6 +226,9 @@ function makeMockStoryPort(story: StoryRecord, issues: CanonExtractionIssueRecor
     saveCanonExtractionIssues: vi.fn(async () => story),
     getCanonExtractionIssues: vi.fn(async () => issues),
     updateIssueStatus: vi.fn(async () => null),
+    claimIssue: vi.fn(async () => null),
+    finalizeIssue: vi.fn(async () => null),
+    rollbackIssue: vi.fn(async () => null),
   };
 }
 
@@ -228,6 +237,7 @@ type MockEpisodePort = {
   updateCanonExtractionStatus: ReturnType<typeof vi.fn>;
   findApprovedWithoutExtraction: ReturnType<typeof vi.fn>;
   findExtractionProcessing: ReturnType<typeof vi.fn>;
+  findAllExtractionCandidates: ReturnType<typeof vi.fn>;
 };
 
 function makeMockEpisodePort(episode: EpisodeRecord): MockEpisodePort {
@@ -236,6 +246,7 @@ function makeMockEpisodePort(episode: EpisodeRecord): MockEpisodePort {
     updateCanonExtractionStatus: vi.fn(async () => episode),
     findApprovedWithoutExtraction: vi.fn(async () => []),
     findExtractionProcessing: vi.fn(async () => []),
+    findAllExtractionCandidates: vi.fn(async () => []),
   };
 }
 
@@ -652,6 +663,286 @@ describe("canonFactExtractionService", () => {
 
       expect(result.resolved).toBe(false);
     });
+
+    function makeIssue(overrides: Partial<CanonExtractionIssueRecord> = {}): CanonExtractionIssueRecord {
+      return {
+        factId: "issue-1",
+        code: "test",
+        message: "test issue",
+        fact: {
+          id: "issue-1",
+          episode: 1,
+          sourceStoryId: STORY_ID,
+          kind: "entity",
+          targetId: "char-bob",
+          payload: { id: "char-bob", kind: "character", name: "Bob" },
+          evidence: {
+            quote: "test",
+            sceneNumber: 1,
+            episode: 1,
+            episodeId: EPISODE_ID,
+            storyId: STORY_ID,
+            storyVersion: 1,
+            sourceHash: "hash",
+          },
+          narrativeMode: "present",
+          assertionKind: "event",
+          factualStatus: "established",
+          asserterId: null,
+          reason: "test",
+          extractor: "test",
+          evidencePosition: 0,
+          sceneNumber: 1,
+        },
+        status: "pending_review",
+        resolvedAt: null,
+        ...overrides,
+      };
+    }
+
+    it("successful accepted resolution commits fact and finalizes issue", async () => {
+      const store = new InMemoryCanonFactStore();
+      const canon = wrapInMemoryStore(store);
+      const story = makeStory();
+      const episode = makeEpisode();
+      const llm = makeLLMPort();
+      const locks = makeMockLockPort(store);
+      const issue = makeIssue();
+
+      const stories = makeMockStoryPort(story, [issue]);
+      stories.claimIssue = vi.fn(async () => ({ ...issue, status: "accepting" }));
+      stories.finalizeIssue = vi.fn(async () => ({ ...issue, status: "accepted", resolvedAt: new Date().toISOString() }));
+      const episodes = makeMockEpisodePort(episode);
+
+      const service = createCanonFactExtractionService(llm, stories, episodes, canon, locks);
+
+      const result = await service.resolveIssue({
+        clerkUserId: CLERK, projectId: PROJECT, storyId: STORY_ID,
+        episodeId: EPISODE_ID, episodeNumber: 1, issueId: "issue-1",
+        decision: "accepted", jobId: JOB_ID,
+      });
+
+      expect(result.resolved).toBe(true);
+      expect(stories.claimIssue).toHaveBeenCalledTimes(1);
+      expect(stories.finalizeIssue).toHaveBeenCalledTimes(1);
+      expect(stories.rollbackIssue).not.toHaveBeenCalled();
+      expect(store.list(PROJECT)).toHaveLength(1);
+    });
+
+    it("two workers: second worker fails to claim when first holds the issue", async () => {
+      const store = new InMemoryCanonFactStore();
+      const canon = wrapInMemoryStore(store);
+      const story = makeStory();
+      const episode = makeEpisode();
+      const llm = makeLLMPort();
+      const locks = makeMockLockPort(store);
+      const issue = makeIssue();
+
+      const stories = makeMockStoryPort(story, [issue]);
+      stories.claimIssue = vi.fn(async () => null);
+      const episodes = makeMockEpisodePort(episode);
+
+      const service = createCanonFactExtractionService(llm, stories, episodes, canon, locks);
+
+      const result = await service.resolveIssue({
+        clerkUserId: CLERK, projectId: PROJECT, storyId: STORY_ID,
+        episodeId: EPISODE_ID, episodeNumber: 1, issueId: "issue-1",
+        decision: "accepted", jobId: JOB_ID,
+      });
+
+      expect(result.resolved).toBe(false);
+      expect(stories.finalizeIssue).not.toHaveBeenCalled();
+      expect(store.list(PROJECT)).toHaveLength(0);
+    });
+
+    it("fact insertion failure rolls back issue to pending_review", async () => {
+      const store = new InMemoryCanonFactStore();
+      const canon = wrapInMemoryStore(store);
+      const story = makeStory();
+      const episode = makeEpisode();
+      const llm = makeLLMPort();
+      const locks = makeMockLockPort(store);
+      const issue = makeIssue();
+
+      const stories = makeMockStoryPort(story, [issue]);
+      stories.claimIssue = vi.fn(async () => ({ ...issue, status: "accepting" }));
+      stories.rollbackIssue = vi.fn(async () => ({ ...issue, status: "pending_review" }));
+
+      const failingCanon: CanonPort = {
+        ...canon,
+        async appendBatch() {
+          throw new Error("Database connection lost");
+        },
+      };
+      const episodes = makeMockEpisodePort(episode);
+
+      const service = createCanonFactExtractionService(llm, stories, episodes, failingCanon, locks);
+
+      await expect(
+        service.resolveIssue({
+          clerkUserId: CLERK, projectId: PROJECT, storyId: STORY_ID,
+          episodeId: EPISODE_ID, episodeNumber: 1, issueId: "issue-1",
+          decision: "accepted", jobId: JOB_ID,
+        }),
+      ).rejects.toThrow("Database connection lost");
+
+      expect(stories.rollbackIssue).toHaveBeenCalledTimes(1);
+      expect(stories.finalizeIssue).not.toHaveBeenCalled();
+      expect(store.list(PROJECT)).toHaveLength(0);
+    });
+
+    it("finalize failure returns false but fact remains committed", async () => {
+      const store = new InMemoryCanonFactStore();
+      const canon = wrapInMemoryStore(store);
+      const story = makeStory();
+      const episode = makeEpisode();
+      const llm = makeLLMPort();
+      const locks = makeMockLockPort(store);
+      const issue = makeIssue();
+
+      const stories = makeMockStoryPort(story, [issue]);
+      stories.claimIssue = vi.fn(async () => ({ ...issue, status: "accepting" }));
+      stories.finalizeIssue = vi.fn(async () => null);
+      const episodes = makeMockEpisodePort(episode);
+
+      const service = createCanonFactExtractionService(llm, stories, episodes, canon, locks);
+
+      const result = await service.resolveIssue({
+        clerkUserId: CLERK, projectId: PROJECT, storyId: STORY_ID,
+        episodeId: EPISODE_ID, episodeNumber: 1, issueId: "issue-1",
+        decision: "accepted", jobId: JOB_ID,
+      });
+
+      expect(result.resolved).toBe(false);
+      expect(stories.claimIssue).toHaveBeenCalledTimes(1);
+      expect(stories.finalizeIssue).toHaveBeenCalledTimes(1);
+      expect(stories.rollbackIssue).not.toHaveBeenCalled();
+      expect(store.list(PROJECT)).toHaveLength(1);
+    });
+
+    it("retry after interrupted resolution: issue in accepting state returns false", async () => {
+      const store = new InMemoryCanonFactStore();
+      const canon = wrapInMemoryStore(store);
+      const story = makeStory();
+      const episode = makeEpisode();
+      const llm = makeLLMPort();
+      const locks = makeMockLockPort(store);
+      const issue = makeIssue({ status: "accepting" });
+
+      const stories = makeMockStoryPort(story, [issue]);
+      const episodes = makeMockEpisodePort(episode);
+
+      const service = createCanonFactExtractionService(llm, stories, episodes, canon, locks);
+
+      const result = await service.resolveIssue({
+        clerkUserId: CLERK, projectId: PROJECT, storyId: STORY_ID,
+        episodeId: EPISODE_ID, episodeNumber: 1, issueId: "issue-1",
+        decision: "accepted", jobId: JOB_ID,
+      });
+
+      expect(result.resolved).toBe(false);
+      expect(stories.claimIssue).not.toHaveBeenCalled();
+    });
+
+    it("duplicate resolution attempt returns false for already-accepted issue", async () => {
+      const store = new InMemoryCanonFactStore();
+      const canon = wrapInMemoryStore(store);
+      const story = makeStory();
+      const episode = makeEpisode();
+      const llm = makeLLMPort();
+      const locks = makeMockLockPort(store);
+      const issue = makeIssue({ status: "accepted", resolvedAt: new Date().toISOString() });
+
+      const stories = makeMockStoryPort(story, [issue]);
+      const episodes = makeMockEpisodePort(episode);
+
+      const service = createCanonFactExtractionService(llm, stories, episodes, canon, locks);
+
+      const result = await service.resolveIssue({
+        clerkUserId: CLERK, projectId: PROJECT, storyId: STORY_ID,
+        episodeId: EPISODE_ID, episodeNumber: 1, issueId: "issue-1",
+        decision: "accepted", jobId: JOB_ID,
+      });
+
+      expect(result.resolved).toBe(false);
+      expect(stories.claimIssue).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("production LLM provider wiring (B1)", () => {
+    it("invokes the real LLM provider and commits returned facts", async () => {
+      const store = new InMemoryCanonFactStore();
+      const canon = wrapInMemoryStore(store);
+      const story = makeStory();
+      const episode = makeEpisode();
+      const locks = makeMockLockPort(store);
+      const stories = makeMockStoryPort(story);
+      const episodes = makeMockEpisodePort(episode);
+
+      const fact = makeExtractedFact();
+      const generateCanonFacts = vi.fn(async () => ({
+        text: JSON.stringify({ facts: [fact] }),
+      }));
+      const llm = { generateCanonFacts };
+
+      const port = makeCanonFactLLMPort(llm as never);
+      const service = createCanonFactExtractionService(port, stories, episodes, canon, locks);
+
+      const result = await service.extractAndCommit({
+        clerkUserId: CLERK,
+        projectId: PROJECT,
+        episodeId: EPISODE_ID,
+        storyId: STORY_ID,
+        episodeNumber: 1,
+        jobId: JOB_ID,
+      });
+
+      expect(generateCanonFacts).toHaveBeenCalledTimes(1);
+      expect(result.committed).toBe(1);
+      expect(result.status).toBe("canon_committed");
+      expect(store.list(PROJECT)).toHaveLength(1);
+    });
+
+    it("propagates provider errors as extraction_failed, not empty success", async () => {
+      const store = new InMemoryCanonFactStore();
+      const canon = wrapInMemoryStore(store);
+      const story = makeStory();
+      const episode = makeEpisode();
+      const locks = makeMockLockPort(store);
+      const stories = makeMockStoryPort(story);
+      const episodes = makeMockEpisodePort(episode);
+
+      const generateCanonFacts = vi.fn(async () => {
+        throw new Error("Provider rate limited");
+      });
+      const llm = { generateCanonFacts };
+
+      const port = makeCanonFactLLMPort(llm as never);
+      const service = createCanonFactExtractionService(port, stories, episodes, canon, locks);
+
+      const result = await service.extractAndCommit({
+        clerkUserId: CLERK,
+        projectId: PROJECT,
+        episodeId: EPISODE_ID,
+        storyId: STORY_ID,
+        episodeNumber: 1,
+        jobId: JOB_ID,
+      });
+
+      expect(generateCanonFacts).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe("extraction_failed");
+      expect(result.committed).toBe(0);
+      expect(store.list(PROJECT)).toHaveLength(0);
+    });
+
+    it("throws when provider lacks generateCanonFacts capability", async () => {
+      const llm = {} as never;
+      const port = makeCanonFactLLMPort(llm);
+
+      await expect(
+        port.request("system", "prompt"),
+      ).rejects.toThrow("does not support canon fact extraction");
+    });
   });
 });
 
@@ -676,6 +967,7 @@ describe("canonExtractionDispatcher", () => {
       updateCanonExtractionStatus: vi.fn(async () => episode),
       findApprovedWithoutExtraction: vi.fn(async () => [episode]),
       findExtractionProcessing: vi.fn(async () => []),
+      findAllExtractionCandidates: vi.fn(async () => [{ clerkUserId: CLERK, projectId: PROJECT }]),
     };
     const stories = {
       findOwned: vi.fn(async () => story),
@@ -705,6 +997,7 @@ describe("canonExtractionDispatcher", () => {
       updateCanonExtractionStatus: vi.fn(async () => episode),
       findApprovedWithoutExtraction: vi.fn(async () => []),
       findExtractionProcessing: vi.fn(async () => [episode]),
+      findAllExtractionCandidates: vi.fn(async () => [{ clerkUserId: CLERK, projectId: PROJECT }]),
     };
     const stories = {
       findOwned: vi.fn(async () => story),
@@ -733,6 +1026,7 @@ describe("canonExtractionDispatcher", () => {
       updateCanonExtractionStatus: vi.fn(async () => episode),
       findApprovedWithoutExtraction: vi.fn(async () => []),
       findExtractionProcessing: vi.fn(async () => []),
+      findAllExtractionCandidates: vi.fn(async () => []),
     };
     const stories = {
       findOwned: vi.fn(async () => makeStory()),
@@ -781,6 +1075,7 @@ describe("canonExtractionDispatcher", () => {
       updateCanonExtractionStatus: vi.fn(async () => episode),
       findApprovedWithoutExtraction: vi.fn(async () => []),
       findExtractionProcessing: vi.fn(async () => []),
+      findAllExtractionCandidates: vi.fn(async () => []),
     };
     const stories = {
       findOwned: vi.fn(async () => makeStory()),
@@ -825,6 +1120,7 @@ describe("canonExtractionDispatcher", () => {
       updateCanonExtractionStatus: vi.fn(async () => episode),
       findApprovedWithoutExtraction: vi.fn(async () => [episode]),
       findExtractionProcessing: vi.fn(async () => []),
+      findAllExtractionCandidates: vi.fn(async () => [{ clerkUserId: CLERK, projectId: PROJECT }]),
     };
     const stories = {
       findOwned: vi.fn(async () => story),
@@ -842,5 +1138,117 @@ describe("canonExtractionDispatcher", () => {
 
     expect(result.enqueued).toBe(1);
     expect(result.dispatched).toBe(0);
+  });
+
+  it("runGlobal discovers candidates and dispatches globally", async () => {
+    const extraction = makeExtractionPort();
+    const episode = makeEpisode();
+    const story = makeStory();
+
+    const episodes = {
+      findOwned: vi.fn(async () => episode),
+      updateCanonExtractionStatus: vi.fn(async () => episode),
+      findApprovedWithoutExtraction: vi.fn(async () => [episode]),
+      findExtractionProcessing: vi.fn(async () => []),
+      findAllExtractionCandidates: vi.fn(async () => [{ clerkUserId: CLERK, projectId: PROJECT }]),
+    };
+    const stories = {
+      findOwned: vi.fn(async () => story),
+    };
+    const outbox = makeMockOutboxPort();
+
+    const dispatcher = createCanonExtractionDispatcher(
+      extraction, episodes, stories, outbox,
+    );
+
+    const result = await dispatcher.runGlobal({});
+
+    expect(episodes.findAllExtractionCandidates).toHaveBeenCalledTimes(1);
+    expect(outbox.enqueue).toHaveBeenCalledTimes(1);
+    expect(result.enqueued).toBe(1);
+  });
+
+  it("runGlobal dispatches pending events across all users", async () => {
+    const extraction = makeExtractionPort();
+    const episode = makeEpisode();
+
+    const episodes = {
+      findOwned: vi.fn(async () => episode),
+      updateCanonExtractionStatus: vi.fn(async () => episode),
+      findApprovedWithoutExtraction: vi.fn(async () => []),
+      findExtractionProcessing: vi.fn(async () => []),
+      findAllExtractionCandidates: vi.fn(async () => []),
+    };
+    const stories = {
+      findOwned: vi.fn(async () => makeStory()),
+    };
+    const outbox = makeMockOutboxPort();
+    outbox.claimPendingGlobal = vi.fn(async () => [
+      {
+        _id: "outbox-1" as never,
+        clerkUserId: CLERK,
+        projectId: PROJECT,
+        episodeId: EPISODE_ID,
+        storyId: STORY_ID,
+        commitBatchId: "batch-1",
+        status: "dispatched",
+        error: null,
+        createdAt: new Date(),
+        dispatchedAt: new Date(),
+        completedAt: null,
+      },
+    ]);
+
+    const dispatcher = createCanonExtractionDispatcher(
+      extraction, episodes, stories, outbox,
+    );
+
+    const result = await dispatcher.runGlobal({});
+
+    expect(outbox.claimPendingGlobal).toHaveBeenCalledTimes(1);
+    expect(result.dispatched).toBe(1);
+    expect(result.succeeded).toBe(1);
+    expect(extraction.extractAndCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it("runGlobal continues when reconcileCrashes throws for one candidate", async () => {
+    const extraction = makeExtractionPort();
+    const episode = makeEpisode();
+    const story = makeStory();
+
+    const episodes = {
+      findOwned: vi.fn(async () => episode),
+      updateCanonExtractionStatus: vi.fn(async () => episode),
+      findApprovedWithoutExtraction: vi.fn(async () => [episode]),
+      findExtractionProcessing: vi.fn(async () => []),
+      findAllExtractionCandidates: vi.fn(async () => [
+        { clerkUserId: "user-bad", projectId: "proj-bad" },
+        { clerkUserId: CLERK, projectId: PROJECT },
+      ]),
+    };
+    const stories = {
+      findOwned: vi.fn(async (clerkUserId: string) => {
+        if (clerkUserId === "user-bad") return null;
+        return story;
+      }),
+    };
+    const outbox = makeMockOutboxPort();
+
+    const dispatcher = createCanonExtractionDispatcher(
+      extraction, episodes, stories, outbox,
+    );
+
+    const result = await dispatcher.runGlobal({});
+
+    expect(result.enqueued).toBe(1);
+  });
+
+  it("liveCanonExtractionDispatcher returns a dispatcher with runGlobal (B2 worker wiring)", () => {
+    const dispatcher = liveCanonExtractionDispatcher();
+    expect(typeof dispatcher.runGlobal).toBe("function");
+    expect(typeof dispatcher.run).toBe("function");
+    expect(typeof dispatcher.reconcileCrashes).toBe("function");
+    expect(typeof dispatcher.dispatchPending).toBe("function");
+    expect(typeof dispatcher.dispatchPendingGlobal).toBe("function");
   });
 });

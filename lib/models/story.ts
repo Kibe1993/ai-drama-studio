@@ -25,6 +25,8 @@ export type StoryShape = {
   validationFindings: Record<string, unknown> | null;
   /** CASNA Stage I: canon summary produced on approval. */
   canonSummary: Record<string, unknown> | null;
+  /** M5: advisory canon suggestions extracted post-hoc from the screenplay. */
+  canonSuggestions: Record<string, unknown> | null;
   /** CASNA Stage H: bounded scene-repair attempts. */
   repairHistory: Record<string, unknown>[];
   sourceCanonVersion?: number | null;
@@ -53,6 +55,7 @@ const StorySchema = new Schema(
     plan: { type: Schema.Types.Mixed, default: null },
     validationFindings: { type: Schema.Types.Mixed, default: null },
     canonSummary: { type: Schema.Types.Mixed, default: null },
+    canonSuggestions: { type: Schema.Types.Mixed, default: null },
     repairHistory: { type: [Schema.Types.Mixed], default: [] },
     storyContract: { type: Schema.Types.Mixed, default: null },
     sourceCanonVersion: { type: Number, default: null },

@@ -13,6 +13,7 @@ import {
   type StoryStatus,
 } from "@/lib/validation/story";
 import { storyContractSchema, type StoryContract } from "@/lib/validation/storyContract";
+import { canonSuggestionSchema, type CanonSuggestion } from "@/lib/validation/canonExtraction";
 import {
   episodeCanonSummarySchema,
   episodePlanSchema,
@@ -58,6 +59,7 @@ function toRecord(doc: StoryDoc): StoryRecord {
     sourceBibleVersion: typeof doc.sourceBibleVersion === "number" ? doc.sourceBibleVersion : null,
     promptFingerprint: typeof doc.promptFingerprint === "string" ? doc.promptFingerprint : null,
     canonSummary: parseCanon(doc.canonSummary),
+    canonSuggestions: parseCanonSuggestions(doc.canonSuggestions),
     repairHistory: parseRepairHistory(doc.repairHistory),
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
@@ -81,6 +83,11 @@ function parseValidation(raw: unknown): EpisodeValidation | null {
 
 function parseCanon(raw: unknown): EpisodeCanonSummary | null {
   const parsed = episodeCanonSummarySchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+function parseCanonSuggestions(raw: unknown): CanonSuggestion | null {
+  const parsed = canonSuggestionSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
 }
 
@@ -324,6 +331,35 @@ export const storyRepository = {
     const doc = await Story.findOneAndUpdate(
       ownedQuery(clerkUserId, id),
       { canonSummary: summary },
+      { new: true }
+    ).lean<StoryDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  /** Persist advisory canon suggestions extracted post-hoc from the screenplay. */
+  async saveCanonSuggestions(
+    clerkUserId: string,
+    id: string,
+    suggestions: CanonSuggestion
+  ): Promise<StoryRecord | null> {
+    const { Story } = await models();
+    const doc = await Story.findOneAndUpdate(
+      ownedQuery(clerkUserId, id),
+      { canonSuggestions: suggestions },
+      { new: true }
+    ).lean<StoryDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  /** Clear canon suggestions (e.g. after the creator has reviewed them). */
+  async clearCanonSuggestions(
+    clerkUserId: string,
+    id: string
+  ): Promise<StoryRecord | null> {
+    const { Story } = await models();
+    const doc = await Story.findOneAndUpdate(
+      ownedQuery(clerkUserId, id),
+      { canonSuggestions: null },
       { new: true }
     ).lean<StoryDoc | null>();
     return doc ? toRecord(doc) : null;

@@ -5,6 +5,7 @@ import type {
   EpisodeValidation,
 } from "@/lib/validation/casna";
 import type { StoryContract } from "@/lib/validation/storyContract";
+import type { CanonSuggestion } from "@/lib/validation/canonExtraction";
 
 export const dialogueLineSchema = z.object({
   characterName: z.string().trim().min(1).max(80),
@@ -134,6 +135,8 @@ export type StoryRecord = GeneratedStory & {
   validationFindings?: EpisodeValidation | null;
   /** CASNA Stage I: authoritative canon extracted when the episode is approved. */
   canonSummary?: EpisodeCanonSummary | null;
+  /** M5: advisory canon suggestions extracted post-hoc from the screenplay. */
+  canonSuggestions?: CanonSuggestion | null;
   /** CASNA Stage H: bounded targeted-repair attempts and their outcomes. */
   repairHistory?: SceneRepairRecord[];
   /** Canon version this screenplay was validated against. */

@@ -14,6 +14,7 @@ import { createEpisodeSuggestEngine } from "@/lib/pipeline/episodeSuggestEngine"
 import { createSeasonPlanEngine } from "@/lib/pipeline/seasonPlanEngine";
 import { createCasnaContext } from "@/lib/pipeline/casnaContext";
 import { continuityService } from "@/lib/services/continuityService";
+import { createCanonExtractionService } from "@/lib/services/canonExtractionService";
 import type { PipelineDeps } from "@/lib/pipeline/ports";
 import { createStoryProvider } from "@/lib/providers/llm/registry";
 import { createRedisConnection } from "@/lib/pipeline/redis";
@@ -37,10 +38,17 @@ export function livePipelineDeps(): PipelineDeps {
 }
 
 let cachedDeps: PipelineDeps | null = null;
+let cachedLlm: ReturnType<typeof createStoryProvider> | null = null;
+
+function getLlm() {
+  if (cachedLlm) return cachedLlm;
+  cachedLlm = createStoryProvider();
+  return cachedLlm;
+}
 
 function buildLivePipelineDeps(): PipelineDeps {
   const connection = createRedisConnection();
-  const llm = createStoryProvider();
+  const llm = getLlm();
   const casnaContext = createCasnaContext({
     plans: seasonPlanRepository,
     ledgers: continuityLedgerRepository,
@@ -105,4 +113,7 @@ function buildLivePipelineDeps(): PipelineDeps {
       },
     }),
   };
+}
+export function liveCanonExtractionService() {
+  return createCanonExtractionService(getLlm(), storyRepository, continuityLedgerRepository);
 }

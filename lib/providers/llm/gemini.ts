@@ -32,6 +32,7 @@ import {
 import { requestSceneRepair, type RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
 import { requestEpisodeRevision, type EpisodeRevisionPrompt } from "@/lib/providers/llm/episodeRevision";
 import { requestStoryCritique, type StoryCriticPrompt } from "@/lib/providers/llm/storyCritic";
+import { requestCanonExtraction, type CanonExtractionPrompt } from "@/lib/providers/llm/canonExtractionTask";
 import type {
   RepairScenesModelResult,
   EpisodeRevisionModelResult,
@@ -39,6 +40,7 @@ import type {
   SeasonArchitectureModelResult,
   EpisodeDetailBatchModelResult,
   StoryCritiqueModelResult,
+  CanonExtractionModelResult,
 } from "@/lib/providers/llm/types";
 
 export const DEFAULT_LLM_MODEL = "gemini-flash-latest";
@@ -175,6 +177,11 @@ export class GeminiLLMProvider implements LLMProvider {
     options: StoryCallOptions = {}
   ): Promise<StoryContinuationModelResult> {
     return requestStoryContinuation(this.stageTransport(), input, written, options);
+  }
+
+  async generateCanonSuggestions(input: CanonExtractionPrompt, options?: StoryCallOptions): Promise<CanonExtractionModelResult> {
+    const result = await requestCanonExtraction(this.stageTransport(), input, options);
+    return { ...result, provider: this.id, model: this.model };
   }
 
   private stageTransport(): StageTransport {

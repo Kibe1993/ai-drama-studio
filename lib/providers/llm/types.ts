@@ -9,6 +9,8 @@ import type { StoryBibleTaskInput, StoryBibleTaskResult } from "@/lib/providers/
 import type { SeasonPlan, SeasonArchitecture, EpisodeDetailBatch } from "@/lib/validation/seasonPlan";
 import type { SeasonPlanReasoningPrompt, AIReasoningResult } from "@/lib/providers/llm/seasonPlanReasoning";
 import type { EpisodeRevisionPrompt } from "@/lib/providers/llm/episodeRevision";
+import type { CanonExtractionPrompt } from "@/lib/providers/llm/canonExtractionTask";
+import type { CanonExtractionResponse } from "@/lib/validation/canonExtraction";
 import type { EpisodePlanItem } from "@/lib/validation/seasonPlan";
 
 export type StoryPrompt = {
@@ -193,6 +195,11 @@ export type LLMProvider = {
     written: ScreenplayScene[],
     options?: StoryCallOptions
   ): Promise<StoryContinuationModelResult>;
+  /** M5: advisory post-hoc canon extraction from an approved screenplay. */
+  generateCanonSuggestions?(
+    input: CanonExtractionPrompt,
+    options?: StoryCallOptions
+  ): Promise<CanonExtractionModelResult>;
 };
 
 export type { CharacterPrompt, EpisodeSuggestionPrompt, ScenePrompt, SeasonPlanPrompt };
@@ -201,6 +208,15 @@ export type { SeasonPlanReasoningPrompt, AIReasoningResult } from "@/lib/provide
 
 export type SeasonPlanReasoningModelResult = {
   result: AIReasoningResult;
+  provider?: string;
+  model?: string;
+  fallbackFrom?: string | null;
+  attempts?: AttemptRecord[];
+  usage?: TokenUsage;
+};
+
+export type CanonExtractionModelResult = {
+  response: CanonExtractionResponse;
   provider?: string;
   model?: string;
   fallbackFrom?: string | null;

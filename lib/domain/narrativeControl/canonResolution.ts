@@ -46,10 +46,10 @@ export function mergeDerivedCanon(stored: CanonState | null, derived: CanonState
     entityIds.add(entity.id);
     changed = true;
   }
-  // Update permitted descriptive metadata on existing entities from newer Bible.
-  // Never overwrite identity (id, kind, name), lifecycle state, or protected
-  // attributes (endedEpisode, permitsNonlivingAppearance).
-  if (derived.basedOnBibleVersion > next.basedOnBibleVersion) {
+  // Update permitted descriptive metadata on existing entities from newer Bible
+  // or ledger. Never overwrite identity (id, kind, name), lifecycle state, or
+  // protected attributes (endedEpisode, permitsNonlivingAppearance).
+  if (derived.basedOnBibleVersion > next.basedOnBibleVersion || derived.basedOnPlanVersion > next.basedOnPlanVersion) {
     for (const entity of derived.entities) {
       const existing = next.entities.find((e) => e.id === entity.id);
       if (!existing) continue;

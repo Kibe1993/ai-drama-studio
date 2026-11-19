@@ -4,7 +4,7 @@ import { mergeDerivedCanon } from "@/lib/domain/narrativeControl/canonResolution
 import { makeStoryBible, makeLedger, makeCharacterState } from "./fixtures";
 
 describe("I-3: canon projection gap — ledger character states never reach CanonState", () => {
-  it.fails("canonFromApprovedSources projects ledger character states into entities", () => {
+  it("canonFromApprovedSources projects ledger character states into entities", () => {
     const bible = makeStoryBible();
     const ledger = makeLedger({
       characterStates: [
@@ -32,7 +32,7 @@ describe("I-3: canon projection gap — ledger character states never reach Cano
     expect(aliceEntity!.description).not.toBe(bible.characters.characters[0]!.roleDescription);
   });
 
-  it.fails("mergeDerivedCanon updates entity description from newer ledger character states", () => {
+  it("mergeDerivedCanon updates entity description from newer ledger character states", () => {
     const bible = makeStoryBible();
     const initialLedger = makeLedger({
       characterStates: [
@@ -74,7 +74,7 @@ describe("I-3: canon projection gap — ledger character states never reach Cano
     expect(aliceEntity!.description).not.toBe(storedCanon.entities.find((e) => e.name === "Alice")!.description);
   });
 
-  it.fails("canonFromApprovedSources projects ledger character knowledge as facts", () => {
+  it("canonFromApprovedSources projects ledger character knowledge as facts", () => {
     const bible = makeStoryBible();
     const ledger = makeLedger({
       characterStates: [

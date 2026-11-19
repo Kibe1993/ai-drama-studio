@@ -5,7 +5,7 @@ import type { NarrativeGenerationRequest } from "@/lib/validation/narrativeContr
 import { makeStoryBible, makeLedger } from "./fixtures";
 
 describe("I-4: hidden truths can never be revealed", () => {
-  it.fails("audienceRevealEpisode is set when ledger records the secret as revealed", () => {
+  it("audienceRevealEpisode is set when ledger records the secret as revealed", () => {
     const bible = makeStoryBible({
       canon: {
         confirmedFacts: ["Alice is a journalist."],
@@ -37,7 +37,7 @@ describe("I-4: hidden truths can never be revealed", () => {
     expect(hiddenFact!.audienceRevealEpisode).not.toBeNull();
   });
 
-  it.fails("revealed hidden truth is not concealed from later episodes in the context packet", () => {
+  it("revealed hidden truth is not concealed from later episodes in the context packet", () => {
     const bible = makeStoryBible({
       canon: {
         confirmedFacts: [],
@@ -81,7 +81,7 @@ describe("I-4: hidden truths can never be revealed", () => {
     expect(stillConcealed).toBe(false);
   });
 
-  it("hidden truth with null audienceRevealEpisode is always concealed (demonstrates the bug)", () => {
+  it("hidden truth without ledger revelation stays concealed", () => {
     const bible = makeStoryBible({
       canon: {
         confirmedFacts: [],
@@ -93,14 +93,10 @@ describe("I-4: hidden truths can never be revealed", () => {
       },
     });
 
-    const ledger = makeLedger({
-      revealedSecrets: ["Bob knows what happened twenty years ago."],
-    });
-
     const canon = canonFromApprovedSources({
       projectId: "proj-1",
       bible,
-      ledger,
+      ledger: null,
       bibleVersion: 1,
       planVersion: 1,
     });
@@ -109,7 +105,6 @@ describe("I-4: hidden truths can never be revealed", () => {
       (f) => f.statement === "Bob knows what happened twenty years ago." && f.classification === "HIDDEN_TRUTH",
     );
     expect(hiddenFact).toBeDefined();
-    // Bug: audienceRevealEpisode is always null, even though the ledger records the revelation.
     expect(hiddenFact!.audienceRevealEpisode).toBeNull();
 
     const request: NarrativeGenerationRequest = {
@@ -124,7 +119,6 @@ describe("I-4: hidden truths can never be revealed", () => {
     };
 
     const packet = assembleNarrativeContext({ canon, request });
-    // Bug: the secret is still concealed even in episode 10, long after it was revealed.
     const stillConcealed = packet.prohibitedDisclosures.some(
       (d) => d.statement === "Bob knows what happened twenty years ago.",
     );

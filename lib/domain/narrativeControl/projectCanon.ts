@@ -257,6 +257,83 @@ export function canonFromApprovedSources(input: {
       });
     }
     for (const secret of ledger.revealedSecrets) addFact("audience", secret, "AUDIENCE_KNOWLEDGE", true);
+    for (const state of ledger.characterStates) {
+      const id = slugId("character", state.name);
+      const existing = entities.find((e) => e.id === id);
+      const desc = [
+        `Currently at ${state.currentLocation}.`,
+        `Objective: ${state.currentObjective}.`,
+        state.emotionalState,
+        state.physicalState ? `Physical state: ${state.physicalState}.` : "",
+      ].filter(Boolean).join(" ");
+      if (existing) {
+        existing.description = desc;
+      } else {
+        addEntity({
+          id,
+          kind: "character",
+          name: state.name,
+          description: desc,
+          lifecycle: "active",
+        });
+      }
+      for (const item of state.knowledge) {
+        const factId = slugId("fact", `ledger-knowledge-${item}`);
+        if (!seen.has(factId)) {
+          seen.add(factId);
+          facts.push({
+            id: factId,
+            key: "ledger_knowledge",
+            statement: item,
+            classification: "CHARACTER_KNOWLEDGE",
+            protected: false,
+            subjectEntityIds: [id],
+            ...roleFields(item),
+          });
+        }
+        const knowledgeId = slugId("knowledge", `${id}-${factId}`);
+        if (!seen.has(knowledgeId)) {
+          seen.add(knowledgeId);
+          knowledge.push({
+            id: knowledgeId,
+            characterId: id,
+            factId,
+            knownFromEpisode: 1,
+            learnedVia: "Established through the continuity ledger.",
+            believes: true,
+            certainty: "certain",
+          });
+        }
+      }
+    }
+    const revealEpisodeByStatement = new Map<string, number>();
+    for (const event of ledger.events) {
+      for (const info of event.revealedInformation) {
+        const key = normalizeName(info);
+        if (!revealEpisodeByStatement.has(key)) {
+          revealEpisodeByStatement.set(key, event.episodeNumber);
+        }
+      }
+    }
+    const latestEpisode = ledger.events.length > 0
+      ? Math.max(...ledger.events.map((e) => e.episodeNumber))
+      : 1;
+    for (const secret of ledger.revealedSecrets) {
+      const key = normalizeName(secret);
+      if (!revealEpisodeByStatement.has(key)) {
+        revealEpisodeByStatement.set(key, latestEpisode);
+      }
+    }
+    for (const fact of facts) {
+      if (fact.classification !== "HIDDEN_TRUTH") continue;
+      if (fact.audienceRevealEpisode !== null && fact.audienceRevealEpisode !== undefined) continue;
+      for (const [revealed, episode] of revealEpisodeByStatement) {
+        if (overlapsEstablished(String(fact.statement), [revealed])) {
+          fact.audienceRevealEpisode = episode;
+          break;
+        }
+      }
+    }
   }
 
   return canonStateSchema.parse({

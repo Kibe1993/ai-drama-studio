@@ -15,6 +15,7 @@ import { createSeasonPlanEngine } from "@/lib/pipeline/seasonPlanEngine";
 import { createCasnaContext } from "@/lib/pipeline/casnaContext";
 import { continuityService } from "@/lib/services/continuityService";
 import { createCanonExtractionService } from "@/lib/services/canonExtractionService";
+import { createCanonFactExtractionService } from "@/lib/services/canonFactExtractionService";
 import type { PipelineDeps } from "@/lib/pipeline/ports";
 import { createStoryProvider } from "@/lib/providers/llm/registry";
 import { createRedisConnection } from "@/lib/pipeline/redis";
@@ -105,6 +106,11 @@ function buildLivePipelineDeps(): PipelineDeps {
       casna: casnaContext,
       semanticCritique: /^(1|true|yes)$/i.test(process.env.CASNA_SEMANTIC_VALIDATION?.trim() ?? ""),
       narrativeCanon: narrativeCanonRepository,
+      canonExtraction: createCanonFactExtractionService({
+        async request() {
+          return { text: JSON.stringify({ facts: [] }) };
+        },
+      }),
       onStoryStatus: async (job, message) => {
         const current = await generationJobRepository.findById(job.id);
         if (!current || current.status !== "processing") return;

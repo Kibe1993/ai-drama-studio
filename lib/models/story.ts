@@ -35,6 +35,7 @@ export type StoryShape = {
   canonStale?: boolean;
   canonStaleReason?: string;
   storyContract?: Record<string, unknown> | null;
+  canonExtractionIssues?: Record<string, unknown> | null;
 };
 
 const StorySchema = new Schema(
@@ -63,6 +64,7 @@ const StorySchema = new Schema(
     promptFingerprint: { type: String, default: null },
     canonStale: { type: Boolean, default: false },
     canonStaleReason: { type: String, default: "", maxlength: 600 },
+    canonExtractionIssues: { type: Schema.Types.Mixed, default: null },
   },
   { timestamps: true, collection: "stories" }
 );

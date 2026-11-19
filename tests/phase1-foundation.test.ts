@@ -170,7 +170,7 @@ describe("job type queue routing", () => {
     expect(queueNameFor("assembly.generate")).toBe("studio-llm");
   });
 
-  it("includes all 20 job types", () => {
-    expect(JOB_TYPES).toHaveLength(20);
+  it("includes all 21 job types", () => {
+    expect(JOB_TYPES).toHaveLength(21);
   });
 });

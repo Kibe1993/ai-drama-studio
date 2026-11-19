@@ -21,6 +21,7 @@ const LABELS: Record<JobType, string> = {
   "audio.music": "Processing music",
   "media.validate": "Validating media",
   "assembly.generate": "Assembling timeline",
+  "canon.extract": "Extracting canon facts",
 };
 
 export function stageMessage(job: Pick<JobRecord, "jobType" | "sceneNumber">, suffix = ""): string {

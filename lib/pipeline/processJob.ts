@@ -194,6 +194,11 @@ async function afterSuccess(deps: PipelineDeps, run: RunRecord, job: JobRecord, 
     return;
   }
 
+  if (job.jobType === "canon.extract") {
+    await deps.runs.save(run);
+    return;
+  }
+
   if (job.jobType === "character.extract") {
     const profiles = Array.isArray(output.profiles) ? output.profiles : [];
     const names = profiles.length > 0

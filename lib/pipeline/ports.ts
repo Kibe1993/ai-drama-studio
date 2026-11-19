@@ -135,6 +135,17 @@ export type PipelineDeps = {
   seasonPlanEngine?: {
     run(job: JobRecord, project: ProjectRecord): Promise<Record<string, unknown>>;
   };
+  /** Canon Fact Log extraction — enqueued after episode approval. */
+  canonExtraction?: {
+    extractAndCommit(input: {
+      clerkUserId: string;
+      projectId: string;
+      episodeId: string;
+      storyId: string;
+      episodeNumber: number;
+      jobId: string;
+    }): Promise<{ committed: number; issues: number; status: string }>;
+  };
 };
 
 export type StatusPatch = {

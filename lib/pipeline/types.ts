@@ -22,6 +22,7 @@ export const JOB_TYPES = [
   "audio.music",
   "media.validate",
   "assembly.generate",
+  "canon.extract",
 ] as const;
 
 export type JobType = (typeof JOB_TYPES)[number];

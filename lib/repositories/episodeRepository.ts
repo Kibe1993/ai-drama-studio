@@ -93,4 +93,48 @@ export const episodeRepository = {
     ).lean<EpisodeDoc | null>();
     return doc ? toRecord(doc) : null;
   },
+
+  async updateCanonExtractionStatus(
+    clerkUserId: string,
+    projectId: string,
+    episodeId: string,
+    status:
+      | "extraction_pending"
+      | "extraction_processing"
+      | "canon_committed"
+      | "canon_committed_with_issues"
+      | "extraction_failed",
+    error?: string | null,
+  ): Promise<EpisodeRecord | null> {
+    const { Episode } = await models();
+    const patch: Record<string, unknown> = { canonExtractionStatus: status };
+    if (error !== undefined) patch.canonExtractionError = error;
+    const doc = await Episode.findOneAndUpdate(
+      { clerkUserId, projectId, _id: episodeId },
+      { $set: patch },
+      { new: true },
+    ).lean<EpisodeDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  async findApprovedWithoutExtraction(clerkUserId: string, projectId: string): Promise<EpisodeRecord[]> {
+    const { Episode } = await models();
+    const docs = await Episode.find({
+      clerkUserId,
+      projectId,
+      status: "story_approved",
+      canonExtractionStatus: null,
+    }).lean<EpisodeDoc[]>();
+    return docs.map(toRecord);
+  },
+
+  async findExtractionProcessing(clerkUserId: string, projectId: string): Promise<EpisodeRecord[]> {
+    const { Episode } = await models();
+    const docs = await Episode.find({
+      clerkUserId,
+      projectId,
+      canonExtractionStatus: "extraction_processing",
+    }).lean<EpisodeDoc[]>();
+    return docs.map(toRecord);
+  },
 };

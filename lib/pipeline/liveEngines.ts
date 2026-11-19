@@ -55,6 +55,17 @@ export function createLiveEngines(options: {
   semanticCritique?: boolean;
   /** Persisted narrative canon. Absent in unit tests, which keep the derived snapshot in memory. */
   narrativeCanon?: CanonPort;
+  /** Canon Fact Log extraction service. */
+  canonExtraction?: {
+    extractAndCommit(input: {
+      clerkUserId: string;
+      projectId: string;
+      episodeId: string;
+      storyId: string;
+      episodeNumber: number;
+      jobId: string;
+    }): Promise<{ committed: number; issues: number; status: string }>;
+  };
   onStoryStatus?: (job: JobRecord, message: string) => Promise<void>;
 }): EngineSet {
   const mocks = createMockEngines();
@@ -63,6 +74,29 @@ export function createLiveEngines(options: {
     async run(job: JobRecord, run: RunRecord) {
       if (job.jobType === "character.extract") return extractCharacters(options, job, run);
       if (job.jobType === "scene.breakdown") return breakDownScenes(options, job, run);
+      if (job.jobType === "canon.extract") {
+        if (!options.canonExtraction) {
+          throw new JobError("Canon extraction is not configured.", "not_configured", false);
+        }
+        const storyId =
+          typeof (job.input as { storyId?: unknown }).storyId === "string"
+            ? (job.input as { storyId: string }).storyId
+            : "";
+        if (!storyId) {
+          throw new JobError("Story ID is required for canon extraction.", "invalid_input", false);
+        }
+        const episodeId = run.episode?.id ?? "";
+        const episodeNumber = run.episode?.number ?? 1;
+        const result = await options.canonExtraction.extractAndCommit({
+          clerkUserId: job.clerkUserId,
+          projectId: job.projectId,
+          episodeId,
+          storyId,
+          episodeNumber,
+          jobId: job.id,
+        });
+        return { ...result };
+      }
       if (job.jobType !== "story.generate") {
         log.info("pipeline", "mock engine", { jobType: job.jobType, jobId: job.id, sceneNumber: job.sceneNumber ?? "" });
         return mocks.run(job, run);

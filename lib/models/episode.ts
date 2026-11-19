@@ -15,6 +15,19 @@ const EpisodeSchema = new Schema(
     basePlanVersion: { type: Number, default: 0, min: 0 },
     timelineId: { type: Schema.Types.ObjectId, default: null },
     renderAssetId: { type: Schema.Types.ObjectId, default: null },
+    canonExtractionStatus: {
+      type: String,
+      enum: [
+        "extraction_pending",
+        "extraction_processing",
+        "canon_committed",
+        "canon_committed_with_issues",
+        "extraction_failed",
+      ],
+      default: null,
+      index: true,
+    },
+    canonExtractionError: { type: String, default: null },
   },
   { timestamps: true, collection: "episodes" }
 );

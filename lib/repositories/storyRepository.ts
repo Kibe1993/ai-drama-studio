@@ -14,6 +14,7 @@ import {
 } from "@/lib/validation/story";
 import { storyContractSchema, type StoryContract } from "@/lib/validation/storyContract";
 import { canonSuggestionSchema, type CanonSuggestion } from "@/lib/validation/canonExtraction";
+import type { PreparedFact } from "@/lib/domain/canonReconciliation";
 import {
   episodeCanonSummarySchema,
   episodePlanSchema,
@@ -136,6 +137,15 @@ export type ProjectStoryDraft = GeneratedStory & {
   sourceBibleVersion?: number | null;
   promptFingerprint?: string | null;
   storyContract?: StoryContract | null;
+};
+
+export type CanonExtractionIssueRecord = {
+  factId: string;
+  code: string;
+  message: string;
+  fact: PreparedFact;
+  status: "pending_review" | "accepted" | "rejected";
+  resolvedAt: string | null;
 };
 
 
@@ -477,5 +487,59 @@ export const storyRepository = {
       },
     );
     return result.modifiedCount;
+  },
+
+  async saveCanonExtractionIssues(
+    clerkUserId: string,
+    storyId: string,
+    issues: CanonExtractionIssueRecord[],
+  ): Promise<StoryRecord | null> {
+    const { Story } = await models();
+    const doc = await Story.findOneAndUpdate(
+      ownedQuery(clerkUserId, storyId),
+      { $set: { canonExtractionIssues: { issues, generatedAt: new Date().toISOString() } } },
+      { new: true },
+    ).lean<StoryDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  async getCanonExtractionIssues(
+    clerkUserId: string,
+    storyId: string,
+  ): Promise<CanonExtractionIssueRecord[] | null> {
+    const { Story } = await models();
+    const doc = await Story.findOne(ownedQuery(clerkUserId, storyId))
+      .select({ canonExtractionIssues: 1 })
+      .lean<{ canonExtractionIssues: { issues: CanonExtractionIssueRecord[] } | null } | null>();
+    if (!doc) return null;
+    return doc.canonExtractionIssues?.issues ?? [];
+  },
+
+  async updateIssueStatus(
+    clerkUserId: string,
+    storyId: string,
+    issueId: string,
+    resolution: { status: "accepted" | "rejected"; resolvedAt: string },
+  ): Promise<CanonExtractionIssueRecord | null> {
+    const { Story } = await models();
+    const doc = await Story.findOne(ownedQuery(clerkUserId, storyId)).lean<StoryDoc | null>();
+    if (!doc) return null;
+    const raw = doc.canonExtractionIssues as
+      | { issues: CanonExtractionIssueRecord[] }
+      | null;
+    if (!raw || !Array.isArray(raw.issues)) return null;
+    const issue = raw.issues.find((i) => i.factId === issueId);
+    if (!issue) return null;
+    if (issue.status !== "pending_review") return null;
+    const updatedIssues = raw.issues.map((i) =>
+      i.factId === issueId
+        ? { ...i, status: resolution.status, resolvedAt: resolution.resolvedAt }
+        : i,
+    );
+    await Story.updateOne(
+      ownedQuery(clerkUserId, storyId),
+      { $set: { "canonExtractionIssues.issues": updatedIssues } },
+    );
+    return { ...issue, status: resolution.status, resolvedAt: resolution.resolvedAt };
   },
 };

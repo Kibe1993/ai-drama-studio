@@ -81,6 +81,21 @@ async function acceptStory(
         "canon_update_failed"
       );
     }
+    // Canon Fact Log extraction: enqueue an outbox event so the dispatcher
+    // can extract canon facts asynchronously. This does NOT block the pipeline.
+    try {
+      const { canonExtractionOutboxRepository } = await import("@/lib/repositories/canonExtractionOutboxRepository");
+      await canonExtractionOutboxRepository.enqueue({
+        clerkUserId: actor.userId,
+        projectId,
+        episodeId: run.episode.id,
+        storyId: saved.id,
+        commitBatchId: `canon-extract-approved:${run.episode.id}:${saved.id}`,
+      });
+    } catch {
+      // Outbox enqueue failure is non-fatal — the dispatcher's reconciliation
+      // will discover this approved episode and create the outbox event later.
+    }
   }
   if (run.stageResults.story) {
     run.stageResults.story.approved = true;

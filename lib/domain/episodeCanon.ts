@@ -90,11 +90,12 @@ function buildCharacterStates(input: {
     const location = lastLocationOf(name, screenplay);
     const development = item ? sentenceMentioning(item.characterDevelopment, name) : "";
     const arc = arcs.get(normalize(name)) ?? "";
-    const objective =
-      previous?.currentObjective ||
+    const episodeObjective =
       (item && mentions(item.mainObjective, name) ? item.mainObjective : "") ||
       (development ? `Carries the episode's turn: ${development}` : "") ||
-      (item?.mainObjective ?? "Continue their established arc.");
+      arc ||
+      "";
+    const objective = episodeObjective || previous?.currentObjective || (item?.mainObjective ?? "Continue their established arc.");
     const emotionalState = arc || development || previous?.emotionalState ||
       `Their situation changed at the end of episode ${episodeNumber}.`;
     states.set(normalize(name), {
@@ -102,10 +103,10 @@ function buildCharacterStates(input: {
       currentLocation: location || previous?.currentLocation || "Unspecified",
       currentObjective: truncate(objective, 400),
       knowledge: mergeUnique(previous?.knowledge ?? [], development ? [development] : []),
-      beliefs: previous?.beliefs ?? [],
-      motivations: previous?.motivations ?? [],
+      beliefs: mergeUnique(previous?.beliefs ?? [], arc ? [arc] : []),
+      motivations: mergeUnique(previous?.motivations ?? [], arc || development ? [arc || development] : []),
       emotionalState: truncate(emotionalState, 300),
-      physicalState: previous?.physicalState ?? "",
+      physicalState: arc || previous?.physicalState || "",
       relationships: previous?.relationships ?? [],
     });
   }
@@ -236,7 +237,7 @@ function buildThreads(input: {
       status: "open",
     });
   }
-  return [...threads.values()].slice(0, 16);
+  return [...threads.values()].slice(-16);
 }
 
 function charactersIn(screenplay: ScreenplayScene[]): string[] {

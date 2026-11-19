@@ -66,7 +66,7 @@ function mergeThreads(existing: UnresolvedThread[], incoming: UnresolvedThread[]
     const current = map.get(key);
     map.set(key, current ? { ...current, ...thread } : thread);
   }
-  return [...map.values()].slice(0, 30);
+  return [...map.values()].slice(-30);
 }
 
 function appendUnique(existing: string[], incoming: string[], cap: number): string[] {

@@ -5,7 +5,7 @@ import { canonFromApprovedSources } from "@/lib/domain/narrativeControl/projectC
 import { makeLedger, makeEpisodeCanonSummary, makeStoryBible, makeSeasonPlan, makeEpisodeScreenplay, makeEpisodePlanItem } from "./fixtures";
 
 describe("I-8: cap and alias leaks", () => {
-  it.fails("mergeThreads does not drop the newest thread when cap is reached", () => {
+  it("mergeThreads does not drop the newest thread when cap is reached", () => {
     const existingThreads = Array.from({ length: 29 }, (_, i) => ({
       thread: `Old unresolved thread number ${i + 1}`,
       introducedInEpisode: 1,
@@ -28,7 +28,7 @@ describe("I-8: cap and alias leaks", () => {
     expect(result.unresolvedThreads.some((t) => t.thread === "Another new thread from episode 2")).toBe(true);
   });
 
-  it.fails("buildThreads in episodeCanon does not drop newest thread at cap 16", () => {
+  it("buildThreads in episodeCanon does not drop newest thread at cap 16", () => {
     const existingThreads = Array.from({ length: 15 }, (_, i) => ({
       thread: `Existing thread ${i + 1}`,
       introducedInEpisode: 1,

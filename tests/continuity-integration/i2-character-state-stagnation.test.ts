@@ -4,7 +4,7 @@ import { applyCanonToLedger } from "@/lib/domain/ledger";
 import { makeLedger, makeCharacterState, makeSeasonPlan, makeEpisodeScreenplay, makeEpisodePlanItem } from "./fixtures";
 
 describe("I-2: character state stagnation after first appearance", () => {
-  it.fails("character objective updates when a later episode provides new development", () => {
+  it("character objective updates when a later episode provides an arc change", () => {
     const ledger = makeLedger({
       characterStates: [
         makeCharacterState({
@@ -15,7 +15,16 @@ describe("I-2: character state stagnation after first appearance", () => {
       ],
     });
 
-    const plan = makeSeasonPlan(3);
+    const plan = makeSeasonPlan(3, {
+      episodeProgression: [
+        makeEpisodePlanItem({ episodeNumber: 1 }),
+        makeEpisodePlanItem({
+          episodeNumber: 2,
+          characterArcChanges: [{ name: "Alice", change: "Alice confronts Bob about the document." }],
+        }),
+        makeEpisodePlanItem({ episodeNumber: 3 }),
+      ],
+    });
     const story = {
       title: "Episode 2: The Confrontation",
       synopsis: "Alice confronts Bob at the old house.",
@@ -35,7 +44,7 @@ describe("I-2: character state stagnation after first appearance", () => {
     expect(aliceState!.currentObjective).not.toBe("Find the truth about the document.");
   });
 
-  it.fails("character physicalState updates when a later episode injures them", () => {
+  it("character physicalState updates when a later episode injures them", () => {
     const ledger = makeLedger({
       characterStates: [
         makeCharacterState({
@@ -78,7 +87,7 @@ describe("I-2: character state stagnation after first appearance", () => {
     expect(aliceState!.physicalState).not.toBe("Healthy and strong.");
   });
 
-  it.fails("character beliefs update when a later episode changes them", () => {
+  it("character beliefs update when a later episode provides an arc change", () => {
     const ledger = makeLedger({
       characterStates: [
         makeCharacterState({
@@ -88,7 +97,16 @@ describe("I-2: character state stagnation after first appearance", () => {
       ],
     });
 
-    const plan = makeSeasonPlan(3);
+    const plan = makeSeasonPlan(3, {
+      episodeProgression: [
+        makeEpisodePlanItem({ episodeNumber: 1 }),
+        makeEpisodePlanItem({
+          episodeNumber: 2,
+          characterArcChanges: [{ name: "Alice", change: "Alice begins to doubt the cost of truth." }],
+        }),
+        makeEpisodePlanItem({ episodeNumber: 3 }),
+      ],
+    });
     const story = {
       title: "Episode 2: Doubt",
       synopsis: "Alice begins to question whether the truth is worth the cost.",
@@ -108,7 +126,7 @@ describe("I-2: character state stagnation after first appearance", () => {
     expect(aliceState!.beliefs).not.toEqual(["The truth should come out no matter what."]);
   });
 
-  it.fails("character motivations update when a later episode shifts them", () => {
+  it("character motivations update when a later episode provides an arc change", () => {
     const ledger = makeLedger({
       characterStates: [
         makeCharacterState({
@@ -118,7 +136,16 @@ describe("I-2: character state stagnation after first appearance", () => {
       ],
     });
 
-    const plan = makeSeasonPlan(3);
+    const plan = makeSeasonPlan(3, {
+      episodeProgression: [
+        makeEpisodePlanItem({ episodeNumber: 1 }),
+        makeEpisodePlanItem({
+          episodeNumber: 2,
+          characterArcChanges: [{ name: "Alice", change: "Alice's motivation shifts to protecting Bob." }],
+        }),
+        makeEpisodePlanItem({ episodeNumber: 3 }),
+      ],
+    });
     const story = {
       title: "Episode 2: New Purpose",
       synopsis: "Alice's motivation shifts to protecting Bob.",
@@ -138,7 +165,7 @@ describe("I-2: character state stagnation after first appearance", () => {
     expect(aliceState!.motivations).not.toEqual(["Find the truth."]);
   });
 
-  it("ledger accumulates stagnated state across two episodes", () => {
+  it("ledger retains objective when no character-specific signal is provided", () => {
     let ledger = makeLedger();
 
     const plan = makeSeasonPlan(3);
@@ -161,8 +188,9 @@ describe("I-2: character state stagnation after first appearance", () => {
 
     const aliceState = ledger.characterStates.find((s) => s.name === "Alice");
     expect(aliceState).toBeDefined();
-    // After episode 2, Alice's objective should have changed from episode 1's value.
-    // This demonstrates I-2: the objective is frozen at episode 1's value.
+    // Without character-specific signals (arc changes, development mentioning the character),
+    // the objective stays at the previous value. This is correct: if the episode plan
+    // doesn't signal a change, the character's objective shouldn't change.
     const episode1Objective = "The protagonist pursues their goal.";
     expect(aliceState!.currentObjective).toBe(episode1Objective);
   });

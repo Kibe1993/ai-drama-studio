@@ -65,7 +65,7 @@ describe("10-episode season replay", () => {
     expect(episodeNumbers.size).toBeGreaterThan(5);
   });
 
-  it.fails("Alice's objective evolves across the season", () => {
+  it("Alice's objective evolves across the season", () => {
     const { perEpisode } = replaySeason();
     const ep1Objective = perEpisode[0]!.characterStates.find((s) => s.name === "Alice")?.currentObjective;
     const ep10Objective = perEpisode[9]!.characterStates.find((s) => s.name === "Alice")?.currentObjective;
@@ -76,7 +76,7 @@ describe("10-episode season replay", () => {
     expect(ep10Objective).not.toBe(ep1Objective);
   });
 
-  it.fails("Alice's physicalState evolves across the season", () => {
+  it("Alice's physicalState evolves across the season", () => {
     const { perEpisode } = replaySeason();
     const ep1Physical = perEpisode[0]!.characterStates.find((s) => s.name === "Alice")?.physicalState;
     const ep10Physical = perEpisode[9]!.characterStates.find((s) => s.name === "Alice")?.physicalState;
@@ -85,7 +85,7 @@ describe("10-episode season replay", () => {
     expect(ep10Physical).not.toBe(ep1Physical);
   });
 
-  it.fails("Alice's beliefs evolve across the season", () => {
+  it("Alice's beliefs evolve across the season", () => {
     const { perEpisode } = replaySeason();
     const ep1Beliefs = perEpisode[0]!.characterStates.find((s) => s.name === "Alice")?.beliefs;
     const ep10Beliefs = perEpisode[9]!.characterStates.find((s) => s.name === "Alice")?.beliefs;
@@ -103,7 +103,7 @@ describe("10-episode season replay", () => {
     expect(ep10Knowledge.length).toBeGreaterThanOrEqual(ep1Knowledge.length);
   });
 
-  it.fails("unresolved threads from later episodes are retained", () => {
+  it("unresolved threads from later episodes are retained", () => {
     const plan = makeSeasonPlan(EPISODE_COUNT, {
       episodeProgression: Array.from({ length: EPISODE_COUNT }, (_, i) =>
         makeEpisodePlanItem({

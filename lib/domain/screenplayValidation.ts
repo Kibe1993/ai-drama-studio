@@ -8,6 +8,7 @@ import type { StoryBibleContent } from "@/lib/validation/storyBible";
 import type { CanonicalEntityRegistry } from "@/lib/validation/canonicalRegistry";
 import { resolveSceneRange, type SceneRange } from "@/lib/providers/llm/budget";
 import { resolveCanonicalId, hasAppearedBy, isIntroducedBy } from "@/lib/domain/canonicalRegistry";
+import { continuityCheckFindings } from "@/lib/domain/continuityChecks";
 import { createHash } from "node:crypto";
 
 /**
@@ -412,6 +413,11 @@ export function validateEpisodeScreenplay(
         severity: "warning",
         message: "The episode does not visibly carry any active consequence from the Continuity Ledger.",
       });
+    }
+  }
+  if (input.ledger) {
+    for (const finding of continuityCheckFindings(input.ledger, screenplay)) {
+      findings.push(finding);
     }
   }
 

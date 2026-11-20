@@ -44,6 +44,7 @@ export type StoryBibleTaskResult =
 
 export type StoryBibleTaskTransport = {
   label: string;
+  stage?: string;
   request(system: string, prompt: string, schema: Record<string, unknown>, signal: AbortSignal): Promise<{ text: string; usage?: TokenUsage; truncated?: boolean }>;
 };
 

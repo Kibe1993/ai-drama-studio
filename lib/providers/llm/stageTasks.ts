@@ -52,6 +52,7 @@ export type { SeasonPlanPrompt } from "@/lib/providers/llm/seasonPlanTask";
 
 export type StageTransport = {
   label: string;
+  stage?: string;
   request(
     system: string,
     prompt: string,

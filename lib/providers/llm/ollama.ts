@@ -155,6 +155,7 @@ export type OllamaChatRequest = {
   timeoutMs?: number;
   options?: Record<string, unknown>;
   stream?: boolean;
+  stage?: string;
 };
 
 export async function ollamaChat(
@@ -191,11 +192,23 @@ export async function ollamaChat(
     : AbortSignal.timeout(timeoutMs);
 
   const started = Date.now();
+  const stage = request.stage ?? "unknown";
+  const formatMode = request.format === undefined ? "none" : typeof request.format === "string" ? request.format : "schema";
+  const requestOptions = payload.options as Record<string, unknown>;
   log.info("ollama", "request", {
-    model, url: targetUrl, stream: Boolean(request.stream),
+    stage,
+    model,
+    url: targetUrl,
+    stream: Boolean(request.stream),
+    numCtx: requestOptions.num_ctx,
+    numPredict: requestOptions.num_predict,
+    formatMode,
     effectiveTimeoutMs: request.signal ? "external" : timeoutMs,
     fallbackTimeoutMs: timeoutMs,
   });
+
+  let partialOutputTokens: number | undefined;
+  let partialChars = 0;
 
   try {
     const res = await fetch(targetUrl, {
@@ -211,7 +224,7 @@ export async function ollamaChat(
 
       // Model not installed (HTTP 404 from Ollama with "not found")
       if (res.status === 404 && /not found/i.test(errorText)) {
-        log.error("ollama", "model not installed", { model, detail });
+        log.error("ollama", "model not installed", { stage, model, detail });
         throw new JobError(
           `Ollama model '${model}' is not installed. Run 'ollama pull ${model}' to install it.`,
           "invalid_model",
@@ -219,7 +232,7 @@ export async function ollamaChat(
         );
       }
       if (res.status === 400) {
-        log.error("ollama", "rejected request", { model, detail });
+        log.error("ollama", "rejected request", { stage, model, detail });
         throw new JobError(
           `Ollama rejected the request. ${detail}`,
           "invalid_request",
@@ -227,7 +240,7 @@ export async function ollamaChat(
         );
       }
       if (res.status === 429) {
-        log.error("ollama", "rate limited", { model, detail });
+        log.error("ollama", "rate limited", { stage, model, detail });
         throw new JobError(
           `Ollama is busy and rate limited the request. The next provider will be tried.`,
           "rate_limited",
@@ -235,7 +248,7 @@ export async function ollamaChat(
         );
       }
       if (res.status >= 500) {
-        log.error("ollama", "service error", { model, status: res.status, detail });
+        log.error("ollama", "service error", { stage, model, status: res.status, detail });
         throw new JobError(
           `Ollama service error (${res.status}): ${detail}`,
           "provider_unavailable",
@@ -261,6 +274,11 @@ export async function ollamaChat(
       let inputTokens: number | undefined;
       let outputTokens: number | undefined;
       let doneReason: string | undefined;
+      let totalDuration: number | undefined;
+      let loadDuration: number | undefined;
+      let promptEvalDuration: number | undefined;
+      let evalDuration: number | undefined;
+      let firstTokenMs: number | undefined;
       const consume = (line: string) => {
         const trimmed = line.trim();
         if (!trimmed) return;
@@ -270,6 +288,10 @@ export async function ollamaChat(
           prompt_eval_count?: number;
           eval_count?: number;
           done_reason?: string;
+          total_duration?: number;
+          load_duration?: number;
+          prompt_eval_duration?: number;
+          eval_duration?: number;
         };
         try {
           chunk = JSON.parse(trimmed);
@@ -280,10 +302,17 @@ export async function ollamaChat(
           streamError = chunk.error;
           return;
         }
-        if (typeof chunk.message?.content === "string") text += chunk.message.content;
+        if (typeof chunk.message?.content === "string") {
+          if (firstTokenMs === undefined && chunk.message.content) firstTokenMs = Date.now() - started;
+          text += chunk.message.content;
+        }
         if (typeof chunk.prompt_eval_count === "number") inputTokens = chunk.prompt_eval_count;
         if (typeof chunk.eval_count === "number") outputTokens = chunk.eval_count;
         if (typeof chunk.done_reason === "string") doneReason = chunk.done_reason;
+        if (typeof chunk.total_duration === "number") totalDuration = chunk.total_duration;
+        if (typeof chunk.load_duration === "number") loadDuration = chunk.load_duration;
+        if (typeof chunk.prompt_eval_duration === "number") promptEvalDuration = chunk.prompt_eval_duration;
+        if (typeof chunk.eval_duration === "number") evalDuration = chunk.eval_duration;
       };
       while (true) {
         const { done, value } = await reader.read();
@@ -292,18 +321,23 @@ export async function ollamaChat(
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
         for (const line of lines) consume(line);
+        partialChars = text.length;
+        partialOutputTokens = outputTokens;
       }
       consume(buffer);
+      partialChars = text.length;
+      partialOutputTokens = outputTokens;
       if (!text.trim()) {
         if (streamError) {
-          log.error("ollama", "stream stopped", { model, detail: safeProviderDetail(streamError) });
+          log.error("ollama", "stream stopped", { stage, model, detail: safeProviderDetail(streamError) });
           throw new JobError(`Ollama stopped generating: ${safeProviderDetail(streamError)}`, "provider_unavailable", true);
         }
-        log.error("ollama", "empty completion", { model, ms: Date.now() - started });
+        log.error("ollama", "empty completion", { stage, model, ms: Date.now() - started });
         throw new JobError("Ollama returned an empty response.", "empty_response", false);
       }
       if (streamError) {
         log.error("ollama", "stream aborted with partial output", {
+          stage,
           model,
           detail: safeProviderDetail(streamError),
           chars: text.length,
@@ -311,11 +345,24 @@ export async function ollamaChat(
       }
       const usage: TokenUsage | undefined =
         inputTokens == null && outputTokens == null ? undefined : { inputTokens, outputTokens };
+      const elapsedMs = Date.now() - started;
+      const tokensPerSec = outputTokens != null && evalDuration
+        ? Number((outputTokens / (evalDuration / 1_000_000_000)).toFixed(2))
+        : undefined;
       log.info("ollama", "response", {
+        stage,
         model,
-        ms: Date.now() - started,
+        ms: elapsedMs,
+        stream: true,
+        ttftMs: firstTokenMs ?? "",
+        loadDurationNs: loadDuration ?? "",
+        promptEvalDurationNs: promptEvalDuration ?? "",
+        evalDurationNs: evalDuration ?? "",
+        totalDurationNs: totalDuration ?? "",
         inputTokens: inputTokens ?? "",
         outputTokens: outputTokens ?? "",
+        tokensPerSec: tokensPerSec ?? "",
+        doneReason: doneReason ?? "",
       });
       return { text, usage, truncated: doneReason === "length" };
     }
@@ -325,10 +372,15 @@ export async function ollamaChat(
       prompt_eval_count?: number;
       eval_count?: number;
       done_reason?: string;
+      total_duration?: number;
+      load_duration?: number;
+      prompt_eval_duration?: number;
+      eval_duration?: number;
     };
 
-    const text = data.message?.content ?? "";    if (!text.trim()) {
-      log.error("ollama", "empty completion", { model, ms: Date.now() - started });
+    const text = data.message?.content ?? "";
+    if (!text.trim()) {
+      log.error("ollama", "empty completion", { stage, model, ms: Date.now() - started });
       throw new JobError("Ollama returned an empty response.", "empty_response", false);
     }
 
@@ -336,12 +388,25 @@ export async function ollamaChat(
     const outputTokens = typeof data.eval_count === "number" ? data.eval_count : undefined;
     const usage: TokenUsage | undefined =
       inputTokens == null && outputTokens == null ? undefined : { inputTokens, outputTokens };
+    const elapsedMs = Date.now() - started;
+    const evalDuration = typeof data.eval_duration === "number" ? data.eval_duration : undefined;
+    const tokensPerSec = outputTokens != null && evalDuration
+      ? Number((outputTokens / (evalDuration / 1_000_000_000)).toFixed(2))
+      : undefined;
 
     log.info("ollama", "response", {
+      stage,
       model,
-      ms: Date.now() - started,
+      ms: elapsedMs,
+      stream: false,
+      loadDurationNs: typeof data.load_duration === "number" ? data.load_duration : "",
+      promptEvalDurationNs: typeof data.prompt_eval_duration === "number" ? data.prompt_eval_duration : "",
+      evalDurationNs: evalDuration ?? "",
+      totalDurationNs: typeof data.total_duration === "number" ? data.total_duration : "",
       inputTokens: inputTokens ?? "",
       outputTokens: outputTokens ?? "",
+      tokensPerSec: tokensPerSec ?? "",
+      doneReason: data.done_reason ?? "",
     });
 
     // Ollama reports done_reason "length" when it hit num_predict, i.e. the
@@ -358,7 +423,14 @@ export async function ollamaChat(
       (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError"));
 
     if (timeoutAbort) {
-      log.error("ollama", "timeout", { model, timeoutMs });
+      log.error("ollama", "timeout", {
+        stage,
+        model,
+        timeoutMs,
+        elapsedMs: Date.now() - started,
+        partialTokens: partialOutputTokens ?? 0,
+        partialChars,
+      });
       throw new JobError(
         `Ollama timed out while generating with '${model}'. The next provider will be tried.`,
         "timeout",
@@ -371,7 +443,7 @@ export async function ollamaChat(
       (error instanceof Error && /econnrefused|fetch failed/i.test(error.message));
 
     if (isConnRefused) {
-      log.error("ollama", "connection refused", { model, url: targetUrl });
+      log.error("ollama", "connection refused", { stage, model, url: targetUrl });
       throw new JobError(
         `Ollama is not running (connection refused at ${baseURL}). The next provider will be tried.`,
         "provider_unavailable",
@@ -411,12 +483,14 @@ export class OllamaLLMProvider implements LLMProvider {
 
     const makeTransport = (
       label: string,
+      stage: string,
       timeoutMs = this.timeoutMs,
       generationOptions = this.options,
       formatMode = this.formatMode,
       stream = false
     ): StoryBibleTaskTransport => ({
       label,
+      stage,
       request: async (
         system: string,
         prompt: string,
@@ -436,12 +510,13 @@ export class OllamaLLMProvider implements LLMProvider {
           timeoutMs,
           options: maxCompletionTokens ? ollamaOptionsWithBudget(generationOptions, maxCompletionTokens) : generationOptions,
           stream,
+          stage,
         });
       },
     });
 
-    this.stageTransport = makeTransport("Ollama");
-    this.storyBibleTransport = makeTransport("Ollama");
+    this.stageTransport = makeTransport("Ollama", "stage");
+    this.storyBibleTransport = makeTransport("Ollama", "story_bible");
     // Section schemas are small enough for structured output even on a 4B model,
     // and plain JSON mode lets the model rename required fields. Low-entropy
     // sampling and a wider repeat window keep long JSON strings from collapsing
@@ -459,7 +534,7 @@ export class OllamaLLMProvider implements LLMProvider {
       Number(this.options.repeat_penalty ?? DEFAULT_OLLAMA_REPEAT_PENALTY)
     );
     for (const section of Object.keys(OLLAMA_SECTION_NUM_PREDICT) as StoryBibleSection[]) {
-      this.sectionTransports[section] = makeTransport("Ollama", this.sectionTimeoutMs, {
+      this.sectionTransports[section] = makeTransport("Ollama", `story_bible:${section}`, this.sectionTimeoutMs, {
         ...this.options,
         temperature: sectionTemperature,
         top_p: sectionTopP,
@@ -489,6 +564,7 @@ export class OllamaLLMProvider implements LLMProvider {
       signal,
       timeoutMs: this.timeoutMs,
       options: ollamaOptionsWithBudget(this.options, storyCompletionBudget(input.targetDurationSeconds)),
+      stage: "story",
     });
     const story = parseStory("Ollama", response.text);
     log.info("ollama", "story response", {
@@ -586,6 +662,7 @@ export class OllamaLLMProvider implements LLMProvider {
       signal: input.signal,
       timeoutMs: this.timeoutMs,
       options: this.options,
+      stage: "complete",
     });
   }
 }

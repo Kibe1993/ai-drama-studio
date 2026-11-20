@@ -85,6 +85,7 @@ export type StoryCallOptions = {
   jobId?: string;
   onStatus?: (message: string) => void | Promise<void>;
   sequenceTimeoutMs?: number;
+  sectionMode?: boolean;
 };
 
 export type CharacterModelResult = {

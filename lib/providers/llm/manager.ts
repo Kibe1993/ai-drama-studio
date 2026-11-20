@@ -154,6 +154,7 @@ export type ProviderSlot = {
   supported?: boolean;
   reason?: string;
   timeoutMs?: number;
+  sectionTimeoutMs?: number;
   generate(
     input: StoryPrompt,
     options: { signal: AbortSignal }
@@ -331,7 +332,8 @@ export class StoryProviderManager implements LLMProvider {
   }
 
   async generateStoryBible(input: StoryBibleTaskInput, context: StoryCallOptions = {}) {
-    const result = await this.runSequence(context, "story_bible", "Developing Story Bible", async (slot, signal) => {
+    const sectionContext = { ...context, sectionMode: input.mode === "section" };
+    const result = await this.runSequence(sectionContext, "story_bible", "Developing Story Bible", async (slot, signal) => {
       if (!slot.generateStoryBible) {
         throw new JobError(`${providerLabel(slot.id)} cannot develop a Story Bible.`, "configuration", false);
       }
@@ -717,7 +719,9 @@ export class StoryProviderManager implements LLMProvider {
       // Share the remaining bounded sequence budget with configured providers
       // still eligible in the chain. A slow first provider must not consume the
       // entire allowance and prevent every fallback from being attempted.
-      const slotCap = slot.timeoutMs ?? providerCap;
+      const slotCap = context.sectionMode && slot.sectionTimeoutMs
+        ? slot.sectionTimeoutMs
+        : slot.timeoutMs ?? providerCap;
       const remainingEligible = slots.slice(index).filter((candidate) => candidate.supported !== false && candidate.configured).length;
       const fairShareMs = Math.floor(remaining / Math.max(1, remainingEligible));
       const budget = Math.min(slotCap, Math.max(fairShareMs, Math.min(slotCap, remaining - (remainingEligible - 1) * 15_000)));

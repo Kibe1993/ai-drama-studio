@@ -168,6 +168,9 @@ export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[]
         : id === "openrouter"
           ? openRouterTimeoutMs(env)
           : undefined,
+      sectionTimeoutMs: id === "ollama"
+        ? ollamaSectionTimeoutMs(env)
+        : undefined,
       async generate(input, options) {
         if (!provider) throw new Error(blocked ?? "Provider is not available.");
         const result = await provider.generateStory(input, { signal: options.signal });

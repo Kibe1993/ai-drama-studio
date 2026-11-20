@@ -1,4 +1,4 @@
-import { Agent } from "undici";
+import { Agent, setGlobalDispatcher } from "undici";
 import { log } from "@/lib/log";
 import { JobError } from "@/lib/pipeline/types";
 import { storyCompletionBudget } from "@/lib/providers/llm/budget";
@@ -59,12 +59,12 @@ export const DEFAULT_OLLAMA_TOP_P = 0.9;
 // body chunk arrives — i.e. during Ollama's prompt_eval phase. A 4,156-token
 // prompt at ~13 t/s prompt eval takes ~320 s, which exceeds the 300 s default
 // and causes undici to abort the request before the manager's 600 s section
-// timeout signal fires. This agent raises both timeouts to 600 s so the signal
-// is the sole authority for request cancellation.
-const ollamaHttpAgent = new Agent({
+// timeout signal fires. This global dispatcher raises both timeouts to 600 s
+// so the signal is the sole authority for request cancellation.
+setGlobalDispatcher(new Agent({
   headersTimeout: DEFAULT_OLLAMA_SECTION_TIMEOUT_MS,
   bodyTimeout: DEFAULT_OLLAMA_SECTION_TIMEOUT_MS,
-});
+}));
 export const DEFAULT_OLLAMA_REPEAT_PENALTY = 1.1;
 
 export type OllamaOptions = {
@@ -227,14 +227,12 @@ export async function ollamaChat(
   let partialChars = 0;
 
   try {
-    const fetchOptions: Record<string, unknown> = {
+    const res = await fetch(targetUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       signal,
-      dispatcher: ollamaHttpAgent,
-    };
-    const res = await fetch(targetUrl, fetchOptions as RequestInit);
+    });
 
     if (!res.ok) {
       const errorText = await res.text().catch(() => "");

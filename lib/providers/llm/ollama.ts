@@ -1,3 +1,4 @@
+import { Agent } from "undici";
 import { log } from "@/lib/log";
 import { JobError } from "@/lib/pipeline/types";
 import { storyCompletionBudget } from "@/lib/providers/llm/budget";
@@ -52,6 +53,18 @@ export const DEFAULT_OLLAMA_SECTION_TIMEOUT_MS = 600_000;
 export const DEFAULT_OLLAMA_TEMPERATURE = 0.7;
 export const DEFAULT_OLLAMA_NUM_CTX = 8192;
 export const DEFAULT_OLLAMA_TOP_P = 0.9;
+
+// Node.js's built-in fetch (undici) applies a default bodyTimeout of 300_000 ms
+// (5 minutes). For streaming requests, this is the idle timeout before the first
+// body chunk arrives — i.e. during Ollama's prompt_eval phase. A 4,156-token
+// prompt at ~13 t/s prompt eval takes ~320 s, which exceeds the 300 s default
+// and causes undici to abort the request before the manager's 600 s section
+// timeout signal fires. This agent raises both timeouts to 600 s so the signal
+// is the sole authority for request cancellation.
+const ollamaHttpAgent = new Agent({
+  headersTimeout: DEFAULT_OLLAMA_SECTION_TIMEOUT_MS,
+  bodyTimeout: DEFAULT_OLLAMA_SECTION_TIMEOUT_MS,
+});
 export const DEFAULT_OLLAMA_REPEAT_PENALTY = 1.1;
 
 export type OllamaOptions = {
@@ -207,18 +220,21 @@ export async function ollamaChat(
     formatMode,
     effectiveTimeoutMs: request.signal ? "external" : timeoutMs,
     fallbackTimeoutMs: timeoutMs,
+    httpBodyTimeoutMs: DEFAULT_OLLAMA_SECTION_TIMEOUT_MS,
   });
 
   let partialOutputTokens: number | undefined;
   let partialChars = 0;
 
   try {
-    const res = await fetch(targetUrl, {
+    const fetchOptions: Record<string, unknown> = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       signal,
-    });
+      dispatcher: ollamaHttpAgent,
+    };
+    const res = await fetch(targetUrl, fetchOptions as RequestInit);
 
     if (!res.ok) {
       const errorText = await res.text().catch(() => "");

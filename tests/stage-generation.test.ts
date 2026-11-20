@@ -168,7 +168,7 @@ function llm(calls: string[]): LLMProvider {
 
 describe("character and scene stages", () => {
   it("adds only the approved Story Bible snapshot to story generation", async () => {
-    let captured: { continuityContext?: string } | undefined;
+    let captured: { continuityContext?: string; authority?: string } | undefined;
     const savedStory = story();
     const provider: LLMProvider = {
       id: "openrouter",

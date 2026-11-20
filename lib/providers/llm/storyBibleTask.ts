@@ -328,7 +328,7 @@ export async function requestStoryBible(
   // The outer signal only backstops provider transports, which enforce their own
   // timeouts. Sections keep a larger default because one small local model can
   // legitimately need more than the single-call budget.
-  const defaultTimeoutMs = input.mode === "section" ? 360_000 : 90_000;
+  const defaultTimeoutMs = input.mode === "section" ? 600_000 : 90_000;
   const response = await transport.request(
     instructions.system,
     instructions.prompt,

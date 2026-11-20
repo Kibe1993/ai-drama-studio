@@ -48,7 +48,7 @@ export const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
 export const DEFAULT_OLLAMA_MODEL = "gemma3:4b";
 export const DEFAULT_OLLAMA_ENDPOINT = "/api/chat";
 export const DEFAULT_OLLAMA_TIMEOUT_MS = 240_000;
-export const DEFAULT_OLLAMA_SECTION_TIMEOUT_MS = 300_000;
+export const DEFAULT_OLLAMA_SECTION_TIMEOUT_MS = 600_000;
 export const DEFAULT_OLLAMA_TEMPERATURE = 0.7;
 export const DEFAULT_OLLAMA_NUM_CTX = 8192;
 export const DEFAULT_OLLAMA_TOP_P = 0.9;
@@ -98,7 +98,7 @@ export function ollamaTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
 export function ollamaSectionTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
   const parsed = numberFrom(env.OLLAMA_SECTION_TIMEOUT_MS);
   if (parsed === null) return DEFAULT_OLLAMA_SECTION_TIMEOUT_MS;
-  return Math.min(300_000, Math.max(10_000, parsed));
+  return Math.min(600_000, Math.max(10_000, parsed));
 }
 
 // Small sections on a 4B local model need bounded output, but the caps differ:

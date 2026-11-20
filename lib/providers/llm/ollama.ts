@@ -116,9 +116,12 @@ const MAX_STORY_NUM_CTX = 32_768;
 const NUM_CTX_HEADROOM = 4_096;
 
 /**
- * A complete screenplay or a full scene list can exceed the configured context
- * window. Raise num_ctx to fit the requested output plus prompt headroom, and
- * never lower a larger explicit setting.
+ * Keep num_ctx constant at the configured value to avoid model reloads.
+ * Ollama reloads the model (≈15 s on a 4B model) whenever num_ctx changes
+ * between calls.  Setting only num_predict lets every call reuse the
+ * already-loaded model.  If the configured num_ctx is too small for a
+ * particular output, Ollama truncates and downstream Zod validation
+ * catches the incomplete response.
  */
 function ollamaOptionsWithBudget(
   options: Record<string, unknown>,
@@ -126,8 +129,7 @@ function ollamaOptionsWithBudget(
 ): Record<string, unknown> {
   const configured = Number(options.num_ctx);
   const base = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_OLLAMA_NUM_CTX;
-  const numCtx = Math.min(MAX_STORY_NUM_CTX, Math.max(base, maxCompletionTokens + NUM_CTX_HEADROOM));
-  return { ...options, num_predict: maxCompletionTokens, num_ctx: numCtx };
+  return { ...options, num_predict: maxCompletionTokens, num_ctx: base };
 }
 
 export function ollamaGenerationOptions(env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {

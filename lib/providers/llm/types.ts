@@ -30,6 +30,12 @@ export type StoryPrompt = {
   narrativeAuthority?: string;
   /** Approved Story Bible rendered as readable text — characters, world, narrative direction, themes, boundaries. */
   bibleContext?: string;
+  /**
+   * Unified canon authority section with explicit precedence. When present,
+   * replaces the separate bibleContext, narrativeAuthority, and
+   * continuityContext authoritative labels in the prompt.
+   */
+  authority?: string;
   /** Optional episode scene policy. Duration supplies the range when omitted. */
   sceneRange?: { min: number; max: number } | null;
   /** CASNA Stage G: the approved Season Plan for this series. */

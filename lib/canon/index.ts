@@ -34,4 +34,5 @@ export {
 export { canonFactModel } from "@/lib/canon/model";
 
 export { canonStore, CanonFactConflict } from "@/lib/canon/store";
-export { InMemoryCanonFactStore, CanonFactConflict as InMemoryCanonFactConflict } from "@/lib/canon/inMemoryStore";
+export { InMemoryCanonFactStore, CanonFactConflict as InMemoryCanonFactConflict } from "@/lib/canon/inMemoryStore";export { derivedToCanonState } from "@/lib/canon/bridge";
+export { verifyAgainstCanonLog, type CanonVerificationInput, type CanonVerificationResult } from "@/lib/canon/verifier";export { buildCanonView, buildCanonViewForEpisode, type ViewPurpose, type CanonViewInput, type CanonView } from "@/lib/canon/views";

@@ -723,6 +723,8 @@ async function enforceStoryCanon(
     previousEpisodes,
     canon,
     canonLogState,
+    canonBasedOnBibleVersion: bible?.version,
+    canonBasedOnPlanVersion: seasonPlan?.version,
     structure: story.structure,
     sceneRange: scope.sceneRange,
   });

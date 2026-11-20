@@ -12,6 +12,7 @@ import type { ProjectRecord } from "@/lib/repositories/projectRepository";
 import { compactCasnaPromptContext, type CasnaEpisodeContext } from "@/lib/pipeline/casnaContext";
 import { validateEpisodeScreenplay } from "@/lib/domain/screenplayValidation";
 import { adjudicateCriticFindings, assembleNarrativeContext, canonFromApprovedSources, prepareWorkingCanon, renderNarrativeContext, type CanonPort } from "@/lib/domain/narrativeControl";
+import { buildCanonViewForEpisode } from "@/lib/canon/views";
 import { mergeSceneRepair, repairSceneNumbers } from "@/lib/providers/llm/repairScenes";
 import type { SceneRepairRecord } from "@/lib/validation/story";
 
@@ -186,6 +187,16 @@ export function createLiveEngines(options: {
       const narrativeAuthority = narrativeCanon.facts.length > 0 || narrativeCanon.rules.length > 0
         ? renderNarrativeContext(narrativeCanon, narrativePacket)
         : undefined;
+      const bibleContext = approvedBible?.content ? renderStoryBibleBrief(approvedBible.content) : undefined;
+      const canonView = buildCanonViewForEpisode({
+        bibleContext: bibleContext ?? null,
+        narrativeAuthority: narrativeAuthority ?? null,
+        continuityContext: continuityContext || null,
+        seasonPlan: casnaPrompt?.seasonPlan ?? null,
+        episodePlan: casnaPrompt?.episodePlan ?? null,
+        continuityLedger: casnaPrompt?.continuityLedger ?? null,
+        previousEpisode: casnaPrompt?.previousEpisode ?? null,
+      });
       const generated = await options.llm.generateStory(
         {
           title: run.episode?.title || project.title,
@@ -197,13 +208,11 @@ export function createLiveEngines(options: {
           targetDurationSeconds: run.episode?.targetDurationSeconds ?? project.targetDurationSeconds,
           aspectRatio: project.aspectRatio,
           productionType: project.productionType,
-          continuityContext: continuityContext || undefined,
-          bibleContext: approvedBible?.content ? renderStoryBibleBrief(approvedBible.content) : undefined,
-          seasonPlan: casnaPrompt?.seasonPlan ?? null,
-          episodePlan: casnaPrompt?.episodePlan ?? null,
+          authority: canonView.hasAuthority ? canonView.authority : undefined,
+          seasonPlan: canonView.seasonPlan,
+          episodePlan: canonView.episodePlan,
           continuityLedger: casnaPrompt?.continuityLedger ?? null,
-          previousEpisode: casnaPrompt?.previousEpisode ?? null,
-          narrativeAuthority,
+          previousEpisode: canonView.previousEpisode,
         },
         {
           runId: run.id,

@@ -226,8 +226,8 @@ describe("character and scene stages", () => {
       },
     });
     await engines.run(job("story.generate"), run());
-    expect(captured?.continuityContext).toContain("The old house is never sold");
-    expect(captured?.continuityContext).toContain("Ada's brother left ten years ago");
+    expect(captured?.authority).toContain("The old house is never sold");
+    expect(captured?.authority).toContain("Ada's brother left ten years ago");
   });
 
   it("uses the language provider for characters and scenes, and the mock for video", async () => {

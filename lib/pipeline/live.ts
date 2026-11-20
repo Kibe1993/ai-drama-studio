@@ -102,6 +102,7 @@ function buildLivePipelineDeps(): PipelineDeps {
       onEpisodeApproved: continuityService.onEpisodeApproved,
     },
     narrativeCanon: narrativeCanonRepository,
+    canonFactLog: canonStore,
     queue: connection ? createBullQueue(connection) : unavailableQueue(),
     storyDraftEngine: createStoryDraftEngine(llm, storyRepository, async (job, message) => {
       const current = await generationJobRepository.findById(job.id);

@@ -52,6 +52,10 @@ export type ScreenplayValidationInput = {
    * comprehensive contradiction coverage with error severity.
    */
   canonLogState?: DerivedCanonState | null;
+  /** Bible version the canon fact log was built from. Threaded to the verifier. */
+  canonBasedOnBibleVersion?: number;
+  /** Plan version the canon fact log was built from. Threaded to the verifier. */
+  canonBasedOnPlanVersion?: number;
   /** Act summaries. Compared with the synopsis and the screenplay when present. */
   structure?: StoryStructure | null;
   /** Episode scene policy. Duration is the fallback when this is omitted. */
@@ -559,6 +563,8 @@ export function validateEpisodeScreenplay(
       structure: input.structure ?? null,
       canonState: input.canonLogState,
       requireCanonCoverage: input.requireCanonCoverage,
+      basedOnBibleVersion: input.canonBasedOnBibleVersion,
+      basedOnPlanVersion: input.canonBasedOnPlanVersion,
     });
     narrativeCanonVersion = verification.canonVersion;
     narrativeValidationLayers = verification.layers;

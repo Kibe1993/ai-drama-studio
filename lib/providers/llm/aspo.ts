@@ -22,6 +22,7 @@ export type FailureCategory =
   | "invalid_schema"
   | "truncated_output"
   | "content_validation_error"
+  | "prompt_too_large"
   | "unknown_error";
 
 export type RecoveryStrategy =
@@ -48,6 +49,7 @@ const RECOVERY: Record<FailureCategory, RecoveryStrategy> = {
   invalid_schema: "repair_once",
   truncated_output: "failover",
   content_validation_error: "failover",
+  prompt_too_large: "failover",
   unknown_error: "failover",
 };
 
@@ -159,6 +161,7 @@ function mapJobErrorCode(code: string): FailureCategory {
     empty_response: "empty_response",
     invalid_json: "invalid_json",
     invalid_schema: "invalid_schema",
+    prompt_too_large: "prompt_too_large",
   };
   return map[code] ?? "unknown_error";
 }
@@ -197,14 +200,15 @@ export type ProviderScore = {
 
 const TASK_WINDOW = 20;
 const INITIAL_PRIORITY: Record<string, number> = {
-  groq: 100,
-  openrouter: 90,
-  mistral: 85,
-  gemini: 80,
-  ollama: 70,
-  openai: 60,
-  anthropic: 55,
-  deepseek: 50,
+  gemini: 100,
+  groq: 90,
+  openrouter: 85,
+  openai: 80,
+  deepseek: 75,
+  kimi: 70,
+  mistral: 65,
+  anthropic: 60,
+  ollama: 50,
 };
 
 const LATENCY_WEIGHT = 0.3;
@@ -459,6 +463,7 @@ export function parseCostPolicy(env: Record<string, string | undefined> = proces
       paidProvidersAllowed.add("openai");
       paidProvidersAllowed.add("anthropic");
       paidProvidersAllowed.add("deepseek");
+      paidProvidersAllowed.add("kimi");
     }
   }
 
@@ -475,12 +480,12 @@ export function parseCostPolicy(env: Record<string, string | undefined> = proces
 export function isCostEligible(providerId: string, model: string, policy: CostPolicy): boolean {
   if (policy.disabledProviders.has(providerId)) return false;
   if (policy.mode === "free_only") {
-    const paidIds = ["openai", "anthropic", "deepseek"];
+    const paidIds = ["openai", "anthropic", "deepseek", "kimi"];
     if (paidIds.includes(providerId)) return false;
     return freeModelAllowedCheck(providerId, model);
   }
   if (policy.mode === "paid_enabled") {
-    const paidIds = ["openai", "anthropic", "deepseek"];
+    const paidIds = ["openai", "anthropic", "deepseek", "kimi"];
     if (paidIds.includes(providerId)) {
       return policy.paidProvidersAllowed.has(providerId);
     }

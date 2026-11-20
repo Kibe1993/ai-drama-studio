@@ -1,4 +1,4 @@
-export const PAID_PROVIDER_IDS = ["openai", "anthropic", "deepseek"] as const;
+export const PAID_PROVIDER_IDS = ["openai", "anthropic", "deepseek", "kimi"] as const;
 
 /** Official Gemini pricing lists these input and output prices as "Free of charge". */
 export const FREE_GEMINI_MODELS = ["gemini-3.8-flash", "gemini-3.6-flash"] as const;

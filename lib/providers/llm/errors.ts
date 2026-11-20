@@ -124,6 +124,11 @@ export function classifyProviderError(providerName: string, error: unknown): Cla
   }
   // Groq rejects requests over a per-minute token budget with HTTP 413 and a
   // "tokens per minute (TPM)" detail; that is rate limiting, not a bad request.
+  // A plain 413 without rate-limit text means the prompt itself is too large
+  // for the provider's context window — do not retry with the same prompt.
+  if (status === 413 && !/tokens per minute|rate limit|too many requests|resource_exhausted/i.test(detail)) {
+    return named(`${providerName} rejected the prompt as too large. ${detail}`, "prompt_too_large", false);
+  }
   if (status === 429 || /resource_exhausted|rate limit|too many requests|tokens per minute/i.test(detail)) {
     return named(`${providerName} rate limit reached. The story will be retried.`, "rate_limited", true);
   }

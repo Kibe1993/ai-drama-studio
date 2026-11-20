@@ -158,7 +158,7 @@ describe("Ollama last-resort fallback", () => {
     expect(ollama).not.toHaveBeenCalled();
   });
 
-  it("retry pass bypasses health tracker circuit breaker", async () => {
+  it("retry pass respects health tracker circuit breaker", async () => {
     const healthTracker = new ProviderHealthTracker();
     let groqCalls = 0;
     const groq = vi.fn(async () => {
@@ -176,10 +176,9 @@ describe("Ollama last-resort fallback", () => {
       { healthTracker }
     ).generateStory(prompt);
 
-    expect(result.provider).toBe("groq");
-    expect(result.title).toBe("Groq recovered on retry");
-    expect(groq).toHaveBeenCalledTimes(2);
-    expect(ollama).not.toHaveBeenCalled();
+    expect(result.provider).toBe("ollama");
+    expect(groq).toHaveBeenCalledTimes(1);
+    expect(ollama).toHaveBeenCalledTimes(1);
   });
 
   it("throws when all providers fail including Ollama on both passes", async () => {

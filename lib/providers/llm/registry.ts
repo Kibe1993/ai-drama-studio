@@ -9,6 +9,7 @@ import {
 } from "@/lib/providers/llm/freePolicy";
 import { createGeminiProvider, DEFAULT_LLM_MODEL } from "@/lib/providers/llm/gemini";
 import { createGroqProvider } from "@/lib/providers/llm/groq";
+import { createKimiProvider, DEFAULT_KIMI_MODEL } from "@/lib/providers/llm/kimi";
 import { StoryProviderManager, type ProviderSlot, ProviderHealthTracker } from "@/lib/providers/llm/manager";
 import { createMistralProvider } from "@/lib/providers/llm/mistral";
 import {
@@ -40,6 +41,7 @@ export const LLM_PROVIDER_IDS = [
   "openai",
   "anthropic",
   "deepseek",
+  "kimi",
 ] as const;
 export type LlmProviderId = (typeof LLM_PROVIDER_IDS)[number];
 
@@ -52,6 +54,7 @@ const DEFAULT_MODELS: Record<LlmProviderId, string> = {
   openai: DEFAULT_OPENAI_MODEL,
   anthropic: DEFAULT_ANTHROPIC_MODEL,
   deepseek: DEFAULT_DEEPSEEK_MODEL,
+  kimi: DEFAULT_KIMI_MODEL,
 };
 
 const KEY_NAMES: Record<LlmProviderId, string> = {
@@ -63,6 +66,7 @@ const KEY_NAMES: Record<LlmProviderId, string> = {
   openai: "OPENAI_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
   deepseek: "DEEPSEEK_API_KEY",
+  kimi: "KIMI_API_KEY",
 };
 
 function known(value: string): value is LlmProviderId {
@@ -74,8 +78,8 @@ export function providerSequence(env?: {
   LLM_FALLBACK_PROVIDERS?: string;
 }): string[] {
   const source = env ?? process.env;
-  const primary = source.LLM_PROVIDER?.trim().toLowerCase() || "ollama";
-  const defaultFallbacks = "groq,openrouter,mistral,gemini,openai,anthropic,deepseek";
+  const primary = source.LLM_PROVIDER?.trim().toLowerCase() || "gemini";
+  const defaultFallbacks = "groq,openrouter,mistral,openai,deepseek,kimi,anthropic,ollama";
   const rawFallbacks = source.LLM_FALLBACK_PROVIDERS !== undefined
     ? source.LLM_FALLBACK_PROVIDERS
     : defaultFallbacks;
@@ -126,11 +130,12 @@ function adapter(id: LlmProviderId, model: string, env: NodeJS.ProcessEnv): LLMP
   if (id === "mistral") return createMistralProvider(model);
   if (id === "openai") return createOpenAIProvider(model);
   if (id === "anthropic") return createAnthropicProvider(model);
+  if (id === "kimi") return createKimiProvider(model);
   return createDeepSeekProvider(model);
 }
 
 export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[] {
-  const primary = env.LLM_PROVIDER?.trim().toLowerCase() || "ollama";
+  const primary = env.LLM_PROVIDER?.trim().toLowerCase() || "gemini";
   const freeOnly = isFreeOnly(env);
   return providerSequence({
     LLM_PROVIDER: env.LLM_PROVIDER,
@@ -159,7 +164,7 @@ export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[]
       supported: !blocked,
       reason: blocked ?? undefined,
       timeoutMs: id === "ollama"
-        ? Math.max(ollamaTimeoutMs(env), ollamaSectionTimeoutMs(env))
+        ? ollamaTimeoutMs(env)
         : id === "openrouter"
           ? openRouterTimeoutMs(env)
           : undefined,
@@ -276,14 +281,15 @@ export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[]
 const sharedHealthTracker = new ProviderHealthTracker();
 
 const BASE_INITIAL_PRIORITY: Record<string, number> = {
-  groq: 100,
-  openrouter: 90,
-  mistral: 85,
-  gemini: 80,
-  ollama: 70,
-  openai: 60,
-  anthropic: 55,
-  deepseek: 50,
+  gemini: 100,
+  groq: 90,
+  openrouter: 85,
+  openai: 80,
+  deepseek: 75,
+  kimi: 70,
+  mistral: 65,
+  anthropic: 60,
+  ollama: 50,
 };
 
 function initialPriorityFor(primary: string): Record<string, number> {
@@ -291,7 +297,7 @@ function initialPriorityFor(primary: string): Record<string, number> {
 }
 
 export function createStoryProvider(env: NodeJS.ProcessEnv = process.env): LLMProvider {
-  const primary = env.LLM_PROVIDER?.trim().toLowerCase() || "ollama";
+  const primary = env.LLM_PROVIDER?.trim().toLowerCase() || "gemini";
   const availabilityManager = new ProviderAvailabilityManager({
     initialPriority: initialPriorityFor(primary),
   });
@@ -310,7 +316,7 @@ export function describeLlmSetup(env: NodeJS.ProcessEnv = process.env) {
     LLM_PROVIDER: env.LLM_PROVIDER,
     LLM_FALLBACK_PROVIDERS: env.LLM_FALLBACK_PROVIDERS,
   });
-  const primary = sequence[0] ?? "ollama";
+  const primary = sequence[0] ?? "gemini";
   const freeOnly = isFreeOnly(env);
   return LLM_PROVIDER_IDS.map((id) => {
     const model = modelFor(id, env, primary);
@@ -332,7 +338,7 @@ export function logLlmSetup(env: NodeJS.ProcessEnv = process.env): void {
     LLM_FALLBACK_PROVIDERS: env.LLM_FALLBACK_PROVIDERS,
   });
   const freeOnly = isFreeOnly(env);
-  const recognized = sequence.filter((id) => known(id) && !providerBlockedReason(id, modelFor(id, env, sequence[0] ?? "ollama"), freeOnly));
+  const recognized = sequence.filter((id) => known(id) && !providerBlockedReason(id, modelFor(id, env, sequence[0] ?? "gemini"), freeOnly));
   log.info("llm", "startup sequence", {
     order: recognized.join(","),
     freeOnly,

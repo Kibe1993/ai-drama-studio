@@ -78,6 +78,7 @@ export const FAILOVER_CODES = new Set([
   "authentication_error",
   "permission_error",
   "connection_error",
+  "prompt_too_large",
 ]);
 
 const TRANSPORT_CODES = new Set(["rate_limited", "timeout", "provider_unavailable", "quota_exhausted", "connection_error", "provider_overloaded"]);
@@ -100,6 +101,7 @@ const COOLDOWN_MS: Record<string, number> = {
   authentication_error: 300_000,
   permission_error: 300_000,
   connection_error: 15_000,
+  prompt_too_large: 5_000,
 };
 
 function cooldownFor(code: string): number {
@@ -238,6 +240,7 @@ function providerLabel(id: string): string {
   if (id === "groq") return "Groq";
   if (id === "openrouter") return "OpenRouter";
   if (id === "mistral") return "Mistral";
+  if (id === "kimi") return "Kimi";
   return id;
 }
 
@@ -700,23 +703,15 @@ export class StoryProviderManager implements LLMProvider {
       }
       const isRetryPass = retryStartIndex >= 0 && index >= retryStartIndex && index < ollamaStartIndex;
       if (aspo && !aspo.isAvailable(slot.id)) {
-        if (isRetryPass) {
-          log.info("llm", "retry pass bypasses circuit breaker", { provider: slot.id, task });
-        } else {
-          const cooldown = aspo.getCooldownRemaining(slot.id);
-          log.info("llm", "provider skipped (aspo unavailable)", { provider: slot.id, task, cooldownMs: cooldown });
-          attempts.push(record(slot, 0, false, "circuit_breaker", null, index > 0));
-          continue;
-        }
+        const cooldown = aspo.getCooldownRemaining(slot.id);
+        log.info("llm", "provider skipped (aspo unavailable)", { provider: slot.id, task, cooldownMs: cooldown, retryPass: isRetryPass });
+        attempts.push(record(slot, 0, false, "circuit_breaker", null, index > 0));
+        continue;
       }
       if (!aspo && this.options.healthTracker && !this.options.healthTracker.isHealthy(slot.id)) {
-        if (isRetryPass) {
-          log.info("llm", "retry pass bypasses circuit breaker", { provider: slot.id, task });
-        } else {
-          log.info("llm", "provider skipped (circuit breaker)", { provider: slot.id, task });
-          attempts.push(record(slot, 0, false, "circuit_breaker", null, index > 0));
-          continue;
-        }
+        log.info("llm", "provider skipped (circuit breaker)", { provider: slot.id, task, retryPass: isRetryPass });
+        attempts.push(record(slot, 0, false, "circuit_breaker", null, index > 0));
+        continue;
       }
 
       // Share the remaining bounded sequence budget with configured providers

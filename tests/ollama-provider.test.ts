@@ -666,13 +666,13 @@ describe("Provider priority and failover", () => {
     });
   }
 
-  it("has Ollama as primary with all configured providers as fallbacks", () => {
+  it("has Gemini as primary with all configured providers as fallbacks", () => {
     const sequence = providerSequence({});
-    expect(sequence).toEqual(["ollama", "groq", "openrouter", "mistral", "gemini", "openai", "anthropic", "deepseek"]);
+    expect(sequence).toEqual(["gemini", "groq", "openrouter", "mistral", "openai", "deepseek", "kimi", "anthropic", "ollama"]);
   });
 
-  it("builds slots with Ollama as primary and configured without API key", () => {
-    const slots = buildSlots(env());
+  it("builds slots with Ollama as primary when explicitly configured", () => {
+    const slots = buildSlots(env({ LLM_PROVIDER: "ollama" }));
     expect(slots[0]?.id).toBe("ollama");
     expect(slots[0]?.configured).toBe(true);
     expect(slots[0]?.supported).toBe(true);

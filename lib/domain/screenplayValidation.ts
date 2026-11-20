@@ -10,6 +10,8 @@ import { resolveSceneRange, type SceneRange } from "@/lib/providers/llm/budget";
 import { resolveCanonicalId, hasAppearedBy, isIntroducedBy } from "@/lib/domain/canonicalRegistry";
 import { continuityCheckFindings } from "@/lib/domain/continuityChecks";
 import { createHash } from "node:crypto";
+import type { DerivedCanonState } from "@/lib/canon/schema";
+import { verifyAgainstCanonLog } from "@/lib/canon/verifier";
 
 /**
  * CASNA Stage H: validate a completed screenplay against the approved canon,
@@ -43,6 +45,13 @@ export type ScreenplayValidationInput = {
   registry?: CanonicalEntityRegistry;
   /** Application canon. When present, disclosure and lifecycle checks run against it. */
   canon?: CanonState | null;
+  /**
+   * Authoritative canon derived from the append-only fact log. When present,
+   * the dedicated canon-log verifier runs against the reconstructed CanonState
+   * and shallow continuity checks are skipped — the verifier provides
+   * comprehensive contradiction coverage with error severity.
+   */
+  canonLogState?: DerivedCanonState | null;
   /** Act summaries. Compared with the synopsis and the screenplay when present. */
   structure?: StoryStructure | null;
   /** Episode scene policy. Duration is the fallback when this is omitted. */
@@ -404,20 +413,24 @@ export function validateEpisodeScreenplay(
   }
 
   // -- Continuity --------------------------------------------------------
-  const consequenceText = (input.ledger?.consequences ?? []).join(" ");
-  if (consequenceText.trim()) {
-    const overlap = jaccard(words(consequenceText), words(fullText));
-    if (overlap === 0) {
-      findings.push({
-        category: "continuity",
-        severity: "warning",
-        message: "The episode does not visibly carry any active consequence from the Continuity Ledger.",
-      });
+  // When the canon-log verifier is active, it provides comprehensive
+  // contradiction coverage — skip the shallow continuity checks.
+  if (!input.canonLogState) {
+    const consequenceText = (input.ledger?.consequences ?? []).join(" ");
+    if (consequenceText.trim()) {
+      const overlap = jaccard(words(consequenceText), words(fullText));
+      if (overlap === 0) {
+        findings.push({
+          category: "continuity",
+          severity: "warning",
+          message: "The episode does not visibly carry any active consequence from the Continuity Ledger.",
+        });
+      }
     }
-  }
-  if (input.ledger) {
-    for (const finding of continuityCheckFindings(input.ledger, screenplay)) {
-      findings.push(finding);
+    if (input.ledger) {
+      for (const finding of continuityCheckFindings(input.ledger, screenplay)) {
+        findings.push(finding);
+      }
     }
   }
 
@@ -538,7 +551,26 @@ export function validateEpisodeScreenplay(
   let narrativeCanonVersion: number | undefined;
   let narrativeValidationLayers: EpisodeValidation["narrativeValidationLayers"];
   let narrativeDecision: EpisodeValidation["narrativeDecision"];
-  if (input.canon) {
+  if (input.canonLogState) {
+    const verification = verifyAgainstCanonLog({
+      episodeNumber: input.episodeNumber,
+      synopsis: input.story.synopsis,
+      screenplay,
+      structure: input.structure ?? null,
+      canonState: input.canonLogState,
+      requireCanonCoverage: input.requireCanonCoverage,
+    });
+    narrativeCanonVersion = verification.canonVersion;
+    narrativeValidationLayers = verification.layers;
+    narrativeDecision = verification.decision;
+    for (const finding of verification.findings) {
+      const mapped = toEpisodeFinding(finding);
+      if (mapped) findings.push(mapped);
+    }
+    if (narrativeDecision === "approve" && findings.some((finding) => finding.severity === "error")) {
+      narrativeDecision = "reject";
+    }
+  } else if (input.canon) {
     const actText = input.structure ? actSummary(input.structure) : "";
     const spoken = screenplay.map(spokenSceneText).join("\n");
     const proposedContent = [input.story.synopsis, actText, spoken].filter(Boolean).join("\n");

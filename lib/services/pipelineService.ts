@@ -685,7 +685,11 @@ async function enforceStoryCanon(
   if (!deps.bibles?.findApproved && !deps.narrativeCanon) return null;
   const bible = await deps.bibles?.findApproved?.(clerkUserId, projectId) ?? null;
   const canon = await workingCanonFor(deps, clerkUserId, projectId, bible?.content, bible?.version ?? 0);
-  if (!canon || (canon.facts.length === 0 && canon.rules.length === 0)) return null;
+  const canonLogState = deps.canonFactLog
+    ? await deps.canonFactLog.latestState(clerkUserId, projectId).catch(() => null)
+    : null;
+  if (!canon && !canonLogState) return null;
+  if (!canonLogState && canon && canon.facts.length === 0 && canon.rules.length === 0) return null;
   let seasonPlan = null;
   let episodePlan = null;
   let ledger = null;
@@ -718,11 +722,12 @@ async function enforceStoryCanon(
     ledger,
     previousEpisodes,
     canon,
+    canonLogState,
     structure: story.structure,
     sceneRange: scope.sceneRange,
   });
   if (!validation.passed) return validation;
-  if (deps.narrativeCanon) {
+  if (deps.narrativeCanon && canon) {
     const committed = await resolveWorkingCanon({
       clerkUserId,
       projectId,

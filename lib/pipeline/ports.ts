@@ -9,6 +9,7 @@ import type { SceneEdit, SceneRecord } from "@/lib/validation/scene";
 import type { CharacterProfile } from "@/lib/validation/productionStages";
 import type { CasnaEpisodeContext } from "@/lib/pipeline/casnaContext";
 import type { CanonPort } from "@/lib/domain/narrativeControl";
+import type { DerivedCanonState } from "@/lib/canon/schema";
 
 export type ProjectPort = {
   findOwned(clerkUserId: string, id: string): Promise<ProjectRecord | null>;
@@ -121,6 +122,10 @@ export type PipelineDeps = {
   casna?: CasnaPort;
   /** Versioned narrative canon. Generation prepares it; approval commits it. */
   narrativeCanon?: CanonPort;
+  /** Append-only canon fact log. When present, the verifier uses the authoritative derived state. */
+  canonFactLog?: {
+    latestState(clerkUserId: string, projectId: string): Promise<DerivedCanonState | null>;
+  };
   storyDraftEngine?: {
     run(job: JobRecord, project: ProjectRecord): Promise<Record<string, unknown>>;
   };

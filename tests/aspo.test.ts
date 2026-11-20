@@ -535,4 +535,39 @@ describe("ASPO: availability manager", () => {
     ]);
     expect(order).toEqual(["ollama", "groq", "openrouter"]);
   });
+
+  it("selectOrder includes cooldown providers sorted last", () => {
+    const manager = new ProviderAvailabilityManager({
+      initialPriority: { ollama: 110, groq: 100, openrouter: 90 },
+    });
+    manager.registerProvider("ollama", "qwen3:4b", true);
+    manager.registerProvider("groq", "openai/gpt-oss-20b", true);
+    manager.registerProvider("openrouter", "openrouter/free", true);
+    manager.recordFailure("ollama", "story_bible", "connection_error", 1000);
+    expect(manager.isAvailable("ollama")).toBe(false);
+    const order = manager.selectOrder("story_bible", [
+      { providerId: "groq", configured: true, supported: true, costEligible: true },
+      { providerId: "ollama", configured: true, supported: true, costEligible: true },
+      { providerId: "openrouter", configured: true, supported: true, costEligible: true },
+    ]);
+    expect(order).toEqual(["groq", "openrouter", "ollama"]);
+  });
+
+  it("selectOrder excludes permanently skipped providers but includes cooldown", () => {
+    const manager = new ProviderAvailabilityManager({
+      initialPriority: { ollama: 110, groq: 100, openrouter: 90 },
+    });
+    manager.registerProvider("ollama", "qwen3:4b", true);
+    manager.registerProvider("groq", "openai/gpt-oss-20b", true);
+    manager.registerProvider("openrouter", "openrouter/free", true);
+    manager.recordFailure("groq", "story", "authentication_error", 100);
+    manager.recordFailure("ollama", "story", "connection_error", 1000);
+    const order = manager.selectOrder("story", [
+      { providerId: "groq", configured: true, supported: true, costEligible: true },
+      { providerId: "ollama", configured: true, supported: true, costEligible: true },
+      { providerId: "openrouter", configured: true, supported: true, costEligible: true },
+    ]);
+    expect(order).toEqual(["openrouter", "ollama"]);
+    expect(order).not.toContain("groq");
+  });
 });

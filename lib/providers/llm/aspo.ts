@@ -381,8 +381,15 @@ export class ProviderAvailabilityManager {
     }>,
   ): string[] {
     const { scores } = this.selectProvider(task, candidates);
-    const eligible = scores.filter((s) => s.eligible).sort((a, b) => b.score - a.score);
-    return eligible.map((s) => s.providerId);
+    return scores
+      .filter((s) => s.eligible || (s.reason?.startsWith("cooldown_") ?? false))
+      .sort((a, b) => {
+        const aCooldown = a.reason?.startsWith("cooldown_") ? 1 : 0;
+        const bCooldown = b.reason?.startsWith("cooldown_") ? 1 : 0;
+        if (aCooldown !== bCooldown) return aCooldown - bCooldown;
+        return b.score - a.score;
+      })
+      .map((s) => s.providerId);
   }
 
   private getOrCreate(providerId: string): ProviderStats {

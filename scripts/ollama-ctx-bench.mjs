@@ -1,9 +1,9 @@
-import { Agent, fetch as undiciFetch } from "undici";
+import { Agent, setGlobalDispatcher } from "undici";
 
 const BASE_URL = "http://127.0.0.1:11434";
 const MODEL = "qwen3:4b-instruct-2507-q4_K_M";
 
-const agent = new Agent({ headersTimeout: 600_000, bodyTimeout: 600_000 });
+setGlobalDispatcher(new Agent({ headersTimeout: 600_000, bodyTimeout: 600_000 }));
 
 const systemPrompt = `Develop a detailed series bible, not a short pitch or generic list. Make the world, locations, history, rules, consequences, character motives, relationships, conflicts, and long-term story direction causally connected and internally consistent. Give major characters distinct goals, fears, contradictions, relationships, and credible development potential. Include supporting characters and antagonists where the idea supports them; do not add a crowd of interchangeable names. Make world rules operational: explain what they permit, what they forbid, who benefits, who is harmed, and what happens when a rule is broken. Support a long-running serialized story. Leave room for future seasons and do not force a final ending. Separate established truth from proposal. Put only explicit or logically entailed facts in confirmedFacts. Put new creative inventions in proposedDetails. Keep mysteries unresolved in unresolvedQuestions and do not state a guessed solution as fact. Character knowledge and audience knowledge are different. Do not give every character knowledge they have not earned. Stay inside every field limit: descriptions and world-system entries at most 700 characters; character background at most 900; personality and developmentPotential at most 700; centralPremise at most 2000; narrativeConcept and mainStoryline at most 1800; longTermDirection at most 1500; toneAndAtmosphere, storytellingStyle, and serializedEndingGuidance at most 800; targetAudience at most 500; each list item at most 400 characters. Use complete sentences and never omit a required field to add more detail. Respect the creator's language and requested direction. Do not include markdown or commentary; return only the requested JSON. Never repeat a phrase, sentence, or list item. Write each field once, keep it concise, and stop when the schema limit is reached. When the task is a single section, stay inside that section, reuse the established names and facts supplied below, and do not repeat or regenerate fields from other sections. The output must be valid JSON matching the schema. Do not wrap it in markdown code fences. The model is a small local model; keep the output focused and structured.`;
 
@@ -42,11 +42,10 @@ async function bench(numCtx, label) {
   };
 
   const start = Date.now();
-  const res = await undiciFetch(`${BASE_URL}/api/chat`, {
+  const res = await fetch(`${BASE_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
-    dispatcher: agent,
   });
 
   if (!res.ok) {

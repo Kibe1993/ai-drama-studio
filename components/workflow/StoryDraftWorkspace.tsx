@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ApiError } from "@/hooks/api";
 import {
   useApproveStoryDraft,
+  useCancelStoryDraft,
   useStartStoryDraft,
   useStoryDraft,
   useStoryDraftJob,
@@ -23,6 +24,7 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
   const query = useStoryDraft(projectId);
   const start = useStartStoryDraft(projectId);
   const approve = useApproveStoryDraft(projectId);
+  const cancel = useCancelStoryDraft(projectId);
   const [instruction, setInstruction] = useState("");
 
   const story = query.data?.story ?? null;
@@ -35,7 +37,7 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
     activeJob?.status === "queued" || activeJob?.status === "processing";
   const isFailed = activeJob?.status === "failed" || story?.status === "failed";
   const isApproved = story?.status === "approved";
-  const pending = start.isPending || approve.isPending || revalidate.isPending || isGenerating;
+  const pending = start.isPending || approve.isPending || revalidate.isPending || cancel.isPending || isGenerating;
 
   const validationFindings = story?.validationFindings;
   const hasValidationErrors = Boolean(
@@ -91,6 +93,12 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
           <p role="status" className="text-sm text-[#dfc18a]">
             {activeJob.progress?.message ?? "Generating story draft…"}
           </p>
+          <StoryDraftPartsProgress output={activeJob.output} />
+          <div className="mt-3">
+            <Button variant="quiet" disabled={cancel.isPending} onClick={() => cancel.mutate(activeJob.id)}>
+              {cancel.isPending ? "Cancelling…" : "Cancel generation"}
+            </Button>
+          </div>
         </div>
       ) : null}
 
@@ -264,5 +272,56 @@ export function StoryDraftWorkspace({ project }: { project: Project }) {
         </p>
       ) : null}
     </div>
+  );
+}
+const PARTS = [
+  "opening",
+  "inciting_incident",
+  "investigation",
+  "escalation",
+  "climax",
+  "resolution",
+] as const;
+
+const PART_LABELS: Record<string, string> = {
+  opening: "Opening",
+  inciting_incident: "Inciting Incident",
+  investigation: "Investigation",
+  escalation: "Escalation",
+  climax: "Climax",
+  resolution: "Resolution",
+};
+
+function StoryDraftPartsProgress({ output }: { output: Record<string, unknown> | null | undefined }) {
+  if (!output?.storyDraftParts || typeof output.storyDraftParts !== "object") return null;
+  const state = output.storyDraftParts as {
+    parts?: Record<string, unknown>;
+    failedPart?: string;
+  };
+  const completedParts = state.parts ?? {};
+  const completedCount = Object.keys(completedParts).length;
+  const failedPart = state.failedPart;
+
+  return (
+    <ol className="mt-3 grid gap-1">
+      {PARTS.map((part, i) => {
+        const isCompleted = Boolean(completedParts[part]);
+        const isFailed = failedPart === part;
+        const isCurrent = !isCompleted && !isFailed && completedCount === i;
+        const marker = isCompleted ? "\u2713" : isFailed ? "\u2717" : isCurrent ? "\u2026" : "\u25CB";
+        const className = isCompleted
+          ? "text-[#7a9a6a]"
+          : isFailed
+          ? "text-[#e7b2a8]"
+          : isCurrent
+          ? "text-[#dfc18a]"
+          : "text-[#a39b8f]";
+        return (
+          <li key={part} className={`text-xs ${className}`}>
+            {marker} {PART_LABELS[part]}
+          </li>
+        );
+      })}
+    </ol>
   );
 }

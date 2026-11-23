@@ -228,7 +228,7 @@ describe("sectioned Story Bible generation", () => {
       }),
     } as unknown as ProviderSlot;
     const manager = new StoryProviderManager({
-      slots: [ollamaSlot, groqSlot],
+      slots: [groqSlot, ollamaSlot],
       freeOnly: true,
       sequenceTimeoutMs: 60_000,
       providerTimeoutMs: 10_000,

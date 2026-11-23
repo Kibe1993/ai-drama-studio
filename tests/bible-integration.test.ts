@@ -429,7 +429,7 @@ describe("Candidate-aware revision", () => {
     );
     await engine.run(job("generate"), project());
     expect(prompts.length).toBeGreaterThanOrEqual(2);
-    const revisionPrompt = storyUserPrompt(prompts[1]!);
+    const revisionPrompt = storyUserPrompt(prompts[prompts.length - 1]!);
     expect(revisionPrompt).toContain("Title: The Eleventh Hour");
     expect(revisionPrompt).toContain("Synopsis:");
     expect(revisionPrompt).toContain("Act 1");
@@ -453,7 +453,7 @@ describe("Candidate-aware revision", () => {
     );
     await engine.run(job("generate"), project());
     expect(prompts.length).toBeGreaterThanOrEqual(2);
-    const revisionPrompt = storyUserPrompt(prompts[1]!);
+    const revisionPrompt = storyUserPrompt(prompts[prompts.length - 1]!);
     expect(revisionPrompt).toContain("Defects to fix");
     expect(revisionPrompt).toContain("Preservation requirements");
     expect(revisionPrompt).toContain("Preserve the story's central premise");
@@ -472,7 +472,7 @@ describe("Candidate-aware revision", () => {
     );
     await engine.run(job("generate"), project());
     expect(prompts.length).toBeGreaterThanOrEqual(2);
-    const revisionPrompt = storyUserPrompt(prompts[1]!);
+    const revisionPrompt = storyUserPrompt(prompts[prompts.length - 1]!);
     expect(revisionPrompt).toContain("A coastal town bound to a lighthouse");
     expect(revisionPrompt).toContain("Guarded and determined");
   });

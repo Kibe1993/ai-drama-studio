@@ -59,6 +59,7 @@ import { seasonPlanSchema, type SeasonPlan, type EpisodePlanItem, seasonArchitec
 export const DEFAULT_SEQUENCE_TIMEOUT_MS = 300_000;
 export const DEFAULT_PROVIDER_TIMEOUT_MS = 90_000;
 const MINIMUM_ATTEMPT_MS = 100;
+const EMPTY_FIELD_RETRY_HINT = "Every required text field must be non-empty. Do not use empty strings for any required field.";
 
 export const FAILOVER_CODES = new Set([
   "rate_limited",
@@ -155,6 +156,7 @@ export type ProviderSlot = {
   reason?: string;
   timeoutMs?: number;
   sectionTimeoutMs?: number;
+  storyTimeoutMs?: number;
   generate(
     input: StoryPrompt,
     options: { signal: AbortSignal }
@@ -272,25 +274,38 @@ export class StoryProviderManager implements LLMProvider {
 
   async generateStory(input: StoryPrompt, context: StoryCallOptions = {}): Promise<StoryModelResult> {
     const result = await this.runSequence(context, "story", "Generating story", async (slot, signal) => {
-      const generated = await slot.generate(input, { signal });
-      const parsed = generatedStorySchema.safeParse(generated.story);
-      if (!parsed.success) {
-        throw new JobError(
-          `${providerLabel(slot.id)} returned a story that did not match the screenplay schema.`,
-          "invalid_schema",
-          false
-        );
+      const tryGenerate = async (generateInput: StoryPrompt): Promise<{ value: GeneratedStory; usage?: TokenUsage }> => {
+        const generated = await slot.generate(generateInput, { signal });
+        const parsed = generatedStorySchema.safeParse(generated.story);
+        if (!parsed.success) {
+          const emptyField = parsed.error.issues.some(
+            (i) => i.code === "too_small" && (i as { type?: string }).type === "string" && (i as { minimum?: number }).minimum === 1
+          );
+          throw new JobError(
+            `${providerLabel(slot.id)} returned a story that did not match the screenplay schema.`,
+            "invalid_schema",
+            false,
+            emptyField ? { emptyField: true } : undefined
+          );
+        }
+        const extended = await extendScreenplay(slot, generateInput, parsed.data.screenplay, generated.usage, generated.truncated, signal);
+        assertScreenplayPacing(generateInput.targetDurationSeconds, extended.screenplay);
+        return { value: { ...parsed.data, screenplay: extended.screenplay }, usage: extended.usage };
+      };
+
+      try {
+        return await tryGenerate(input);
+      } catch (error) {
+        if (error instanceof JobError && error.code === "invalid_schema" && error.details?.emptyField) {
+          const retryInput: StoryPrompt = {
+            ...input,
+            continuityContext: [input.continuityContext, EMPTY_FIELD_RETRY_HINT].filter(Boolean).join("\n\n"),
+          };
+          log.info("llm", "retrying with empty-field hint", { provider: slot.id, task: "story" });
+          return await tryGenerate(retryInput);
+        }
+        throw error;
       }
-      // If the provider stopped short — either below the pacing floor or at its
-      // own output ceiling — ask the same provider to continue from the last
-      // scene it wrote before giving up on it. One response is no longer the
-      // ceiling on how long the episode can be.
-      const extended = await extendScreenplay(slot, input, parsed.data.screenplay, generated.usage, generated.truncated, signal);
-      // A screenplay that is still too short for its requested duration is
-      // incomplete, not a valid episode. Throwing here fails over to the next
-      // provider instead of saving a one-scene episode.
-      assertScreenplayPacing(input.targetDurationSeconds, extended.screenplay);
-      return { value: { ...parsed.data, screenplay: extended.screenplay }, usage: extended.usage };
     });
     return { ...result.value, provider: result.provider, model: result.model, fallbackFrom: result.fallbackFrom, attempts: result.attempts, usage: result.usage };
   }
@@ -365,7 +380,7 @@ export class StoryProviderManager implements LLMProvider {
         );
       }
       return { value: parsed.data, usage: generated.usage };
-    });
+    }, (slot) => Boolean(slot.generateEpisodeSuggestion));
     return {
       suggestion: result.value,
       provider: result.provider,
@@ -617,14 +632,33 @@ export class StoryProviderManager implements LLMProvider {
     // fallback after every other provider has been retried once (two
     // passes total). This avoids spending the sequence budget on Ollama
     // when a faster cloud provider may recover on a second attempt.
+    //
+    // When Ollama is the explicitly configured primary provider
+    // (LLM_PROVIDER=ollama, i.e. the first slot), respect the user's
+    // intent and skip the last-resort reordering so Ollama is tried in
+    // its natural position within the ASPO-ordered sequence.
+    const ollamaIsPrimary = baseSlots[0]?.id === "ollama";
     const ollamaSlots = slots.filter((s) => s.id === "ollama");
     const nonOllamaSlots = slots.filter((s) => s.id !== "ollama");
     let retryStartIndex = -1;
     let ollamaStartIndex = -1;
-    if (ollamaSlots.length > 0 && nonOllamaSlots.length > 0) {
+    if (!ollamaIsPrimary && ollamaSlots.length > 0 && nonOllamaSlots.length > 0) {
       retryStartIndex = nonOllamaSlots.length;
       ollamaStartIndex = nonOllamaSlots.length * 2;
       slots = [...nonOllamaSlots, ...nonOllamaSlots, ...ollamaSlots];
+    }
+    // When a previous call in the same workflow succeeded with a specific
+    // provider (e.g. sequential story draft parts), try that provider first
+    // to avoid re-running the full fallback sequence for every part.
+    const preferred = context.preferredProvider;
+    if (preferred && slots.length > 1) {
+      const preferredSlots = slots.filter((s) => s.id === preferred);
+      const otherSlots = slots.filter((s) => s.id !== preferred);
+      if (preferredSlots.length > 0 && otherSlots.length > 0) {
+        slots = [...preferredSlots, ...otherSlots];
+        retryStartIndex = -1;
+        ollamaStartIndex = -1;
+      }
     }
     if (slots.length === 0) {
       throw new LlmSequenceError(
@@ -636,8 +670,19 @@ export class StoryProviderManager implements LLMProvider {
         []
       );
     }
-    const sequenceMs = this.options.sequenceTimeoutMs ?? context.sequenceTimeoutMs ?? sequenceTimeoutMs();
+    const baseSequenceMs = this.options.sequenceTimeoutMs ?? context.sequenceTimeoutMs ?? sequenceTimeoutMs();
     const providerCap = this.options.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
+    // Story Draft on a local 4B model can spend several minutes in prompt_eval.
+    // The default sequence cap (300 s) would truncate the story timeout budget
+    // before the per-attempt signal fires. Raise the sequence deadline to
+    // accommodate the largest story timeout across eligible slots so the
+    // per-attempt signal is the sole authority for story cancellation.
+    const storyMaxMs = task === "story"
+      ? slots
+          .filter((s) => s.supported !== false && s.configured)
+          .reduce((max, s) => Math.max(max, s.storyTimeoutMs ?? 0), 0)
+      : 0;
+    const sequenceMs = Math.max(baseSequenceMs, storyMaxMs);
     const deadline = Date.now() + sequenceMs;
     const attempts: AttemptRecord[] = [];
     let last: JobError | null = null;
@@ -689,18 +734,16 @@ export class StoryProviderManager implements LLMProvider {
         continue;
       }
       if (!slot.configured) {
-        if (index === 0) {
+        if (index === 0 && slot.id !== "ollama") {
           throw new LlmSequenceError(
-            slot.id === "ollama"
-              ? "Ollama is selected but disabled. Set a different LLM_PROVIDER or re-enable Ollama."
-              : `${providerLabel(slot.id)} is selected but its API key is not set.`,
+            `${providerLabel(slot.id)} is selected but its API key is not set.`,
             "configuration",
             false,
             attempts
           );
         }
         log.info("llm", "fallback skipped", { provider: slot.id, reason: "missing_credentials" });
-        attempts.push(record(slot, 0, false, "configuration", null, true));
+        attempts.push(record(slot, 0, false, "configuration", null, index > 0));
         continue;
       }
       const isRetryPass = retryStartIndex >= 0 && index >= retryStartIndex && index < ollamaStartIndex;
@@ -719,9 +762,14 @@ export class StoryProviderManager implements LLMProvider {
       // Share the remaining bounded sequence budget with configured providers
       // still eligible in the chain. A slow first provider must not consume the
       // entire allowance and prevent every fallback from being attempted.
+      // Story Draft gets a dedicated long budget (storyTimeoutMs) so a local
+      // 4B model is not cut off during prompt_eval. Section mode (Story Bible
+      // sections) uses sectionTimeoutMs. Everything else uses timeoutMs.
       const slotCap = context.sectionMode && slot.sectionTimeoutMs
         ? slot.sectionTimeoutMs
-        : slot.timeoutMs ?? providerCap;
+        : task === "story" && slot.storyTimeoutMs
+          ? slot.storyTimeoutMs
+          : slot.timeoutMs ?? providerCap;
       const remainingEligible = slots.slice(index).filter((candidate) => candidate.supported !== false && candidate.configured).length;
       const fairShareMs = Math.floor(remaining / Math.max(1, remainingEligible));
       const budget = Math.min(slotCap, Math.max(fairShareMs, Math.min(slotCap, remaining - (remainingEligible - 1) * 15_000)));
@@ -732,9 +780,11 @@ export class StoryProviderManager implements LLMProvider {
           : `Trying ${providerLabel(slot.id)} after the previous provider failed`
       );
       log.info("llm", "provider attempt", {
+        task,
         provider: slot.id,
         model: slot.model,
         timeoutMs: budget,
+        slotCap,
         fallback: index > 0,
         runId: context.runId ?? "",
         jobId: context.jobId ?? "",

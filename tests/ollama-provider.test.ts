@@ -11,6 +11,8 @@ import {
   ollamaEndpoint,
   ollamaTimeoutMs,
   ollamaGenerationOptions,
+  ollamaSectionNumCtx,
+  DEFAULT_OLLAMA_SECTION_NUM_CTX,
 } from "@/lib/providers/llm/ollama";
 import { buildSlots, credentialPresent, providerSequence } from "@/lib/providers/llm/registry";
 import type { CharacterPrompt, ScenePrompt, StoryPrompt } from "@/lib/providers/llm/types";
@@ -167,6 +169,25 @@ describe("Ollama LLM Provider", () => {
       expect(credentialPresent("ollama", env())).toBe(true);
       expect(credentialPresent("ollama", env({ OLLAMA_DISABLED: "true" }))).toBe(false);
       expect(credentialPresent("ollama", env({ OLLAMA_ENABLED: "false" }))).toBe(false);
+    });
+
+    it("uses default section num_ctx when unset", () => {
+      expect(ollamaSectionNumCtx(env())).toBe(DEFAULT_OLLAMA_SECTION_NUM_CTX);
+      expect(ollamaSectionNumCtx(env())).toBe(8192);
+    });
+
+    it("respects OLLAMA_SECTION_NUM_CTX override", () => {
+      expect(ollamaSectionNumCtx(env({ OLLAMA_SECTION_NUM_CTX: "4096" }))).toBe(4096);
+      expect(ollamaSectionNumCtx(env({ OLLAMA_SECTION_NUM_CTX: "16384" }))).toBe(16384);
+    });
+
+    it("clamps OLLAMA_SECTION_NUM_CTX to valid range", () => {
+      expect(ollamaSectionNumCtx(env({ OLLAMA_SECTION_NUM_CTX: "1024" }))).toBe(2048);
+      expect(ollamaSectionNumCtx(env({ OLLAMA_SECTION_NUM_CTX: "999999" }))).toBe(65536);
+    });
+
+    it("treats blank OLLAMA_SECTION_NUM_CTX as unset", () => {
+      expect(ollamaSectionNumCtx(env({ OLLAMA_SECTION_NUM_CTX: "  " }))).toBe(DEFAULT_OLLAMA_SECTION_NUM_CTX);
     });
   });
 
@@ -680,60 +701,70 @@ describe("Provider priority and failover", () => {
   });
 
   it("falls back from Ollama to Groq when Ollama is unavailable", async () => {
-    const ollamaGenerate = vi.fn(async () => ({ story: sampleStory }));
+    const ollamaGenerate = vi.fn(async () => {
+      throw new JobError("Ollama connection refused.", "provider_unavailable", true);
+    });
     const result = await manager([
       slot("ollama", ollamaGenerate),
       slot("groq", async () => ({ story: sampleStory })),
     ]).generateStory(prompt);
 
     expect(result.provider).toBe("groq");
-    expect(result.fallbackFrom).toBeNull();
+    expect(result.fallbackFrom).toBe("ollama");
     expect(result.title).toBe("The closed gate");
-    expect(ollamaGenerate).not.toHaveBeenCalled();
+    expect(ollamaGenerate).toHaveBeenCalledTimes(1);
   });
 
   it("falls back from Ollama to Groq when Ollama times out", async () => {
-    const ollamaGenerate = vi.fn(async () => ({ story: sampleStory }));
+    const ollamaGenerate = vi.fn(async () => {
+      throw new JobError("Ollama timed out.", "timeout", true);
+    });
     const result = await manager([
       slot("ollama", ollamaGenerate),
       slot("groq", async () => ({ story: sampleStory })),
     ]).generateStory(prompt);
 
     expect(result.provider).toBe("groq");
-    expect(ollamaGenerate).not.toHaveBeenCalled();
+    expect(ollamaGenerate).toHaveBeenCalledTimes(1);
   });
 
   it("falls back from Ollama to Groq on an empty response", async () => {
-    const ollamaGenerate = vi.fn(async () => ({ story: sampleStory }));
+    const ollamaGenerate = vi.fn(async () => {
+      throw new JobError("Ollama returned empty.", "empty_response", false);
+    });
     const result = await manager([
       slot("ollama", ollamaGenerate),
       slot("groq", async () => ({ story: sampleStory })),
     ]).generateStory(prompt);
 
     expect(result.provider).toBe("groq");
-    expect(ollamaGenerate).not.toHaveBeenCalled();
+    expect(ollamaGenerate).toHaveBeenCalledTimes(1);
   });
 
   it("falls back from Ollama on invalid schema output", async () => {
-    const ollamaGenerate = vi.fn(async () => ({ story: sampleStory }));
+    const ollamaGenerate = vi.fn(async () => {
+      throw new JobError("Ollama returned invalid schema.", "invalid_schema", false);
+    });
     const result = await manager([
       slot("ollama", ollamaGenerate),
       slot("groq", async () => ({ story: sampleStory })),
     ]).generateStory(prompt);
 
     expect(result.provider).toBe("groq");
-    expect(ollamaGenerate).not.toHaveBeenCalled();
+    expect(ollamaGenerate).toHaveBeenCalledTimes(1);
   });
 
   it("falls back from Ollama when model is not installed (invalid_model)", async () => {
-    const ollamaGenerate = vi.fn(async () => ({ story: sampleStory }));
+    const ollamaGenerate = vi.fn(async () => {
+      throw new JobError("Ollama model not installed.", "invalid_model", false);
+    });
     const result = await manager([
       slot("ollama", ollamaGenerate),
       slot("groq", async () => ({ story: sampleStory })),
     ]).generateStory(prompt);
 
     expect(result.provider).toBe("groq");
-    expect(ollamaGenerate).not.toHaveBeenCalled();
+    expect(ollamaGenerate).toHaveBeenCalledTimes(1);
   });
 
   it("continues fallback through the configured providers: Ollama -> Groq -> OpenRouter -> Mistral", async () => {
@@ -752,7 +783,7 @@ describe("Provider priority and failover", () => {
     ]).generateStory(prompt);
 
     expect(result.provider).toBe("mistral");
-    expect(result.fallbackFrom).toBe("groq");
+    expect(result.fallbackFrom).toBe("ollama");
     expect(mistralGenerate).toHaveBeenCalledOnce();
   });
 
@@ -799,5 +830,37 @@ describe("Provider priority and failover", () => {
     const slots = buildSlots(env({ OLLAMA_DISABLED: "true", GROQ_API_KEY: "groq-key" }));
     const ollamaSlot = slots.find((s) => s.id === "ollama");
     expect(ollamaSlot?.configured).toBe(false);
+  });
+
+  it("retries on invalid_schema with empty required fields", async () => {
+    const emptyTitleStory = { ...sampleStory, title: "" };
+    let callCount = 0;
+    const generate = vi.fn(async (input: StoryPrompt) => {
+      callCount += 1;
+      if (callCount === 1) return { story: emptyTitleStory };
+      expect(input.continuityContext).toContain("non-empty");
+      return { story: sampleStory };
+    });
+
+    const result = await manager([
+      slot("ollama", generate),
+    ]).generateStory(prompt);
+
+    expect(result.provider).toBe("ollama");
+    expect(result.title).toBe("The closed gate");
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry on invalid_schema without empty fields", async () => {
+    const invalidStory = { ...sampleStory, screenplay: [] };
+    const generate = vi.fn(async () => ({ story: invalidStory }));
+
+    const result = await manager([
+      slot("ollama", generate),
+      slot("groq", async () => ({ story: sampleStory })),
+    ]).generateStory(prompt);
+
+    expect(result.provider).toBe("groq");
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 });

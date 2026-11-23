@@ -16,6 +16,12 @@ import {
   type CanonPort,
 } from "@/lib/domain/narrativeControl";
 import { storyBibleBrief, renderStoryBibleBrief } from "@/lib/providers/llm/storyBibleSections";
+import {
+  generateStoryDraftParts,
+  parseStoryDraftPartsState,
+  progressMessage as storyDraftProgressMessage,
+  type StoryDraftPartsState,
+} from "@/lib/providers/llm/storyDraftParts";
 import { deriveStoryContract } from "@/lib/domain/storyContract";
 import type { ContractLayer } from "@/lib/validation/storyContract";
 import type { ControlDecision } from "@/lib/domain/narrativeControl/orchestrator";
@@ -29,7 +35,9 @@ import {
   type StoryRecord,
 } from "@/lib/validation/story";
 
-type ProgressWriter = (job: JobRecord, message: string) => Promise<void>;
+type ProgressWriter = (job: JobRecord, message: string, output?: Record<string, unknown>) => Promise<void>;
+
+type CancellationChecker = (jobId: string) => Promise<boolean>;
 
 type DraftReader = {
   findProjectDraft(clerkUserId: string, projectId: string): Promise<StoryRecord | null>;
@@ -55,6 +63,7 @@ export function createStoryDraftEngine(
   updateProgress?: ProgressWriter,
   canon?: CanonPort | null,
   sources?: DraftSources | null,
+  checkCancellation?: CancellationChecker,
 ) {
   return {
     async run(job: JobRecord, project: ProjectRecord) {
@@ -150,12 +159,27 @@ export function createStoryDraftEngine(
         previousDraftVersion: previous?.version ?? null,
       });
 
-      let current = await llm.generateStory(promptBase, {
+      const partsResult = await generateStoryDraftParts(llm, promptBase, {
         jobId: job.id,
+        scope: { projectId: job.projectId, operation: request.operation, sourceBibleVersion: bible?.version },
+        cached: parseStoryDraftPartsState(job.output),
+        sceneRange: project.sceneRange,
         onStatus: async (message) => {
-          await updateProgress?.(job, message);
+          await updateProgress?.(job, message, job.output ?? undefined);
         },
+        onProgress: async (partState: StoryDraftPartsState) => {
+          job.output = { ...(job.output ?? {}), storyDraftParts: partState };
+          await updateProgress?.(job, storyDraftProgressMessage(partState), job.output);
+        },
+        ...(checkCancellation ? { checkCancellation: () => checkCancellation(job.id) } : {}),
       });
+      let current: StoryModelResult = {
+        ...partsResult.story,
+        provider: partsResult.provider,
+        model: partsResult.model,
+        fallbackFrom: partsResult.fallbackFrom,
+        attempts: partsResult.attempts,
+      };
       let validation: EpisodeValidation | null = null;
       let rounds = 1;
       let semantic: ContractLayer = "not_executed";
@@ -204,7 +228,7 @@ export function createStoryDraftEngine(
             }, {
               jobId: job.id,
               onStatus: async (message) => {
-                await updateProgress?.(job, message);
+                await updateProgress?.(job, message, job.output ?? undefined);
               },
             });
             return {

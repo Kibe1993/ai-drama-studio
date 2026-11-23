@@ -54,16 +54,21 @@ export function parseStory(providerName: string, text: string): GeneratedStory {
   if (!result.success) {
     const issue = result.error.issues[0];
     const keys = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? Object.keys(parsed).slice(0, 12).join(",") : "";
+    const emptyField = result.error.issues.some(
+      (i) => i.code === "too_small" && (i as { type?: string }).type === "string" && (i as { minimum?: number }).minimum === 1
+    );
     log.error("llm", "invalid schema", {
       provider: providerName,
       path: issue?.path.join(".") ?? "",
       detail: issue?.message ?? "schema mismatch",
       fields: keys,
+      emptyField,
     });
     throw new JobError(
       `${providerName} returned a story that did not match the screenplay schema.`,
       "invalid_schema",
-      false
+      false,
+      emptyField ? { emptyField: true } : undefined
     );
   }
   return result.data;

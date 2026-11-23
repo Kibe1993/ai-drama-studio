@@ -104,12 +104,16 @@ function buildLivePipelineDeps(): PipelineDeps {
     narrativeCanon: narrativeCanonRepository,
     canonFactLog: canonStore,
     queue: connection ? createBullQueue(connection) : unavailableQueue(),
-    storyDraftEngine: createStoryDraftEngine(llm, storyRepository, async (job, message) => {
+    storyDraftEngine: createStoryDraftEngine(llm, storyRepository, async (job, message, output) => {
       const current = await generationJobRepository.findById(job.id);
       if (!current || current.status !== "processing") return;
       current.progress = { stage: current.jobType, message };
+      if (output !== undefined) current.output = output;
       await generationJobRepository.save(current);
-    }, narrativeCanonRepository, { bible: storyBibleRepository }),
+    }, narrativeCanonRepository, { bible: storyBibleRepository }, async (jobId) => {
+      const current = await generationJobRepository.findById(jobId);
+      return current?.status === "cancelled";
+    }),
     storyBibleEngine: createStoryBibleEngine(llm, storyBibleRepository, async (job, message, output) => {
       const current = await generationJobRepository.findById(job.id);
       if (!current || current.status !== "processing") return;

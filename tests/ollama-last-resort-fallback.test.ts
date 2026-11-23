@@ -289,3 +289,124 @@ describe("Ollama last-resort fallback", () => {
     expect(ollama).toHaveBeenCalledTimes(1);
   });
 });
+describe("Ollama as primary provider (LLM_PROVIDER=ollama)", () => {
+  it("tries Ollama first without last-resort reordering", async () => {
+    const ollama = vi.fn(async () => ({ story: sample }));
+    const groq = vi.fn();
+    const openrouter = vi.fn();
+
+    const result = await manager([
+      slot("ollama", ollama),
+      slot("groq", groq),
+      slot("openrouter", openrouter),
+    ]).generateStory(prompt);
+
+    expect(result.provider).toBe("ollama");
+    expect(ollama).toHaveBeenCalledTimes(1);
+    expect(groq).not.toHaveBeenCalled();
+    expect(openrouter).not.toHaveBeenCalled();
+  });
+
+  it("falls through to cloud providers without retry pass when Ollama fails", async () => {
+    const ollama = vi.fn(failingGenerate("Ollama", 503));
+    const groq = vi.fn(async () => ({ story: sample }));
+    const openrouter = vi.fn();
+
+    const result = await manager([
+      slot("ollama", ollama),
+      slot("groq", groq),
+      slot("openrouter", openrouter),
+    ]).generateStory(prompt);
+
+    expect(result.provider).toBe("groq");
+    expect(ollama).toHaveBeenCalledTimes(1);
+    expect(groq).toHaveBeenCalledTimes(1);
+    expect(openrouter).not.toHaveBeenCalled();
+  });
+
+  it("does not duplicate cloud providers in the attempt sequence", async () => {
+    const ollama = vi.fn(failingGenerate("Ollama", 503));
+    const groq = vi.fn(failingGenerate("Groq"));
+    const openrouter = vi.fn(async () => ({ story: sample }));
+
+    const result = await manager([
+      slot("ollama", ollama),
+      slot("groq", groq),
+      slot("openrouter", openrouter),
+    ]).generateStory(prompt);
+
+    expect(result.provider).toBe("openrouter");
+    expect(ollama).toHaveBeenCalledTimes(1);
+    expect(groq).toHaveBeenCalledTimes(1);
+    expect(openrouter).toHaveBeenCalledTimes(1);
+  });
+
+  it("tries all providers once in order when Ollama is primary and all fail", async () => {
+    const ollama = vi.fn(failingGenerate("Ollama", 503));
+    const groq = vi.fn(failingGenerate("Groq"));
+    const openrouter = vi.fn(failingGenerate("OpenRouter"));
+
+    await expect(
+      manager([
+        slot("ollama", ollama),
+        slot("groq", groq),
+        slot("openrouter", openrouter),
+      ]).generateStory(prompt)
+    ).rejects.toMatchObject({ code: "provider_unavailable", retryable: true });
+
+    expect(ollama).toHaveBeenCalledTimes(1);
+    expect(groq).toHaveBeenCalledTimes(1);
+    expect(openrouter).toHaveBeenCalledTimes(1);
+  });
+});
+describe("Preferred provider caching", () => {
+  it("tries preferred provider first when set", async () => {
+    const ollama = vi.fn(async () => ({ story: sample }));
+    const groq = vi.fn();
+    const openrouter = vi.fn();
+
+    const result = await manager([
+      slot("groq", groq),
+      slot("openrouter", openrouter),
+      slot("ollama", ollama),
+    ]).generateStory(prompt, { preferredProvider: "ollama" });
+
+    expect(result.provider).toBe("ollama");
+    expect(ollama).toHaveBeenCalledTimes(1);
+    expect(groq).not.toHaveBeenCalled();
+    expect(openrouter).not.toHaveBeenCalled();
+  });
+
+  it("falls back to full sequence when preferred provider fails", async () => {
+    const ollama = vi.fn(failingGenerate("Ollama", 503));
+    const groq = vi.fn(async () => ({ story: sample }));
+    const openrouter = vi.fn();
+
+    const result = await manager([
+      slot("groq", groq),
+      slot("openrouter", openrouter),
+      slot("ollama", ollama),
+    ]).generateStory(prompt, { preferredProvider: "ollama" });
+
+    expect(result.provider).toBe("groq");
+    expect(ollama).toHaveBeenCalledTimes(1);
+    expect(groq).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not apply last-resort reordering when preferred provider is set", async () => {
+    const ollama = vi.fn(failingGenerate("Ollama", 503));
+    const groq = vi.fn(failingGenerate("Groq"));
+    const openrouter = vi.fn(async () => ({ story: sample }));
+
+    const result = await manager([
+      slot("groq", groq),
+      slot("openrouter", openrouter),
+      slot("ollama", ollama),
+    ]).generateStory(prompt, { preferredProvider: "openrouter" });
+
+    expect(result.provider).toBe("openrouter");
+    expect(openrouter).toHaveBeenCalledTimes(1);
+    expect(ollama).not.toHaveBeenCalled();
+    expect(groq).not.toHaveBeenCalled();
+  });
+});

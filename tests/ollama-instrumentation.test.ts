@@ -244,10 +244,12 @@ describe("Ollama instrumentation logging", () => {
       const fields = findLog(logMock.error.mock.calls, "timeout");
       expect(fields).toBeDefined();
       expect(fields!.stage).toBe("story_bible:characters");
-      expect(fields!.timeoutMs).toBe(5000);
+      expect(fields!.configuredTimeoutMs).toBe(5000);
       expect(fields!.elapsedMs).toBeGreaterThanOrEqual(0);
       expect(fields!.partialTokens).toBe(0);
       expect(fields!.partialChars).toBe(0);
+      expect(fields!.signalSource).toBe("internal");
+      expect(fields!.abortedBy).toBe("own_timeout");
     });
 
     it("logs partial token count when streaming is aborted mid-generation", async () => {

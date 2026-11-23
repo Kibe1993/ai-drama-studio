@@ -18,7 +18,9 @@ import {
   ollamaBaseUrl,
   ollamaEndpoint,
   ollamaGenerationOptions,
+  ollamaSectionNumCtx,
   ollamaSectionTimeoutMs,
+  ollamaStoryTimeoutMs,
   ollamaTimeoutMs,
 } from "@/lib/providers/llm/ollama";
 import { createOpenAIProvider, DEFAULT_OPENAI_MODEL } from "@/lib/providers/llm/openai";
@@ -120,6 +122,8 @@ function adapter(id: LlmProviderId, model: string, env: NodeJS.ProcessEnv): LLMP
       endpoint: ollamaEndpoint(env),
       timeoutMs: ollamaTimeoutMs(env),
       sectionTimeoutMs: ollamaSectionTimeoutMs(env),
+      storyTimeoutMs: ollamaStoryTimeoutMs(env),
+      sectionNumCtx: ollamaSectionNumCtx(env),
       formatMode: env.OLLAMA_FORMAT?.trim().toLowerCase() === "schema" ? "schema" : "json",
       extraOptions: ollamaGenerationOptions(env),
     });
@@ -170,6 +174,9 @@ export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[]
           : undefined,
       sectionTimeoutMs: id === "ollama"
         ? ollamaSectionTimeoutMs(env)
+        : undefined,
+      storyTimeoutMs: id === "ollama"
+        ? ollamaStoryTimeoutMs(env)
         : undefined,
       async generate(input, options) {
         if (!provider) throw new Error(blocked ?? "Provider is not available.");

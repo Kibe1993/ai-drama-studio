@@ -60,6 +60,29 @@ export function createStoryDraftService(deps = {
       return { story, job };
     },
 
+    /**
+     * Cancel an in-progress story draft generation. Sets the job status to
+     * "cancelled" so the engine stops before the next part. The current
+     * in-flight LLM call is aborted via the cancellation polling loop.
+     */
+    async cancel(actor: RequestAuth, jobId: string) {
+      if (!isObjectId(jobId)) throw new StudioError("That job id is not valid", 400, "invalid_id");
+      const job = await deps.jobs.findOwned(actor.userId, jobId);
+      if (!job) throw new StudioError("Job not found", 404, "not_found");
+      if (job.jobType !== "story.draft") {
+        throw new StudioError("Only story draft jobs can be cancelled here.", 409, "invalid_job");
+      }
+      if (job.status !== "queued" && job.status !== "processing") {
+        throw new StudioError("This job is no longer running.", 409, "not_running");
+      }
+      job.status = "cancelled";
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: "Story draft generation cancelled" };
+      await deps.jobs.save(job);
+      log.info("story-draft", "job cancelled", { jobId: job.id, projectId: job.projectId });
+      return { job };
+    },
+
     async start(actor: RequestAuth, projectId: string, raw: unknown) {
       const project = await loadProject(actor, projectId);
       if (project.status === "archived") {

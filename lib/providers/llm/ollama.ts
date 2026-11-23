@@ -50,20 +50,25 @@ export const DEFAULT_OLLAMA_MODEL = "gemma3:4b";
 export const DEFAULT_OLLAMA_ENDPOINT = "/api/chat";
 export const DEFAULT_OLLAMA_TIMEOUT_MS = 240_000;
 export const DEFAULT_OLLAMA_SECTION_TIMEOUT_MS = 600_000;
+export const DEFAULT_OLLAMA_STORY_TIMEOUT_MS = 900_000;
 export const DEFAULT_OLLAMA_TEMPERATURE = 0.7;
 export const DEFAULT_OLLAMA_NUM_CTX = 8192;
+export const DEFAULT_OLLAMA_SECTION_NUM_CTX = 8192;
 export const DEFAULT_OLLAMA_TOP_P = 0.9;
 
 // Node.js's built-in fetch (undici) applies a default bodyTimeout of 300_000 ms
 // (5 minutes). For streaming requests, this is the idle timeout before the first
 // body chunk arrives — i.e. during Ollama's prompt_eval phase. A 4,156-token
 // prompt at ~13 t/s prompt eval takes ~320 s, which exceeds the 300 s default
-// and causes undici to abort the request before the manager's 600 s section
-// timeout signal fires. This global dispatcher raises both timeouts to 600 s
-// so the signal is the sole authority for request cancellation.
+// and causes undici to abort the request before the manager's signal fires.
+// Story Draft generation on a 4B local model can spend ~400 s in prompt_eval
+// alone, so the HTTP timeout must accommodate the largest task budget. This
+// global dispatcher raises both timeouts to the Story Draft ceiling so the
+// AbortSignal from the manager is the sole authority for request cancellation.
+const MAX_HTTP_TIMEOUT_MS = Math.max(DEFAULT_OLLAMA_SECTION_TIMEOUT_MS, DEFAULT_OLLAMA_STORY_TIMEOUT_MS);
 setGlobalDispatcher(new Agent({
-  headersTimeout: DEFAULT_OLLAMA_SECTION_TIMEOUT_MS,
-  bodyTimeout: DEFAULT_OLLAMA_SECTION_TIMEOUT_MS,
+  headersTimeout: MAX_HTTP_TIMEOUT_MS,
+  bodyTimeout: MAX_HTTP_TIMEOUT_MS,
 }));
 export const DEFAULT_OLLAMA_REPEAT_PENALTY = 1.1;
 
@@ -73,8 +78,10 @@ export type OllamaOptions = {
   endpoint?: string;
   timeoutMs?: number;
   sectionTimeoutMs?: number;
+  storyTimeoutMs?: number;
   temperature?: number;
   numCtx?: number;
+  sectionNumCtx?: number;
   topP?: number;
   repeatPenalty?: number;
   formatMode?: "json" | "schema";
@@ -112,6 +119,18 @@ export function ollamaSectionTimeoutMs(env: NodeJS.ProcessEnv = process.env): nu
   const parsed = numberFrom(env.OLLAMA_SECTION_TIMEOUT_MS);
   if (parsed === null) return DEFAULT_OLLAMA_SECTION_TIMEOUT_MS;
   return Math.min(600_000, Math.max(10_000, parsed));
+}
+
+export function ollamaStoryTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const parsed = numberFrom(env.OLLAMA_STORY_TIMEOUT_MS);
+  if (parsed === null) return DEFAULT_OLLAMA_STORY_TIMEOUT_MS;
+  return Math.min(3_600_000, Math.max(10_000, parsed));
+}
+
+export function ollamaSectionNumCtx(env: NodeJS.ProcessEnv = process.env): number {
+  const parsed = numberFrom(env.OLLAMA_SECTION_NUM_CTX);
+  if (parsed === null) return DEFAULT_OLLAMA_SECTION_NUM_CTX;
+  return Math.min(65_536, Math.max(2_048, parsed));
 }
 
 // Small sections on a 4B local model need bounded output, but the caps differ:
@@ -202,6 +221,7 @@ export async function ollamaChat(
     payload.format = request.format;
   }
 
+  const signalSource = request.signal ? "external" : "internal";
   const signal = request.signal
     ? request.signal
     : AbortSignal.timeout(timeoutMs);
@@ -218,9 +238,9 @@ export async function ollamaChat(
     numCtx: requestOptions.num_ctx,
     numPredict: requestOptions.num_predict,
     formatMode,
-    effectiveTimeoutMs: request.signal ? "external" : timeoutMs,
-    fallbackTimeoutMs: timeoutMs,
-    httpBodyTimeoutMs: DEFAULT_OLLAMA_SECTION_TIMEOUT_MS,
+    signalSource,
+    configuredTimeoutMs: timeoutMs,
+    httpBodyTimeoutMs: MAX_HTTP_TIMEOUT_MS,
   });
 
   let partialOutputTokens: number | undefined;
@@ -439,13 +459,18 @@ export async function ollamaChat(
       (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError"));
 
     if (timeoutAbort) {
+      const abortedBy = signalSource === "external" && request.signal?.aborted
+        ? "parent_signal"
+        : "own_timeout";
       log.error("ollama", "timeout", {
         stage,
         model,
-        timeoutMs,
+        configuredTimeoutMs: timeoutMs,
         elapsedMs: Date.now() - started,
         partialTokens: partialOutputTokens ?? 0,
         partialChars,
+        signalSource,
+        abortedBy,
       });
       throw new JobError(
         `Ollama timed out while generating with '${model}'. The next provider will be tried.`,
@@ -478,8 +503,10 @@ export class OllamaLLMProvider implements LLMProvider {
   readonly endpoint: string;
   readonly timeoutMs: number;
   readonly sectionTimeoutMs: number;
+  readonly storyTimeoutMs: number;
   readonly formatMode: "json" | "schema";
   readonly options: Record<string, unknown>;
+  readonly sectionNumCtx: number;
 
   private readonly stageTransport: StageTransport;
   private readonly storyBibleTransport: StoryBibleTaskTransport;
@@ -491,7 +518,9 @@ export class OllamaLLMProvider implements LLMProvider {
     this.endpoint = options.endpoint || ollamaEndpoint();
     this.timeoutMs = options.timeoutMs ?? ollamaTimeoutMs();
     this.sectionTimeoutMs = options.sectionTimeoutMs ?? ollamaSectionTimeoutMs();
+    this.storyTimeoutMs = options.storyTimeoutMs ?? ollamaStoryTimeoutMs();
     this.formatMode = options.formatMode ?? (process.env.OLLAMA_FORMAT === "schema" ? "schema" : "json");
+    this.sectionNumCtx = options.sectionNumCtx ?? ollamaSectionNumCtx();
     this.options = {
       ...ollamaGenerationOptions(),
       ...options.extraOptions,
@@ -557,14 +586,15 @@ export class OllamaLLMProvider implements LLMProvider {
         repeat_penalty: sectionRepeatPenalty,
         repeat_last_n: 128,
         num_predict: OLLAMA_SECTION_NUM_PREDICT[section],
+        num_ctx: this.sectionNumCtx,
       }, "schema", true);
     }
   }
 
   async generateStory(input: StoryPrompt, options: StoryCallOptions = {}): Promise<StoryModelResult> {
-    const signal = options.signal ?? AbortSignal.timeout(this.timeoutMs);
+    const signal = options.signal ?? AbortSignal.timeout(this.storyTimeoutMs);
     const started = Date.now();
-    log.info("ollama", "story request", { model: this.model });
+    log.info("ollama", "story request", { model: this.model, storyTimeoutMs: this.storyTimeoutMs });
     const format =
       this.formatMode === "schema"
         ? (STORY_RESPONSE_SCHEMA as unknown as Record<string, unknown>)
@@ -578,7 +608,7 @@ export class OllamaLLMProvider implements LLMProvider {
       prompt,
       format,
       signal,
-      timeoutMs: this.timeoutMs,
+      timeoutMs: this.storyTimeoutMs,
       options: ollamaOptionsWithBudget(this.options, storyCompletionBudget(input.targetDurationSeconds)),
       stage: "story",
     });

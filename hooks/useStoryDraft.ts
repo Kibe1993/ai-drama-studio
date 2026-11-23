@@ -98,3 +98,12 @@ export function useRevalidateStoryDraft(projectId: string, storyId: string | nul
     onSuccess: invalidate,
   });
 }
+/** Cancel an in-progress story draft generation. */
+export function useCancelStoryDraft(projectId: string) {
+  const invalidate = useInvalidate(projectId);
+  return useMutation({
+    mutationFn: (jobId: string) =>
+      api<{ job: JobRecord }>(`/api/generations/${jobId}/cancel`, { method: "POST" }),
+    onSuccess: invalidate,
+  });
+}

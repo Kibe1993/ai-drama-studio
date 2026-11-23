@@ -92,6 +92,12 @@ export type StoryCallOptions = {
   onStatus?: (message: string) => void | Promise<void>;
   sequenceTimeoutMs?: number;
   sectionMode?: boolean;
+  /**
+   * Provider ID that succeeded on a previous call in the same workflow
+   * (e.g. sequential story draft parts). When set, the manager tries this
+   * provider first before falling back to the full slot sequence.
+   */
+  preferredProvider?: string;
 };
 
 export type CharacterModelResult = {

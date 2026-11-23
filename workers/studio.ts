@@ -57,12 +57,14 @@ async function main(): Promise<void> {
 
   const workers: Worker[] = [];
   const ollamaPrimary = process.env.LLM_PROVIDER?.trim() === "ollama";
+  const llmLockDurationMs = ollamaPrimary ? 900_000 : 30_000;
   for (const name of QUEUE_NAMES) {
     const concurrency =
       name === "studio-render" || name === "studio-video" ? 1 :
       name === "studio-llm" && ollamaPrimary ? 1 : 2;
-    workers.push(new Worker(name, handler, { connection, concurrency }));
-    log.info("worker", "listening", { queue: name, concurrency });
+    const lockDuration = name === "studio-llm" ? llmLockDurationMs : 30_000;
+    workers.push(new Worker(name, handler, { connection, concurrency, lockDuration }));
+    log.info("worker", "listening", { queue: name, concurrency, lockDuration });
   }
 
   const dispatcher = liveCanonExtractionDispatcher();

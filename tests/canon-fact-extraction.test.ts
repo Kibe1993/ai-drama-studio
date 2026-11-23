@@ -2,8 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { InMemoryCanonFactStore } from "@/lib/canon/inMemoryStore";
 import type { CanonFactEntry, DerivedCanonState } from "@/lib/canon/schema";
 import { createCanonFactExtractionService } from "@/lib/services/canonFactExtractionService";
-import { createCanonExtractionDispatcher } from "@/lib/services/canonExtractionDispatcher";
-import { makeCanonFactLLMPort, liveCanonExtractionDispatcher } from "@/lib/pipeline/live";
+import { makeCanonFactLLMPort } from "@/lib/pipeline/live";
 import { compareCanonShadow } from "@/lib/domain/canonShadowComparison";
 import type { ContinuityLedger } from "@/lib/validation/continuityLedger";
 import type { StoryRecord } from "@/lib/validation/story";
@@ -141,7 +140,6 @@ type CanonPort = {
     expectedSequence: number;
     commitBatchId: string;
     entries: Omit<CanonFactEntry, "sequence" | "projectId" | "createdAt" | "commitBatchId">[];
-    fencing?: { projectId: string; jobId: string; fencingToken: number };
   }): Promise<CanonFactEntry[]>;
   getLatestSequence(clerkUserId: string, projectId: string): Promise<number>;
   latestState(clerkUserId: string, projectId: string, mode?: "strict" | "migration"): Promise<DerivedCanonState>;
@@ -161,56 +159,6 @@ function wrapInMemoryStore(store: InMemoryCanonFactStore): CanonPort {
   };
 }
 
-type MockLockPort = {
-  acquire: ReturnType<typeof vi.fn>;
-  release: ReturnType<typeof vi.fn>;
-  renew: ReturnType<typeof vi.fn>;
-};
-
-function makeMockLockPort(store?: InMemoryCanonFactStore): MockLockPort {
-  let currentToken = 0;
-  return {
-    acquire: vi.fn(async (_input: { clerkUserId: string; projectId: string; jobId: string }) => {
-      currentToken += 1;
-      if (store) {
-        store.setLock(_input.projectId, {
-          jobId: _input.jobId,
-          fencingToken: currentToken,
-          expiresAt: new Date(Date.now() + 60_000),
-        });
-      }
-      return { acquired: true as const, fencingToken: currentToken };
-    }),
-    release: vi.fn(async (input: { clerkUserId: string; projectId: string; jobId: string }) => {
-      if (store) {
-        store.clearLock(input.projectId);
-      }
-    }),
-    renew: vi.fn(async () => {
-      return { renewed: true as const, fencingToken: currentToken };
-    }),
-  };
-}
-
-type MockOutboxPort = {
-  enqueue: ReturnType<typeof vi.fn>;
-  markCompleted: ReturnType<typeof vi.fn>;
-  markFailed: ReturnType<typeof vi.fn>;
-  claimPending: ReturnType<typeof vi.fn>;
-  claimPendingGlobal: ReturnType<typeof vi.fn>;
-  findPending: ReturnType<typeof vi.fn>;
-};
-
-function makeMockOutboxPort(): MockOutboxPort {
-  return {
-    enqueue: vi.fn(async () => ({ enqueued: true as const })),
-    markCompleted: vi.fn(async () => {}),
-    markFailed: vi.fn(async () => {}),
-    claimPending: vi.fn(async () => []),
-    claimPendingGlobal: vi.fn(async () => []),
-    findPending: vi.fn(async () => []),
-  };
-}
 
 type MockStoryPort = {
   findOwned: ReturnType<typeof vi.fn>;
@@ -268,12 +216,12 @@ describe("canonFactExtractionService", () => {
       const story = makeStory();
       const episode = makeEpisode();
       const llm = makeLLMPort([makeExtractedFact()]);
-      const locks = makeMockLockPort(store);
+
       const stories = makeMockStoryPort(story);
       const episodes = makeMockEpisodePort(episode);
 
       const service = createCanonFactExtractionService(
-        llm, stories, episodes, canon, locks,
+        llm, stories, episodes, canon,
       );
 
       const result = await service.extractAndCommit({
@@ -299,12 +247,12 @@ describe("canonFactExtractionService", () => {
       const llm = makeLLMPort([
         makeExtractedFact({ quote: "This text does not appear anywhere." }),
       ]);
-      const locks = makeMockLockPort(store);
+
       const stories = makeMockStoryPort(story);
       const episodes = makeMockEpisodePort(episode);
 
       const service = createCanonFactExtractionService(
-        llm, stories, episodes, canon, locks,
+        llm, stories, episodes, canon,
       );
 
       const result = await service.extractAndCommit({
@@ -330,12 +278,12 @@ describe("canonFactExtractionService", () => {
       const llm = makeLLMPort([
         makeExtractedFact({ sceneNumber: 99 }),
       ]);
-      const locks = makeMockLockPort(store);
+
       const stories = makeMockStoryPort(story);
       const episodes = makeMockEpisodePort(episode);
 
       const service = createCanonFactExtractionService(
-        llm, stories, episodes, canon, locks,
+        llm, stories, episodes, canon,
       );
 
       const result = await service.extractAndCommit({
@@ -357,12 +305,12 @@ describe("canonFactExtractionService", () => {
       const story = makeStory({ status: "awaiting_approval" });
       const episode = makeEpisode();
       const llm = makeLLMPort();
-      const locks = makeMockLockPort(store);
+
       const stories = makeMockStoryPort(story);
       const episodes = makeMockEpisodePort(episode);
 
       const service = createCanonFactExtractionService(
-        llm, stories, episodes, canon, locks,
+        llm, stories, episodes, canon,
       );
 
       await expect(
@@ -387,12 +335,12 @@ describe("canonFactExtractionService", () => {
           throw new Error("LLM unavailable");
         }),
       };
-      const locks = makeMockLockPort(store);
+
       const stories = makeMockStoryPort(story);
       const episodes = makeMockEpisodePort(episode);
 
       const service = createCanonFactExtractionService(
-        llm, stories, episodes, canon, locks,
+        llm, stories, episodes, canon,
       );
 
       const result = await service.extractAndCommit({
@@ -416,12 +364,12 @@ describe("canonFactExtractionService", () => {
       const llm = {
         request: vi.fn(async () => ({ text: "not json" })),
       };
-      const locks = makeMockLockPort(store);
+
       const stories = makeMockStoryPort(story);
       const episodes = makeMockEpisodePort(episode);
 
       const service = createCanonFactExtractionService(
-        llm, stories, episodes, canon, locks,
+        llm, stories, episodes, canon,
       );
 
       const result = await service.extractAndCommit({
@@ -442,12 +390,12 @@ describe("canonFactExtractionService", () => {
       const story = makeStory();
       const episode = makeEpisode();
       const llm = makeLLMPort([]);
-      const locks = makeMockLockPort(store);
+
       const stories = makeMockStoryPort(story);
       const episodes = makeMockEpisodePort(episode);
 
       const service = createCanonFactExtractionService(
-        llm, stories, episodes, canon, locks,
+        llm, stories, episodes, canon,
       );
 
       const result = await service.extractAndCommit({
@@ -464,33 +412,6 @@ describe("canonFactExtractionService", () => {
       expect(result.status).toBe("canon_committed");
     });
 
-    it("throws when lock cannot be acquired", async () => {
-      const store = new InMemoryCanonFactStore();
-      const canon = wrapInMemoryStore(store);
-      const story = makeStory();
-      const episode = makeEpisode();
-      const llm = makeLLMPort([makeExtractedFact()]);
-      const locks = makeMockLockPort(store);
-      locks.acquire.mockResolvedValueOnce({ acquired: false });
-
-      const stories = makeMockStoryPort(story);
-      const episodes = makeMockEpisodePort(episode);
-
-      const service = createCanonFactExtractionService(
-        llm, stories, episodes, canon, locks,
-      );
-
-      await expect(
-        service.extractAndCommit({
-          clerkUserId: CLERK,
-          projectId: PROJECT,
-          episodeId: EPISODE_ID,
-          storyId: STORY_ID,
-          episodeNumber: 1,
-          jobId: JOB_ID,
-        }),
-      ).rejects.toThrow();
-    });
 
     it("dialogue facts are classified as character_statement + not_established", async () => {
       const store = new InMemoryCanonFactStore();
@@ -513,12 +434,12 @@ describe("canonFactExtractionService", () => {
           eventType: "concrete",
         }),
       ]);
-      const locks = makeMockLockPort(store);
+
       const stories = makeMockStoryPort(story);
       const episodes = makeMockEpisodePort(episode);
 
       const service = createCanonFactExtractionService(
-        llm, stories, episodes, canon, locks,
+        llm, stories, episodes, canon,
       );
 
       const result = await service.extractAndCommit({
@@ -542,12 +463,12 @@ describe("canonFactExtractionService", () => {
       const story = makeStory();
       const episode = makeEpisode();
       const llm = makeLLMPort([makeExtractedFact()]);
-      const locks = makeMockLockPort(store);
+
       const stories = makeMockStoryPort(story);
       const episodes = makeMockEpisodePort(episode);
 
       const service = createCanonFactExtractionService(
-        llm, stories, episodes, canon, locks,
+        llm, stories, episodes, canon,
       );
 
       await service.extractAndCommit({
@@ -559,11 +480,6 @@ describe("canonFactExtractionService", () => {
         jobId: JOB_ID,
       });
 
-      expect(locks.release).toHaveBeenCalledWith({
-        clerkUserId: CLERK,
-        projectId: PROJECT,
-        jobId: JOB_ID,
-      });
     });
   });
 
@@ -574,7 +490,7 @@ describe("canonFactExtractionService", () => {
       const story = makeStory();
       const episode = makeEpisode();
       const llm = makeLLMPort();
-      const locks = makeMockLockPort(store);
+
 
 
       const issue: CanonExtractionIssueRecord = {
@@ -619,7 +535,7 @@ describe("canonFactExtractionService", () => {
       const episodes = makeMockEpisodePort(episode);
 
       const service = createCanonFactExtractionService(
-        llm, stories, episodes, canon, locks,
+        llm, stories, episodes, canon,
       );
 
       const result = await service.resolveIssue({
@@ -643,13 +559,13 @@ describe("canonFactExtractionService", () => {
       const story = makeStory();
       const episode = makeEpisode();
       const llm = makeLLMPort();
-      const locks = makeMockLockPort(store);
+
 
       const stories = makeMockStoryPort(story, []);
       const episodes = makeMockEpisodePort(episode);
 
       const service = createCanonFactExtractionService(
-        llm, stories, episodes, canon, locks,
+        llm, stories, episodes, canon,
       );
 
       const result = await service.resolveIssue({
@@ -708,7 +624,7 @@ describe("canonFactExtractionService", () => {
       const story = makeStory();
       const episode = makeEpisode();
       const llm = makeLLMPort();
-      const locks = makeMockLockPort(store);
+
       const issue = makeIssue();
 
       const stories = makeMockStoryPort(story, [issue]);
@@ -716,7 +632,7 @@ describe("canonFactExtractionService", () => {
       stories.finalizeIssue = vi.fn(async () => ({ ...issue, status: "accepted", resolvedAt: new Date().toISOString() }));
       const episodes = makeMockEpisodePort(episode);
 
-      const service = createCanonFactExtractionService(llm, stories, episodes, canon, locks);
+      const service = createCanonFactExtractionService(llm, stories, episodes, canon);
 
       const result = await service.resolveIssue({
         clerkUserId: CLERK, projectId: PROJECT, storyId: STORY_ID,
@@ -737,14 +653,14 @@ describe("canonFactExtractionService", () => {
       const story = makeStory();
       const episode = makeEpisode();
       const llm = makeLLMPort();
-      const locks = makeMockLockPort(store);
+
       const issue = makeIssue();
 
       const stories = makeMockStoryPort(story, [issue]);
       stories.claimIssue = vi.fn(async () => null);
       const episodes = makeMockEpisodePort(episode);
 
-      const service = createCanonFactExtractionService(llm, stories, episodes, canon, locks);
+      const service = createCanonFactExtractionService(llm, stories, episodes, canon);
 
       const result = await service.resolveIssue({
         clerkUserId: CLERK, projectId: PROJECT, storyId: STORY_ID,
@@ -763,7 +679,7 @@ describe("canonFactExtractionService", () => {
       const story = makeStory();
       const episode = makeEpisode();
       const llm = makeLLMPort();
-      const locks = makeMockLockPort(store);
+
       const issue = makeIssue();
 
       const stories = makeMockStoryPort(story, [issue]);
@@ -778,7 +694,7 @@ describe("canonFactExtractionService", () => {
       };
       const episodes = makeMockEpisodePort(episode);
 
-      const service = createCanonFactExtractionService(llm, stories, episodes, failingCanon, locks);
+      const service = createCanonFactExtractionService(llm, stories, episodes, failingCanon);
 
       await expect(
         service.resolveIssue({
@@ -799,7 +715,7 @@ describe("canonFactExtractionService", () => {
       const story = makeStory();
       const episode = makeEpisode();
       const llm = makeLLMPort();
-      const locks = makeMockLockPort(store);
+
       const issue = makeIssue();
 
       const stories = makeMockStoryPort(story, [issue]);
@@ -807,7 +723,7 @@ describe("canonFactExtractionService", () => {
       stories.finalizeIssue = vi.fn(async () => null);
       const episodes = makeMockEpisodePort(episode);
 
-      const service = createCanonFactExtractionService(llm, stories, episodes, canon, locks);
+      const service = createCanonFactExtractionService(llm, stories, episodes, canon);
 
       const result = await service.resolveIssue({
         clerkUserId: CLERK, projectId: PROJECT, storyId: STORY_ID,
@@ -828,13 +744,13 @@ describe("canonFactExtractionService", () => {
       const story = makeStory();
       const episode = makeEpisode();
       const llm = makeLLMPort();
-      const locks = makeMockLockPort(store);
+
       const issue = makeIssue({ status: "accepting" });
 
       const stories = makeMockStoryPort(story, [issue]);
       const episodes = makeMockEpisodePort(episode);
 
-      const service = createCanonFactExtractionService(llm, stories, episodes, canon, locks);
+      const service = createCanonFactExtractionService(llm, stories, episodes, canon);
 
       const result = await service.resolveIssue({
         clerkUserId: CLERK, projectId: PROJECT, storyId: STORY_ID,
@@ -852,13 +768,13 @@ describe("canonFactExtractionService", () => {
       const story = makeStory();
       const episode = makeEpisode();
       const llm = makeLLMPort();
-      const locks = makeMockLockPort(store);
+
       const issue = makeIssue({ status: "accepted", resolvedAt: new Date().toISOString() });
 
       const stories = makeMockStoryPort(story, [issue]);
       const episodes = makeMockEpisodePort(episode);
 
-      const service = createCanonFactExtractionService(llm, stories, episodes, canon, locks);
+      const service = createCanonFactExtractionService(llm, stories, episodes, canon);
 
       const result = await service.resolveIssue({
         clerkUserId: CLERK, projectId: PROJECT, storyId: STORY_ID,
@@ -877,7 +793,7 @@ describe("canonFactExtractionService", () => {
       const canon = wrapInMemoryStore(store);
       const story = makeStory();
       const episode = makeEpisode();
-      const locks = makeMockLockPort(store);
+
       const stories = makeMockStoryPort(story);
       const episodes = makeMockEpisodePort(episode);
 
@@ -888,7 +804,7 @@ describe("canonFactExtractionService", () => {
       const llm = { generateCanonFacts };
 
       const port = makeCanonFactLLMPort(llm as never);
-      const service = createCanonFactExtractionService(port, stories, episodes, canon, locks);
+      const service = createCanonFactExtractionService(port, stories, episodes, canon);
 
       const result = await service.extractAndCommit({
         clerkUserId: CLERK,
@@ -910,7 +826,7 @@ describe("canonFactExtractionService", () => {
       const canon = wrapInMemoryStore(store);
       const story = makeStory();
       const episode = makeEpisode();
-      const locks = makeMockLockPort(store);
+
       const stories = makeMockStoryPort(story);
       const episodes = makeMockEpisodePort(episode);
 
@@ -920,7 +836,7 @@ describe("canonFactExtractionService", () => {
       const llm = { generateCanonFacts };
 
       const port = makeCanonFactLLMPort(llm as never);
-      const service = createCanonFactExtractionService(port, stories, episodes, canon, locks);
+      const service = createCanonFactExtractionService(port, stories, episodes, canon);
 
       const result = await service.extractAndCommit({
         clerkUserId: CLERK,
@@ -948,312 +864,6 @@ describe("canonFactExtractionService", () => {
   });
 });
 
-describe("canonExtractionDispatcher", () => {
-  function makeExtractionPort() {
-    return {
-      extractAndCommit: vi.fn(async () => ({
-        committed: 1,
-        issues: 0,
-        status: "canon_committed",
-      })),
-    };
-  }
-
-  it("reconcileCrashes enqueues outbox for approved episodes without extraction", async () => {
-    const extraction = makeExtractionPort();
-    const episode = makeEpisode();
-    const story = makeStory();
-
-    const episodes = {
-      findOwned: vi.fn(async () => episode),
-      updateCanonExtractionStatus: vi.fn(async () => episode),
-      findApprovedWithoutExtraction: vi.fn(async () => [episode]),
-      findExtractionProcessing: vi.fn(async () => []),
-      findAllExtractionCandidates: vi.fn(async () => [{ clerkUserId: CLERK, projectId: PROJECT }]),
-    };
-    const stories = {
-      findOwned: vi.fn(async () => story),
-    };
-    const outbox = makeMockOutboxPort();
-
-    const dispatcher = createCanonExtractionDispatcher(
-      extraction, episodes, stories, outbox,
-    );
-
-    const result = await dispatcher.reconcileCrashes({
-      clerkUserId: CLERK,
-      projectId: PROJECT,
-    });
-
-    expect(result.enqueued).toBe(1);
-    expect(outbox.enqueue).toHaveBeenCalledTimes(1);
-  });
-
-  it("reconcileCrashes enqueues outbox for orphaned processing episodes", async () => {
-    const extraction = makeExtractionPort();
-    const episode = makeEpisode();
-    const story = makeStory();
-
-    const episodes = {
-      findOwned: vi.fn(async () => episode),
-      updateCanonExtractionStatus: vi.fn(async () => episode),
-      findApprovedWithoutExtraction: vi.fn(async () => []),
-      findExtractionProcessing: vi.fn(async () => [episode]),
-      findAllExtractionCandidates: vi.fn(async () => [{ clerkUserId: CLERK, projectId: PROJECT }]),
-    };
-    const stories = {
-      findOwned: vi.fn(async () => story),
-    };
-    const outbox = makeMockOutboxPort();
-
-    const dispatcher = createCanonExtractionDispatcher(
-      extraction, episodes, stories, outbox,
-    );
-
-    const result = await dispatcher.reconcileCrashes({
-      clerkUserId: CLERK,
-      projectId: PROJECT,
-    });
-
-    expect(result.enqueued).toBe(1);
-    expect(outbox.enqueue).toHaveBeenCalledTimes(1);
-  });
-
-  it("dispatchPending processes claimed outbox events", async () => {
-    const extraction = makeExtractionPort();
-    const episode = makeEpisode();
-
-    const episodes = {
-      findOwned: vi.fn(async () => episode),
-      updateCanonExtractionStatus: vi.fn(async () => episode),
-      findApprovedWithoutExtraction: vi.fn(async () => []),
-      findExtractionProcessing: vi.fn(async () => []),
-      findAllExtractionCandidates: vi.fn(async () => []),
-    };
-    const stories = {
-      findOwned: vi.fn(async () => makeStory()),
-    };
-    const outbox = makeMockOutboxPort();
-    outbox.claimPending = vi.fn(async () => [
-      {
-        _id: "outbox-1" as never,
-        clerkUserId: CLERK,
-        projectId: PROJECT,
-        episodeId: EPISODE_ID,
-        storyId: STORY_ID,
-        commitBatchId: "batch-1",
-        status: "dispatched",
-        error: null,
-        createdAt: new Date(),
-        dispatchedAt: new Date(),
-        completedAt: null,
-      },
-    ]);
-
-    const dispatcher = createCanonExtractionDispatcher(
-      extraction, episodes, stories, outbox,
-    );
-
-    const result = await dispatcher.dispatchPending({
-      clerkUserId: CLERK,
-    });
-
-    expect(result.dispatched).toBe(1);
-    expect(result.succeeded).toBe(1);
-    expect(extraction.extractAndCommit).toHaveBeenCalledTimes(1);
-    expect(outbox.markCompleted).toHaveBeenCalledTimes(1);
-  });
-
-  it("dispatchPending marks failed on extraction error", async () => {
-    const extraction = {
-      extractAndCommit: vi.fn(async () => {
-        throw new Error("Extraction failed");
-      }),
-    };
-    const episode = makeEpisode();
-
-    const episodes = {
-      findOwned: vi.fn(async () => episode),
-      updateCanonExtractionStatus: vi.fn(async () => episode),
-      findApprovedWithoutExtraction: vi.fn(async () => []),
-      findExtractionProcessing: vi.fn(async () => []),
-      findAllExtractionCandidates: vi.fn(async () => []),
-    };
-    const stories = {
-      findOwned: vi.fn(async () => makeStory()),
-    };
-    const outbox = makeMockOutboxPort();
-    outbox.claimPending = vi.fn(async () => [
-      {
-        _id: "outbox-1" as never,
-        clerkUserId: CLERK,
-        projectId: PROJECT,
-        episodeId: EPISODE_ID,
-        storyId: STORY_ID,
-        commitBatchId: "batch-1",
-        status: "dispatched",
-        error: null,
-        createdAt: new Date(),
-        dispatchedAt: new Date(),
-        completedAt: null,
-      },
-    ]);
-
-    const dispatcher = createCanonExtractionDispatcher(
-      extraction, episodes, stories, outbox,
-    );
-
-    const result = await dispatcher.dispatchPending({
-      clerkUserId: CLERK,
-    });
-
-    expect(result.dispatched).toBe(1);
-    expect(result.failed).toBe(1);
-    expect(outbox.markFailed).toHaveBeenCalledTimes(1);
-  });
-
-  it("run combines reconcile and dispatch", async () => {
-    const extraction = makeExtractionPort();
-    const episode = makeEpisode();
-    const story = makeStory();
-
-    const episodes = {
-      findOwned: vi.fn(async () => episode),
-      updateCanonExtractionStatus: vi.fn(async () => episode),
-      findApprovedWithoutExtraction: vi.fn(async () => [episode]),
-      findExtractionProcessing: vi.fn(async () => []),
-      findAllExtractionCandidates: vi.fn(async () => [{ clerkUserId: CLERK, projectId: PROJECT }]),
-    };
-    const stories = {
-      findOwned: vi.fn(async () => story),
-    };
-    const outbox = makeMockOutboxPort();
-
-    const dispatcher = createCanonExtractionDispatcher(
-      extraction, episodes, stories, outbox,
-    );
-
-    const result = await dispatcher.run({
-      clerkUserId: CLERK,
-      projectId: PROJECT,
-    });
-
-    expect(result.enqueued).toBe(1);
-    expect(result.dispatched).toBe(0);
-  });
-
-  it("runGlobal discovers candidates and dispatches globally", async () => {
-    const extraction = makeExtractionPort();
-    const episode = makeEpisode();
-    const story = makeStory();
-
-    const episodes = {
-      findOwned: vi.fn(async () => episode),
-      updateCanonExtractionStatus: vi.fn(async () => episode),
-      findApprovedWithoutExtraction: vi.fn(async () => [episode]),
-      findExtractionProcessing: vi.fn(async () => []),
-      findAllExtractionCandidates: vi.fn(async () => [{ clerkUserId: CLERK, projectId: PROJECT }]),
-    };
-    const stories = {
-      findOwned: vi.fn(async () => story),
-    };
-    const outbox = makeMockOutboxPort();
-
-    const dispatcher = createCanonExtractionDispatcher(
-      extraction, episodes, stories, outbox,
-    );
-
-    const result = await dispatcher.runGlobal({});
-
-    expect(episodes.findAllExtractionCandidates).toHaveBeenCalledTimes(1);
-    expect(outbox.enqueue).toHaveBeenCalledTimes(1);
-    expect(result.enqueued).toBe(1);
-  });
-
-  it("runGlobal dispatches pending events across all users", async () => {
-    const extraction = makeExtractionPort();
-    const episode = makeEpisode();
-
-    const episodes = {
-      findOwned: vi.fn(async () => episode),
-      updateCanonExtractionStatus: vi.fn(async () => episode),
-      findApprovedWithoutExtraction: vi.fn(async () => []),
-      findExtractionProcessing: vi.fn(async () => []),
-      findAllExtractionCandidates: vi.fn(async () => []),
-    };
-    const stories = {
-      findOwned: vi.fn(async () => makeStory()),
-    };
-    const outbox = makeMockOutboxPort();
-    outbox.claimPendingGlobal = vi.fn(async () => [
-      {
-        _id: "outbox-1" as never,
-        clerkUserId: CLERK,
-        projectId: PROJECT,
-        episodeId: EPISODE_ID,
-        storyId: STORY_ID,
-        commitBatchId: "batch-1",
-        status: "dispatched",
-        error: null,
-        createdAt: new Date(),
-        dispatchedAt: new Date(),
-        completedAt: null,
-      },
-    ]);
-
-    const dispatcher = createCanonExtractionDispatcher(
-      extraction, episodes, stories, outbox,
-    );
-
-    const result = await dispatcher.runGlobal({});
-
-    expect(outbox.claimPendingGlobal).toHaveBeenCalledTimes(1);
-    expect(result.dispatched).toBe(1);
-    expect(result.succeeded).toBe(1);
-    expect(extraction.extractAndCommit).toHaveBeenCalledTimes(1);
-  });
-
-  it("runGlobal continues when reconcileCrashes throws for one candidate", async () => {
-    const extraction = makeExtractionPort();
-    const episode = makeEpisode();
-    const story = makeStory();
-
-    const episodes = {
-      findOwned: vi.fn(async () => episode),
-      updateCanonExtractionStatus: vi.fn(async () => episode),
-      findApprovedWithoutExtraction: vi.fn(async () => [episode]),
-      findExtractionProcessing: vi.fn(async () => []),
-      findAllExtractionCandidates: vi.fn(async () => [
-        { clerkUserId: "user-bad", projectId: "proj-bad" },
-        { clerkUserId: CLERK, projectId: PROJECT },
-      ]),
-    };
-    const stories = {
-      findOwned: vi.fn(async (clerkUserId: string) => {
-        if (clerkUserId === "user-bad") return null;
-        return story;
-      }),
-    };
-    const outbox = makeMockOutboxPort();
-
-    const dispatcher = createCanonExtractionDispatcher(
-      extraction, episodes, stories, outbox,
-    );
-
-    const result = await dispatcher.runGlobal({});
-
-    expect(result.enqueued).toBe(1);
-  });
-
-  it("liveCanonExtractionDispatcher returns a dispatcher with runGlobal (B2 worker wiring)", () => {
-    const dispatcher = liveCanonExtractionDispatcher();
-    expect(typeof dispatcher.runGlobal).toBe("function");
-    expect(typeof dispatcher.run).toBe("function");
-    expect(typeof dispatcher.reconcileCrashes).toBe("function");
-    expect(typeof dispatcher.dispatchPending).toBe("function");
-    expect(typeof dispatcher.dispatchPendingGlobal).toBe("function");
-  });
-});
 describe("canon shadow comparison (Step 2 corrections)", () => {
   it("scripted fake LLM commits facts with verified evidence episode number", async () => {
     const store = new InMemoryCanonFactStore();
@@ -1261,12 +871,11 @@ describe("canon shadow comparison (Step 2 corrections)", () => {
     const story = makeStory({ episodeId: "ep-7" });
     const episode = makeEpisode({ episodeNumber: 7 });
     const llm = makeLLMPort([makeExtractedFact()]);
-    const locks = makeMockLockPort(store);
     const stories = makeMockStoryPort(story);
     const episodes = makeMockEpisodePort(episode);
 
     const service = createCanonFactExtractionService(
-      llm, stories, episodes, canon, locks,
+      llm, stories, episodes, canon,
     );
 
     const result = await service.extractAndCommit({
@@ -1297,12 +906,11 @@ describe("canon shadow comparison (Step 2 corrections)", () => {
         quote: "This exact text appears nowhere in the screenplay scene.",
       }),
     ]);
-    const locks = makeMockLockPort(store);
     const stories = makeMockStoryPort(story);
     const episodes = makeMockEpisodePort(episode);
 
     const service = createCanonFactExtractionService(
-      llm, stories, episodes, canon, locks,
+      llm, stories, episodes, canon,
     );
 
     const result = await service.extractAndCommit({
@@ -1335,12 +943,11 @@ describe("canon shadow comparison (Step 2 corrections)", () => {
     });
     const episode = makeEpisode();
     const llm = makeLLMPort([]);
-    const locks = makeMockLockPort(store);
     const stories = makeMockStoryPort(multiSceneStory);
     const episodes = makeMockEpisodePort(episode);
 
     const service = createCanonFactExtractionService(
-      llm, stories, episodes, canon, locks,
+      llm, stories, episodes, canon,
     );
 
     const result = await service.extractAndCommit({

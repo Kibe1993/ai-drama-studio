@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { connectDB } from "@/lib/db/connect";
 import { canonFactModel } from "@/lib/canon/model";
-import { canonLockModel } from "@/lib/models/canonLock";
+
 import { projectModel } from "@/lib/models/project";
 import { ownedQuery } from "@/lib/repositories/ownership";
 import { JobError } from "@/lib/pipeline/types";
@@ -114,9 +114,8 @@ export const canonStore = {
     expectedSequence: number;
     commitBatchId: string;
     entries: Omit<CanonFactEntry, "sequence" | "projectId" | "createdAt" | "commitBatchId">[];
-    fencing?: { projectId: string; jobId: string; fencingToken: number };
   }): Promise<CanonFactEntry[]> {
-    const { CanonFact, Project, connection } = await models();
+    const { CanonFact, Project } = await models();
     if (!(await Project.exists(ownedQuery(input.clerkUserId, input.projectId)))) {
       throw new JobError("Project not found for canon fact.", "not_found", false);
     }
@@ -181,28 +180,8 @@ export const canonStore = {
       entry,
     }));
 
-    const Lock = canonLockModel(connection);
-    const session = await connection.startSession();
     try {
-      await session.withTransaction(async () => {
-        if (input.fencing) {
-          const lockDoc = await Lock.findOne({
-            clerkUserId: input.clerkUserId,
-            projectId: input.fencing.projectId,
-            jobId: input.fencing.jobId,
-            fencingToken: input.fencing.fencingToken,
-            expiresAt: { $gt: new Date() },
-          })
-            .session(session)
-            .lean<{ _id: unknown } | null>();
-          if (!lockDoc) {
-            throw new CanonFactConflict(
-              "Canon lock fencing verification failed: lock not held or token stale.",
-            );
-          }
-        }
-        await CanonFact.insertMany(docs, { session, ordered: true });
-      });
+      await CanonFact.insertMany(docs, { ordered: true });
     } catch (error) {
       if (isDuplicateKey(error)) {
         throw new CanonFactConflict(
@@ -210,8 +189,6 @@ export const canonStore = {
         );
       }
       throw error;
-    } finally {
-      await session.endSession();
     }
 
     return prepared;

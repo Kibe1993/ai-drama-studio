@@ -1,7 +1,7 @@
 import { log } from "@/lib/log";
 import { JobError } from "@/lib/pipeline/types";
 import { canonStore, CanonFactConflict } from "@/lib/canon/store";
-import { canonLockRepository } from "@/lib/repositories/canonLockRepository";
+
 
 import { episodeRepository } from "@/lib/repositories/episodeRepository";
 import { storyRepository, type CanonExtractionIssueRecord } from "@/lib/repositories/storyRepository";
@@ -65,10 +65,6 @@ type CanonPort = Pick<
   "appendBatch" | "getLatestSequence" | "latestState"
 >;
 
-type LockPort = Pick<
-  typeof canonLockRepository,
-  "acquire" | "release" | "renew"
->;
 
 type LedgerPort = {
   findLatest(clerkUserId: string, projectId: string): Promise<{ events: unknown[]; characterStates: unknown[]; locationStates: unknown[]; objectStates: unknown[]; revealedSecrets: string[]; unresolvedThreads: unknown[]; consequences: string[]; timelineNotes: string } | null>;
@@ -215,7 +211,7 @@ export function createCanonFactExtractionService(
   stories: StoryPort = storyRepository,
   episodes: EpisodePort = episodeRepository,
   canon: CanonPort = canonStore,
-  locks: LockPort = canonLockRepository,
+
   ledger?: LedgerPort,
 ) {
   return {
@@ -302,18 +298,6 @@ export function createCanonFactExtractionService(
         );
         return { committed: 0, issues: 0, status: "extraction_failed" };
       }
-
-      const acquireResult = await locks.acquire({
-        clerkUserId: input.clerkUserId,
-        projectId: input.projectId,
-        jobId: input.jobId,
-      });
-
-      if (!acquireResult.acquired) {
-        throw new JobError("Could not acquire canon lock: held by another worker.", "canon_lock_busy", true);
-      }
-
-      const fencingToken = acquireResult.fencingToken;
 
       try {
         const baseState = await canon.latestState(
@@ -404,11 +388,7 @@ export function createCanonFactExtractionService(
             expectedSequence,
             commitBatchId,
             entries,
-            fencing: {
-              projectId: input.projectId,
-              jobId: input.jobId,
-              fencingToken,
-            },
+
           });
           committedCount = reconciliation.committed.length;
         }
@@ -480,12 +460,7 @@ export function createCanonFactExtractionService(
           message,
         );
         return { committed: 0, issues: 0, status: "extraction_failed" };
-      } finally {
-        await locks.release({
-          clerkUserId: input.clerkUserId,
-          projectId: input.projectId,
-          jobId: input.jobId,
-        });
+
       }
     },
 
@@ -528,83 +503,61 @@ export function createCanonFactExtractionService(
       const sourceHash = computeSourceHash(story.screenplay);
       const issueCommitBatchId = `canon-issue-resolve:${input.episodeId}:${story.id}:${sourceHash}:${input.issueId}:accepted`;
 
-      const acquireResult = await locks.acquire({
-        clerkUserId: input.clerkUserId,
-        projectId: input.projectId,
-        jobId: input.jobId,
-      });
-      if (!acquireResult.acquired) {
-        throw new JobError("Could not acquire canon lock for issue resolution.", "canon_lock_busy", true);
-      }
+      const claimed = await stories.claimIssue(
+        input.clerkUserId,
+        input.storyId,
+        input.issueId,
+      );
+      if (!claimed) return { resolved: false };
+
+      const prepared: PreparedFact = issue.fact;
 
       try {
-        const claimed = await stories.claimIssue(
+        const baseState = await canon.latestState(
           input.clerkUserId,
-          input.storyId,
-          input.issueId,
+          input.projectId,
         );
-        if (!claimed) return { resolved: false };
 
-        const prepared: PreparedFact = issue.fact;
+        const reconciliation = reconcileBatch({
+          projectId: input.projectId,
+          baseState,
+          facts: [prepared],
+        });
 
-        try {
-          const baseState = await canon.latestState(
+        if (reconciliation.committed.length > 0) {
+          const expectedSequence = (await canon.getLatestSequence(
             input.clerkUserId,
             input.projectId,
-          );
+          )) + 1;
 
-          const reconciliation = reconcileBatch({
+          await canon.appendBatch({
+            clerkUserId: input.clerkUserId,
             projectId: input.projectId,
-            baseState,
-            facts: [prepared],
+            expectedSequence,
+            commitBatchId: issueCommitBatchId,
+            entries: reconciliation.committed.map(toEntryInput),
           });
-
-          if (reconciliation.committed.length > 0) {
-            const expectedSequence = (await canon.getLatestSequence(
-              input.clerkUserId,
-              input.projectId,
-            )) + 1;
-
-            await canon.appendBatch({
-              clerkUserId: input.clerkUserId,
-              projectId: input.projectId,
-              expectedSequence,
-              commitBatchId: issueCommitBatchId,
-              entries: reconciliation.committed.map(toEntryInput),
-              fencing: {
-                projectId: input.projectId,
-                jobId: input.jobId,
-                fencingToken: acquireResult.fencingToken,
-              },
-            });
-          }
-        } catch (error) {
-          await stories.rollbackIssue(
-            input.clerkUserId,
-            input.storyId,
-            input.issueId,
-          );
-          throw error;
         }
-
-        const finalized = await stories.finalizeIssue(
+      } catch (error) {
+        await stories.rollbackIssue(
           input.clerkUserId,
           input.storyId,
           input.issueId,
-          {
-            status: "accepted",
-            resolvedAt: new Date().toISOString(),
-          },
         );
-
-        return { resolved: finalized !== null };
-      } finally {
-        await locks.release({
-          clerkUserId: input.clerkUserId,
-          projectId: input.projectId,
-          jobId: input.jobId,
-        });
+        throw error;
       }
+
+      const finalized = await stories.finalizeIssue(
+        input.clerkUserId,
+        input.storyId,
+        input.issueId,
+        {
+          status: "accepted",
+          resolvedAt: new Date().toISOString(),
+        },
+      );
+
+      return { resolved: finalized !== null };
     },
   };
 }

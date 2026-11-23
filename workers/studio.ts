@@ -2,7 +2,7 @@ import { log } from "@/lib/log";
 import { loadEnvConfig } from "@next/env";
 import { UnrecoverableError, Worker } from "bullmq";
 import { connectDB } from "@/lib/db/connect";
-import { livePipelineDeps, liveCanonExtractionDispatcher } from "@/lib/pipeline/live";
+import { livePipelineDeps } from "@/lib/pipeline/live";
 import { logLlmSetup } from "@/lib/providers/llm/registry";
 import {
   reconcileOpenJobs,
@@ -14,9 +14,6 @@ import { JobError } from "@/lib/pipeline/types";
 function failureMessage(error: unknown): string {
   return error instanceof Error ? error.message : "The worker failed to start";
 }
-
-const CANON_DISPATCHER_INTERVAL_MS = 30_000;
-const CANON_DISPATCHER_BATCH_LIMIT = 20;
 
 async function main(): Promise<void> {
   loadEnvConfig(process.cwd(), process.env.NODE_ENV !== "production");
@@ -67,41 +64,8 @@ async function main(): Promise<void> {
     log.info("worker", "listening", { queue: name, concurrency, lockDuration });
   }
 
-  const dispatcher = liveCanonExtractionDispatcher();
-  let dispatcherRunning = false;
-  const dispatcherTick = async () => {
-    if (dispatcherRunning) return;
-    dispatcherRunning = true;
-    try {
-      const result = await dispatcher.runGlobal({
-        limit: CANON_DISPATCHER_BATCH_LIMIT,
-      });
-      if (result.enqueued > 0 || result.dispatched > 0) {
-        log.info("worker", "canon dispatcher tick", {
-          enqueued: result.enqueued,
-          dispatched: result.dispatched,
-          succeeded: result.succeeded,
-          failed: result.failed,
-        });
-      }
-    } catch (error) {
-      log.error("worker", "canon dispatcher tick failed", {
-        error: error instanceof Error ? error.message : "unknown",
-      });
-    } finally {
-      dispatcherRunning = false;
-    }
-  };
-
-  const dispatcherTimer = setInterval(dispatcherTick, CANON_DISPATCHER_INTERVAL_MS);
-  log.info("worker", "canon dispatcher scheduled", {
-    intervalMs: CANON_DISPATCHER_INTERVAL_MS,
-    batchLimit: CANON_DISPATCHER_BATCH_LIMIT,
-  });
-
   const shutdown = async (signal: string) => {
     log.info("worker", "shutting down", { signal });
-    clearInterval(dispatcherTimer);
     await Promise.allSettled(workers.map((w) => w.close()));
     process.exit(0);
   };

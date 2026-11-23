@@ -12,10 +12,7 @@ export class InMemoryCanonFactStore {
   private readonly entries = new Map<string, CanonFactEntry[]>();
   private readonly batchIndex = new Map<string, CanonFactEntry[]>();
   private readonly idIndex = new Map<string, Set<string>>();
-  private readonly locks = new Map<
-    string,
-    { jobId: string; fencingToken: number; expiresAt: Date }
-  >();
+
 
   private projectKey(projectId: string): string {
     return projectId;
@@ -65,24 +62,9 @@ export class InMemoryCanonFactStore {
     expectedSequence: number;
     commitBatchId: string;
     entries: Omit<CanonFactEntry, "sequence" | "projectId" | "createdAt" | "commitBatchId">[];
-    fencing?: { projectId: string; jobId: string; fencingToken: number };
   }): CanonFactEntry[] {
     const key = this.projectKey(input.projectId);
     const batchKey = `${key}:${input.commitBatchId}`;
-
-    if (input.fencing) {
-      const lock = this.locks.get(key);
-      if (
-        !lock ||
-        lock.jobId !== input.fencing.jobId ||
-        lock.fencingToken !== input.fencing.fencingToken ||
-        lock.expiresAt < new Date()
-      ) {
-        throw new CanonFactConflict(
-          "Canon lock fencing verification failed: lock not held or token stale.",
-        );
-      }
-    }
 
     const existing = this.batchIndex.get(batchKey);
     if (existing) {
@@ -141,16 +123,6 @@ export class InMemoryCanonFactStore {
     return [...(this.entries.get(this.projectKey(projectId)) ?? [])];
   }
 
-  setLock(
-    projectId: string,
-    lock: { jobId: string; fencingToken: number; expiresAt: Date },
-  ): void {
-    this.locks.set(this.projectKey(projectId), lock);
-  }
-
-  clearLock(projectId: string): void {
-    this.locks.delete(this.projectKey(projectId));
-  }
 
   latestState(projectId: string, mode?: ReduceMode): DerivedCanonState {
     return reduceCanon(projectId, this.list(projectId), mode);

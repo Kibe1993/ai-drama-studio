@@ -16,8 +16,7 @@ import { createCasnaContext } from "@/lib/pipeline/casnaContext";
 import { continuityService } from "@/lib/services/continuityService";
 import { createCanonExtractionService } from "@/lib/services/canonExtractionService";
 import { createCanonFactExtractionService } from "@/lib/services/canonFactExtractionService";
-import { createCanonExtractionDispatcher } from "@/lib/services/canonExtractionDispatcher";
-import { canonExtractionOutboxRepository } from "@/lib/repositories/canonExtractionOutboxRepository";
+
 import type { PipelineDeps } from "@/lib/pipeline/ports";
 import { createStoryProvider } from "@/lib/providers/llm/registry";
 import type { LLMProvider } from "@/lib/providers/llm/types";
@@ -26,7 +25,7 @@ import { createStoryBibleEngine } from "@/lib/pipeline/storyBibleEngine";
 import { createStoryDraftEngine } from "@/lib/pipeline/storyDraftEngine";
 import { narrativeCanonRepository } from "@/lib/repositories/narrativeCanonRepository";
 import { canonStore } from "@/lib/canon/store";
-import { canonLockRepository } from "@/lib/repositories/canonLockRepository";
+
 import type { JobQueue } from "@/lib/pipeline/types";
 
 function unavailableQueue(): JobQueue {
@@ -148,7 +147,7 @@ function buildLivePipelineDeps(): PipelineDeps {
         storyRepository,
         episodeRepository,
         canonStore,
-        canonLockRepository,
+
         continuityLedgerRepository,
       ),
       onStoryStatus: async (job, message) => {
@@ -169,16 +168,8 @@ export function liveCanonFactExtractionService() {
     storyRepository,
     episodeRepository,
     canonStore,
-    canonLockRepository,
+
     continuityLedgerRepository,
   );
 }
 
-export function liveCanonExtractionDispatcher() {
-  return createCanonExtractionDispatcher(
-    liveCanonFactExtractionService(),
-    episodeRepository,
-    storyRepository,
-    canonExtractionOutboxRepository,
-  );
-}

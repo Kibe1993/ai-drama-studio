@@ -26,7 +26,7 @@ import {
 import { createLmStudioProvider, DEFAULT_LMSTUDIO_MODEL, LmStudioLLMProvider, lmstudioBaseUrl, lmstudioApiKey, lmstudioTimeoutMs, lmstudioSectionTimeoutMs, lmstudioStoryTimeoutMs, lmstudioEnabled } from "@/lib/providers/llm/lmstudio";
 import { createOpenAIProvider, DEFAULT_OPENAI_MODEL } from "@/lib/providers/llm/openai";
 import { createOpenRouterProvider, openRouterTimeoutMs } from "@/lib/providers/llm/openrouter";
-import { ProviderAvailabilityManager, parseCostPolicy } from "@/lib/providers/llm/aspo";
+
 import type { LLMProvider } from "@/lib/providers/llm/types";
 import type { SeasonPlanPrompt, SeasonArchitecturePrompt, EpisodeDetailBatchPrompt } from "@/lib/providers/llm/seasonPlanTask";
 import type { RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
@@ -317,46 +317,15 @@ export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[]
 
 const sharedHealthTracker = new ProviderHealthTracker();
 
-const BASE_INITIAL_PRIORITY: Record<string, number> = {
-  gemini: 100,
-  groq: 90,
-  openrouter: 85,
-  openai: 80,
-  deepseek: 75,
-  kimi: 70,
-  mistral: 65,
-  anthropic: 60,
-  ollama: 50,
-  lmstudio: 45,
-};
-
-function initialPriorityFor(primary: string): Record<string, number> {
-  return { ...BASE_INITIAL_PRIORITY, [primary]: 110 };
-}
-
 export function createStoryProvider(env: NodeJS.ProcessEnv = process.env): LLMProvider {
-  const primary = env.LLM_PROVIDER?.trim().toLowerCase() || "gemini";
   const testMode = env.LLM_TEST_MODE?.trim().toLowerCase() || "";
   const exclusiveMode = testMode === "lmstudio";
   const slots = buildSlots(env);
-  if (exclusiveMode) {
-    return new StoryProviderManager({
-      slots,
-      freeOnly: false,
-      healthTracker: sharedHealthTracker,
-      taskRouting: false,
-    });
-  }
-  const availabilityManager = new ProviderAvailabilityManager({
-    initialPriority: initialPriorityFor(primary),
-  });
   return new StoryProviderManager({
     slots,
     freeOnly: isFreeOnly(env),
     healthTracker: sharedHealthTracker,
-    taskRouting: true,
-    availabilityManager,
-    costPolicy: parseCostPolicy(env),
+    taskRouting: !exclusiveMode,
   });
 }
 

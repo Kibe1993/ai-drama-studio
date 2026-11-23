@@ -3,21 +3,7 @@ import { JobError } from "@/lib/pipeline/types";
 import { minimumScenesForDuration } from "@/lib/providers/llm/budget";
 import { MAX_CONTINUATION_ROUNDS, mergeScreenplays } from "@/lib/providers/llm/continuation";
 import { classifyProviderError, ClassifiedProviderError, safeProviderDetail, statusOf } from "@/lib/providers/llm/errors";
-import {
-  type CostPolicy,
-  type ProviderAvailabilityManager,
-  aspoAttemptResult,
-  aspoAttemptStart,
-  aspoEligibleProviders,
-  aspoFallback,
-  aspoGenerationFailed,
-  aspoGenerationSucceeded,
-  aspoHealthUpdated,
-  classifyFailure,
-  cooldownFor as aspoCooldownFor,
-  isCostEligible,
-  recoveryFor,
-} from "@/lib/providers/llm/aspo";
+
 import type { CharacterPrompt, EpisodeSuggestionPrompt, ScenePrompt, SeasonPlanPrompt } from "@/lib/providers/llm/stageTasks";
 import type { RepairScenesPrompt } from "@/lib/providers/llm/repairScenes";
 import { repairScenesResultSchema } from "@/lib/providers/llm/repairScenes";
@@ -267,8 +253,7 @@ export class StoryProviderManager implements LLMProvider {
       freeOnly?: boolean;
       healthTracker?: ProviderHealthTracker;
       taskRouting?: boolean;
-      availabilityManager?: ProviderAvailabilityManager;
-      costPolicy?: CostPolicy;
+
     }
   ) {
     this.id = options.slots[0]?.id ?? "llm";
@@ -635,28 +620,7 @@ export class StoryProviderManager implements LLMProvider {
     usage?: TokenUsage;
   }> {
     const baseSlots = supports ? this.options.slots.filter(supports) : this.options.slots;
-    const aspo = this.options.availabilityManager;
-    const costPolicy = this.options.costPolicy;
-    let slots: ProviderSlot[];
-    if (aspo) {
-      for (const s of baseSlots) {
-        aspo.registerProvider(s.id, s.model, s.configured);
-      }
-      const candidates = baseSlots.map((s) => ({
-        providerId: s.id,
-        configured: s.configured,
-        supported: s.supported !== false,
-        costEligible: costPolicy ? isCostEligible(s.id, s.model, costPolicy) : true,
-      }));
-      const order = aspo.selectOrder(task, candidates);
-      const ordered = order
-        .map((id) => baseSlots.find((s) => s.id === id))
-        .filter((s): s is ProviderSlot => Boolean(s));
-      slots = ordered.length > 0 ? ordered : baseSlots;
-      aspoEligibleProviders(task, slots.map((s) => s.id));
-    } else {
-      slots = this.options.taskRouting ? routeByTask(task, baseSlots) : baseSlots;
-    }
+    let slots: ProviderSlot[] = this.options.taskRouting ? routeByTask(task, baseSlots) : baseSlots;
     // Ollama is a slow local provider. Use it only as a last-resort
     // fallback after every other provider has been retried once (two
     // passes total). This avoids spending the sequence budget on Ollama
@@ -665,7 +629,7 @@ export class StoryProviderManager implements LLMProvider {
     // When Ollama is the explicitly configured primary provider
     // (LLM_PROVIDER=ollama, i.e. the first slot), respect the user's
     // intent and skip the last-resort reordering so Ollama is tried in
-    // its natural position within the ASPO-ordered sequence.
+    // its natural position within the provider sequence.
     const ollamaIsPrimary = baseSlots[0]?.id === "ollama";
     const ollamaSlots = slots.filter((s) => s.id === "ollama");
     const nonOllamaSlots = slots.filter((s) => s.id !== "ollama");
@@ -776,13 +740,7 @@ export class StoryProviderManager implements LLMProvider {
         continue;
       }
       const isRetryPass = retryStartIndex >= 0 && index >= retryStartIndex && index < ollamaStartIndex;
-      if (aspo && !aspo.isAvailable(slot.id)) {
-        const cooldown = aspo.getCooldownRemaining(slot.id);
-        log.info("llm", "provider skipped (aspo unavailable)", { provider: slot.id, task, cooldownMs: cooldown, retryPass: isRetryPass });
-        attempts.push(record(slot, 0, false, "circuit_breaker", null, index > 0));
-        continue;
-      }
-      if (!aspo && this.options.healthTracker && !this.options.healthTracker.isHealthy(slot.id)) {
+      if (this.options.healthTracker && !this.options.healthTracker.isHealthy(slot.id)) {
         log.info("llm", "provider skipped (circuit breaker)", { provider: slot.id, task, retryPass: isRetryPass });
         attempts.push(record(slot, 0, false, "circuit_breaker", null, index > 0));
         continue;
@@ -819,8 +777,7 @@ export class StoryProviderManager implements LLMProvider {
         jobId: context.jobId ?? "",
       });
       const started = Date.now();
-      const attemptId = `${task}-${slot.id}-${started}`;
-      if (aspo) aspoAttemptStart(attemptId, slot.id, slot.model, task, budget);
+
       let providerSucceeded = false;
       let providerResult: { value: T; usage?: import("@/lib/providers/llm/types").TokenUsage } | null = null;
       let providerError: unknown = null;
@@ -876,12 +833,7 @@ export class StoryProviderManager implements LLMProvider {
           inputTokens: result.usage?.inputTokens ?? "",
           outputTokens: result.usage?.outputTokens ?? "",
         });
-        if (aspo) {
-          aspo.recordSuccess(slot.id, task, durationMs);
-          aspoAttemptResult(attemptId, slot.id, true, durationMs, null);
-          aspoHealthUpdated(slot.id, task, "ok", 0);
-          aspoGenerationSucceeded(task, slot.id, slot.model, durationMs);
-        }
+
         return {
           value: result.value,
           provider: slot.id,
@@ -914,44 +866,20 @@ export class StoryProviderManager implements LLMProvider {
           ms: durationMs,
           fallback: index > 0,
         });
-        if (aspo) {
-          const classified = classifyFailure(slot.id, error, timeoutAbort || undefined);
-          const category = classified.category;
-          const strategy = recoveryFor(category);
-          aspo.recordFailure(slot.id, task, category, durationMs);
-          aspoAttemptResult(attemptId, slot.id, false, durationMs, category, classified.detail);
-          aspoHealthUpdated(slot.id, task, category, aspoCooldownFor(category));
-          if (strategy === "abort") {
-            aspoGenerationFailed(task, attempts.length, category);
-            throw new LlmSequenceError(failure.message, failure.code, false, attempts);
-          }
-          const next = slots[index + 1];
-          if (next) {
-            aspoFallback(task, slot.id, next.id);
-            log.info("llm", "fallback starting", {
-              task, from: slot.id, fromModel: slot.model, to: next.id, toModel: next.model,
-              runId: context.runId ?? "", jobId: context.jobId ?? "",
-            });
-          }
-        } else {
-          if (!FAILOVER_CODES.has(failure.code)) {
-            throw new LlmSequenceError(failure.message, failure.code, false, attempts);
-          }
-          this.options.healthTracker?.recordFailure(slot.id, failure.code);
-          const next = slots[index + 1];
-          if (next) log.info("llm", "fallback starting", {
-            task, from: slot.id, fromModel: slot.model, to: next.id, toModel: next.model,
-            runId: context.runId ?? "", jobId: context.jobId ?? "",
-          });
+        if (!FAILOVER_CODES.has(failure.code)) {
+          throw new LlmSequenceError(failure.message, failure.code, false, attempts);
         }
+        this.options.healthTracker?.recordFailure(slot.id, failure.code);
+        const next = slots[index + 1];
+        if (next) log.info("llm", "fallback starting", {
+          task, from: slot.id, fromModel: slot.model, to: next.id, toModel: next.model,
+          runId: context.runId ?? "", jobId: context.jobId ?? "",
+        });
       }
     }
 
     const transportFailed = attempts.some((attempt) => !attempt.success && TRANSPORT_CODES.has(attempt.category));
-    if (aspo) {
-      const lastFailed = [...attempts].reverse().find((a) => !a.success);
-      aspoGenerationFailed(task, attempts.length, (lastFailed?.category ?? "unknown_error") as Parameters<typeof aspoGenerationFailed>[2]);
-    }
+
     throw new LlmSequenceError(
       this.options.freeOnly
         ? "No free language provider is currently available."

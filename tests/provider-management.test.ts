@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { classifyProviderError } from "@/lib/providers/llm/errors";
 import { StoryProviderManager, ProviderHealthTracker, type ProviderSlot } from "@/lib/providers/llm/manager";
 import { LLM_PROVIDER_IDS, providerSequence, buildSlots } from "@/lib/providers/llm/registry";
-import { ProviderAvailabilityManager, classifyFailure, recoveryFor } from "@/lib/providers/llm/aspo";
+
 import { PAID_PROVIDER_IDS } from "@/lib/providers/llm/freePolicy";
 import { ollamaTimeoutMs, ollamaSectionTimeoutMs } from "@/lib/providers/llm/ollama";
 import type { StoryPrompt } from "@/lib/providers/llm/types";
@@ -36,13 +36,12 @@ function slot(id: string, generate: ProviderSlot["generate"], options: { configu
   return { id, model: options.model ?? `${id}-model`, configured: options.configured ?? true, supported: options.supported ?? true, generate };
 }
 
-function manager(slots: ProviderSlot[], opts: { healthTracker?: ProviderHealthTracker; availabilityManager?: ProviderAvailabilityManager } = {}) {
+function manager(slots: ProviderSlot[], opts: { healthTracker?: ProviderHealthTracker } = {}) {
   return new StoryProviderManager({
     slots,
     sequenceTimeoutMs: 5_000,
     providerTimeoutMs: 2_000,
     healthTracker: opts.healthTracker,
-    availabilityManager: opts.availabilityManager,
   });
 }
 
@@ -82,33 +81,6 @@ describe("provider management: priority ordering", () => {
     expect(seq[seq.length - 1]).toBe("ollama");
   });
 
-  it("ranks gemini above groq in ASPO scoring", () => {
-    const aspo = new ProviderAvailabilityManager();
-    aspo.registerProvider("gemini", "gemini-3.8-flash", true);
-    aspo.registerProvider("groq", "openai/gpt-oss-20b", true);
-    const order = aspo.selectOrder("story", [
-      { providerId: "gemini", configured: true, supported: true, costEligible: true },
-      { providerId: "groq", configured: true, supported: true, costEligible: true },
-    ]);
-    expect(order[0]).toBe("gemini");
-    expect(order[1]).toBe("groq");
-  });
-
-  it("ranks ollama below all cloud providers", () => {
-    const aspo = new ProviderAvailabilityManager();
-    for (const id of ["gemini", "groq", "openrouter", "mistral", "ollama"]) {
-      aspo.registerProvider(id, `${id}-model`, true);
-    }
-    const order = aspo.selectOrder("story", [
-      { providerId: "gemini", configured: true, supported: true, costEligible: true },
-      { providerId: "groq", configured: true, supported: true, costEligible: true },
-      { providerId: "openrouter", configured: true, supported: true, costEligible: true },
-      { providerId: "mistral", configured: true, supported: true, costEligible: true },
-      { providerId: "ollama", configured: true, supported: true, costEligible: true },
-    ]);
-    expect(order[order.length - 1]).toBe("ollama");
-    expect(order[0]).toBe("gemini");
-  });
 });
 
 describe("provider management: HTTP 413 classification", () => {
@@ -125,11 +97,6 @@ describe("provider management: HTTP 413 classification", () => {
     expect(classified.retryable).toBe(true);
   });
 
-  it("maps prompt_too_large to failover recovery in ASPO", () => {
-    const classified = classifyFailure("Groq", classifyProviderError("Groq", { status: 413, message: "request entity too large" }));
-    expect(classified.category).toBe("prompt_too_large");
-    expect(recoveryFor(classified.category)).toBe("failover");
-  });
 
   it("fails over on prompt_too_large to a provider with a larger context", async () => {
     const result = await manager([
@@ -144,7 +111,7 @@ describe("provider management: HTTP 413 classification", () => {
 });
 
 describe("provider management: retry pass respects cooldowns", () => {
-  it("does not bypass circuit breaker during retry pass (non-ASPO path)", async () => {
+  it("does not bypass circuit breaker during retry pass", async () => {
     const groqAttempts = vi.fn(async () => {
       throw classifyProviderError("Groq", { status: 429, message: "rate limited" });
     });
@@ -162,23 +129,6 @@ describe("provider management: retry pass respects cooldowns", () => {
     expect(groqAttempts).toHaveBeenCalledTimes(1);
   });
 
-  it("does not bypass ASPO cooldown during retry pass", async () => {
-    const groqAttempts = vi.fn(async () => {
-      throw classifyProviderError("Groq", { status: 429, message: "rate limited" });
-    });
-    const ollamaAttempts = vi.fn(async () => ({ story: sample }));
-    const aspo = new ProviderAvailabilityManager();
-    const result = await manager(
-      [
-        slot("groq", groqAttempts),
-        slot("ollama", ollamaAttempts),
-      ],
-      { availabilityManager: aspo }
-    ).generateStory(prompt);
-    expect(result.provider).toBe("ollama");
-    // groq should be called exactly once, not retried during retry pass
-    expect(groqAttempts).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe("provider management: Ollama slot timeout", () => {

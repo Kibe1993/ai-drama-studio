@@ -319,6 +319,67 @@ function unwrapSection(section: StoryBibleSection, parsed: unknown): unknown {
   return value && typeof value === "object" && !Array.isArray(value) ? value : parsed;
 }
 
+const ARRAY_FIELDS_BY_SECTION: Record<string, string[]> = {
+  identity: ["genres", "subgenres"],
+  world: ["geographyAndLocations", "socialStructuresAndCultures", "historyAndPastEvents", "rules", "definingSystems"],
+  characters: ["relationshipDynamics"],
+  narrative: ["majorConflicts", "subplots", "unresolvedMysteries", "potentialFutureRevelations", "majorNarrativeQuestions"],
+  guidelines: ["mainThemes", "secondaryThemes", "boundaries", "mustRemainConsistent"],
+  canon: ["confirmedFacts", "proposedDetails", "unresolvedQuestions", "hiddenInformation", "characterKnowledge", "audienceKnowledge"],
+};
+
+function coerceStringArrays(section: string, value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  const arrayFields = ARRAY_FIELDS_BY_SECTION[section] ?? [];
+  for (const field of arrayFields) {
+    if (field in record && typeof record[field] === "string") {
+      record[field] = [record[field]];
+    }
+  }
+  if (section === "characters" && Array.isArray(record.characters)) {
+    for (const char of record.characters) {
+      if (char && typeof char === "object" && !Array.isArray(char)) {
+        const c = char as Record<string, unknown>;
+        for (const f of ["motivations", "fearsAndWeaknesses", "abilitiesAndLimitations", "secrets"]) {
+          if (f in c && typeof c[f] === "string") c[f] = [c[f]];
+        }
+        if (Array.isArray(c.relationships)) {
+          for (const rel of c.relationships) {
+            if (rel && typeof rel === "object" && !Array.isArray(rel)) {
+              const r = rel as Record<string, unknown>;
+              for (const f of ["tensionOrChange"]) {
+                if (f in r && typeof r[f] === "string") r[f] = [r[f]];
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  if (section === "world" && Array.isArray(record.definingSystems)) {
+    for (const sys of record.definingSystems) {
+      if (sys && typeof sys === "object" && !Array.isArray(sys)) {
+        const s = sys as Record<string, unknown>;
+        for (const f of ["limitations", "consequences"]) {
+          if (f in s && typeof s[f] === "string") s[f] = [s[f]];
+        }
+      }
+    }
+  }
+  if (section === "canon" && Array.isArray(record.characterKnowledge)) {
+    for (const ck of record.characterKnowledge) {
+      if (ck && typeof ck === "object" && !Array.isArray(ck)) {
+        const k = ck as Record<string, unknown>;
+        for (const f of ["knows", "believes"]) {
+          if (f in k && typeof k[f] === "string") k[f] = [k[f]];
+        }
+      }
+    }
+  }
+  return value;
+}
+
 export async function requestStoryBible(
   transport: StoryBibleTaskTransport,
   input: StoryBibleTaskInput,
@@ -343,7 +404,7 @@ export async function requestStoryBible(
       response.text,
       SECTION_VALIDATORS[section],
       `Story Bible ${section}`,
-      (value) => unwrapSection(section, value),
+      (value) => coerceStringArrays(section, unwrapSection(section, value)),
       response.truncated
     );
     return { result: { mode: "section", section, value: parsed as StoryBibleSectionValue }, usage: response.usage };

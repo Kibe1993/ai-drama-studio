@@ -23,6 +23,7 @@ import {
   ollamaStoryTimeoutMs,
   ollamaTimeoutMs,
 } from "@/lib/providers/llm/ollama";
+import { createLmStudioProvider, DEFAULT_LMSTUDIO_MODEL, LmStudioLLMProvider, lmstudioBaseUrl, lmstudioApiKey, lmstudioTimeoutMs, lmstudioSectionTimeoutMs, lmstudioStoryTimeoutMs, lmstudioEnabled } from "@/lib/providers/llm/lmstudio";
 import { createOpenAIProvider, DEFAULT_OPENAI_MODEL } from "@/lib/providers/llm/openai";
 import { createOpenRouterProvider, openRouterTimeoutMs } from "@/lib/providers/llm/openrouter";
 import { ProviderAvailabilityManager, parseCostPolicy } from "@/lib/providers/llm/aspo";
@@ -36,6 +37,7 @@ import type { CanonFactExtractionTaskInput } from "@/lib/providers/llm/canonFact
 
 export const LLM_PROVIDER_IDS = [
   "ollama",
+  "lmstudio",
   "gemini",
   "groq",
   "openrouter",
@@ -49,6 +51,7 @@ export type LlmProviderId = (typeof LLM_PROVIDER_IDS)[number];
 
 const DEFAULT_MODELS: Record<LlmProviderId, string> = {
   ollama: DEFAULT_OLLAMA_MODEL,
+  lmstudio: DEFAULT_LMSTUDIO_MODEL,
   gemini: DEFAULT_LLM_MODEL,
   groq: DEFAULT_FREE_MODELS.groq,
   openrouter: DEFAULT_FREE_MODELS.openrouter,
@@ -61,6 +64,7 @@ const DEFAULT_MODELS: Record<LlmProviderId, string> = {
 
 const KEY_NAMES: Record<LlmProviderId, string> = {
   ollama: "",
+  lmstudio: "LMSTUDIO_API_KEY",
   gemini: "GEMINI_API_KEY",
   groq: "GROQ_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
@@ -111,6 +115,9 @@ export function credentialPresent(id: string, env: NodeJS.ProcessEnv = process.e
     if (env.OLLAMA_ENABLED?.trim().toLowerCase() === "false") return false;
     return true;
   }
+  if (id === "lmstudio") {
+    return lmstudioEnabled(env);
+  }
   return Boolean(env[KEY_NAMES[id]]?.trim());
 }
 
@@ -128,6 +135,16 @@ function adapter(id: LlmProviderId, model: string, env: NodeJS.ProcessEnv): LLMP
       extraOptions: ollamaGenerationOptions(env),
     });
   }
+  if (id === "lmstudio") {
+    return new LmStudioLLMProvider({
+      model,
+      baseURL: lmstudioBaseUrl(env),
+      apiKey: lmstudioApiKey(env),
+      timeoutMs: lmstudioTimeoutMs(env),
+      sectionTimeoutMs: lmstudioSectionTimeoutMs(env),
+      storyTimeoutMs: lmstudioStoryTimeoutMs(env),
+    });
+  }
   if (id === "gemini") return createGeminiProvider(model);
   if (id === "groq") return createGroqProvider(model);
   if (id === "openrouter") return createOpenRouterProvider(model, env);
@@ -141,10 +158,14 @@ function adapter(id: LlmProviderId, model: string, env: NodeJS.ProcessEnv): LLMP
 export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[] {
   const primary = env.LLM_PROVIDER?.trim().toLowerCase() || "gemini";
   const freeOnly = isFreeOnly(env);
-  return providerSequence({
-    LLM_PROVIDER: env.LLM_PROVIDER,
-    LLM_FALLBACK_PROVIDERS: env.LLM_FALLBACK_PROVIDERS,
-  }).map((id) => {
+  const testMode = env.LLM_TEST_MODE?.trim().toLowerCase() || "";
+  const sequenceConfig = testMode === "lmstudio"
+    ? { LLM_PROVIDER: "lmstudio", LLM_FALLBACK_PROVIDERS: "" }
+    : { LLM_PROVIDER: env.LLM_PROVIDER, LLM_FALLBACK_PROVIDERS: env.LLM_FALLBACK_PROVIDERS };
+  if (testMode === "lmstudio") {
+    log.info("llm", "exclusive test mode active", { mode: "lmstudio" });
+  }
+  return providerSequence(sequenceConfig).map((id) => {
     if (!known(id)) {
       return {
         id,
@@ -169,15 +190,21 @@ export function buildSlots(env: NodeJS.ProcessEnv = process.env): ProviderSlot[]
       reason: blocked ?? undefined,
       timeoutMs: id === "ollama"
         ? ollamaTimeoutMs(env)
-        : id === "openrouter"
-          ? openRouterTimeoutMs(env)
-          : undefined,
+        : id === "lmstudio"
+          ? lmstudioTimeoutMs(env)
+          : id === "openrouter"
+            ? openRouterTimeoutMs(env)
+            : undefined,
       sectionTimeoutMs: id === "ollama"
         ? ollamaSectionTimeoutMs(env)
-        : undefined,
+        : id === "lmstudio"
+          ? lmstudioSectionTimeoutMs(env)
+          : undefined,
       storyTimeoutMs: id === "ollama"
         ? ollamaStoryTimeoutMs(env)
-        : undefined,
+        : id === "lmstudio"
+          ? lmstudioStoryTimeoutMs(env)
+          : undefined,
       async generate(input, options) {
         if (!provider) throw new Error(blocked ?? "Provider is not available.");
         const result = await provider.generateStory(input, { signal: options.signal });
@@ -300,6 +327,7 @@ const BASE_INITIAL_PRIORITY: Record<string, number> = {
   mistral: 65,
   anthropic: 60,
   ollama: 50,
+  lmstudio: 45,
 };
 
 function initialPriorityFor(primary: string): Record<string, number> {
@@ -308,11 +336,22 @@ function initialPriorityFor(primary: string): Record<string, number> {
 
 export function createStoryProvider(env: NodeJS.ProcessEnv = process.env): LLMProvider {
   const primary = env.LLM_PROVIDER?.trim().toLowerCase() || "gemini";
+  const testMode = env.LLM_TEST_MODE?.trim().toLowerCase() || "";
+  const exclusiveMode = testMode === "lmstudio";
+  const slots = buildSlots(env);
+  if (exclusiveMode) {
+    return new StoryProviderManager({
+      slots,
+      freeOnly: false,
+      healthTracker: sharedHealthTracker,
+      taskRouting: false,
+    });
+  }
   const availabilityManager = new ProviderAvailabilityManager({
     initialPriority: initialPriorityFor(primary),
   });
   return new StoryProviderManager({
-    slots: buildSlots(env),
+    slots,
     freeOnly: isFreeOnly(env),
     healthTracker: sharedHealthTracker,
     taskRouting: true,

@@ -61,6 +61,9 @@ export const DEFAULT_PROVIDER_TIMEOUT_MS = 90_000;
 const MINIMUM_ATTEMPT_MS = 100;
 const EMPTY_FIELD_RETRY_HINT = "Every required text field must be non-empty. Do not use empty strings for any required field.";
 
+const PROVIDER_RETRY_COUNT = Number(process.env.LLM_PROVIDER_RETRY_COUNT ?? "4") || 4;
+const RETRYABLE_CODES = new Set(["rate_limited", "timeout", "provider_unavailable", "connection_error", "provider_overloaded", "provider_failed"]);
+
 export const FAILOVER_CODES = new Set([
   "rate_limited",
   "timeout",
@@ -352,8 +355,34 @@ export class StoryProviderManager implements LLMProvider {
       if (!slot.generateStoryBible) {
         throw new JobError(`${providerLabel(slot.id)} cannot develop a Story Bible.`, "configuration", false);
       }
-      const generated = await slot.generateStoryBible(input, { signal });
-      return { value: validateStoryBibleTaskResult(input, generated.result), usage: generated.usage };
+      const maxEmptyFieldRetries = 3;
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt <= maxEmptyFieldRetries; attempt += 1) {
+        const retryInput: StoryBibleTaskInput = attempt === 0
+          ? input
+          : { ...input, instruction: [input.instruction, EMPTY_FIELD_RETRY_HINT, `Attempt ${attempt + 1}: every field must have substantive content.`].filter(Boolean).join("\n\n") };
+        try {
+          const generated = await slot.generateStoryBible(retryInput, { signal });
+          return { value: validateStoryBibleTaskResult(retryInput, generated.result), usage: generated.usage };
+        } catch (error) {
+          if (
+            error instanceof JobError &&
+            error.code === "invalid_schema" &&
+            (error.details as { emptyField?: boolean } | undefined)?.emptyField &&
+            attempt < maxEmptyFieldRetries
+          ) {
+            log.info("llm", "retrying story bible section with empty-field hint", {
+              provider: slot.id,
+              section: input.section ?? "",
+              attempt: attempt + 1,
+            });
+            lastError = error;
+            continue;
+          }
+          throw error;
+        }
+      }
+      throw lastError ?? new JobError("Story Bible generation failed after retries.", "invalid_schema", false);
     });
     return {
       result: result.value,
@@ -792,8 +821,46 @@ export class StoryProviderManager implements LLMProvider {
       const started = Date.now();
       const attemptId = `${task}-${slot.id}-${started}`;
       if (aspo) aspoAttemptStart(attemptId, slot.id, slot.model, task, budget);
-      try {
-        const result = await call(slot, signal);
+      let providerSucceeded = false;
+      let providerResult: { value: T; usage?: import("@/lib/providers/llm/types").TokenUsage } | null = null;
+      let providerError: unknown = null;
+      for (let retry = 0; retry < PROVIDER_RETRY_COUNT && !providerSucceeded; retry += 1) {
+        if (retry > 0) {
+          const backoffMs = Math.min(30_000, 2_000 * 2 ** (retry - 1));
+          log.info("llm", "provider retry", { provider: slot.id, model: slot.model, task, retry, backoffMs });
+          await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
+        }
+        const retrySignal = AbortSignal.any([AbortSignal.timeout(budget), ...(context.signal ? [context.signal] : [])]);
+        try {
+          const result = await call(slot, retrySignal);
+          providerSucceeded = true;
+          providerResult = result;
+        } catch (error) {
+          providerError = error;
+          const reasonName = retrySignal.reason && typeof retrySignal.reason === "object" && "name" in retrySignal.reason
+            ? retrySignal.reason.name
+            : "";
+          const timeoutAbort = retrySignal.aborted && reasonName === "TimeoutError";
+          const failure = timeoutAbort
+            ? new JobError(`${providerLabel(slot.id)} timed out.`, "timeout", true)
+            : error instanceof JobError
+              ? error
+              : classifyProviderError(providerLabel(slot.id), error);
+          if (retry < PROVIDER_RETRY_COUNT - 1 && RETRYABLE_CODES.has(failure.code)) {
+            log.info("llm", "provider retryable failure", {
+              provider: slot.id,
+              model: slot.model,
+              code: failure.code,
+              retry: retry + 1,
+              of: PROVIDER_RETRY_COUNT,
+            });
+            continue;
+          }
+          break;
+        }
+      }
+      if (providerSucceeded && providerResult) {
+        const result = providerResult;
         const durationMs = Date.now() - started;
         attempts.push({
           ...record(slot, durationMs, true, "ok", null, index > 0),
@@ -823,7 +890,9 @@ export class StoryProviderManager implements LLMProvider {
           attempts,
           usage: result.usage,
         };
-      } catch (error) {
+      }
+      {
+        const error = providerError;
         const reasonName = signal.reason && typeof signal.reason === "object" && "name" in signal.reason
           ? signal.reason.name
           : "";

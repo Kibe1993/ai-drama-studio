@@ -40,6 +40,7 @@ export function openRouterModelIsFree(model: string): boolean {
 export function freeModelAllowed(provider: string, model: string): boolean {
   if ((PAID_PROVIDER_IDS as readonly string[]).includes(provider)) return false;
   if (provider === "ollama") return true;
+  if (provider === "lmstudio") return true;
   if (provider === "gemini") return (FREE_GEMINI_MODELS as readonly string[]).includes(model);
   if (provider === "groq") return (FREE_GROQ_MODELS as readonly string[]).includes(model);
   if (provider === "openrouter") return openRouterModelIsFree(model);

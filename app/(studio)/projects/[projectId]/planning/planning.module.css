@@ -1,0 +1,20 @@
+.page { max-width: 48rem; margin: 0 auto; }
+.section { border: 1px solid #2a2620; border-radius: 0.5rem; padding: 1.5rem; margin-top: 1.5rem; }
+.field { margin-bottom: 1rem; }
+.label { display: block; font-size: 0.75rem; color: #a39b8f; margin-bottom: 0.25rem; }
+.input { width: 100%; background: #1a1815; border: 1px solid #3a342c; border-radius: 0.25rem; padding: 0.5rem; color: #f3efe6; font-size: 0.875rem; }
+.textarea { composes: input; min-height: 6rem; resize: vertical; }
+.actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+.tags { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.25rem; }
+.tag { background: #2a261f; border: 1px solid #3a342c; border-radius: 0.25rem; padding: 0.25rem 0.5rem; font-size: 0.75rem; color: #cfc6b8; display: flex; align-items: center; gap: 0.25rem; }
+.tagRemove { cursor: pointer; color: #a39b8f; }
+.tagRemove:hover { color: #e7b2a8; }
+.status { font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 0.25rem; display: inline-block; }
+.statusDraft { background: #2a261f; color: #a39b8f; }
+.statusSubmitted { background: #3a2f1f; color: #dfc18a; }
+.statusApproved { background: #1f3026; color: #7fb069; }
+.statusRejected { background: #3a1f1f; color: #e7b2a8; }
+.empty { text-align: center; padding: 3rem; color: #a39b8f; }
+.error { color: #e7b2a8; margin-top: 1rem; }
+.loading { color: #a39b8f; margin-top: 1rem; }
+.version { font-size: 0.75rem; color: #a39b8f; margin-top: 0.5rem; }

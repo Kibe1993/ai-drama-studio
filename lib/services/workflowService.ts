@@ -251,7 +251,7 @@ function blockedReason(
     if (storyAwaitingApproval) return "Approve the story draft to continue.";
     if (!storyApproved) return "Generate and approve a story draft before the Season Plan.";
   }
-  if (stage === "plan") {
+  if (stage === "episodes") {
     if (!planApproved) return "Generate and approve a Season Plan before creating episodes.";
   }
   return null;

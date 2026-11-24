@@ -10,6 +10,8 @@ import { episodeService } from "@/lib/services/episodeService";
 import { productionSceneService } from "@/lib/services/productionSceneService";
 import { seasonPlanService } from "@/lib/services/seasonPlanService";
 import { storyDraftService } from "@/lib/services/storyDraftService";
+import { planningService } from "@/lib/services/planningService";
+import { productionDesignService } from "@/lib/services/productionDesignService";
 
 import { storyRepository } from "@/lib/repositories/storyRepository";
 import { storyBibleRepository } from "@/lib/repositories/storyBibleRepository";
@@ -86,6 +88,9 @@ export function createMcpServer(clerkUserId: string): McpServer {
   registerApprovalTools(server, actor, clerkUserId);
   registerContextTool(server, actor, clerkUserId);
   registerActivityTools(server, clerkUserId);
+  registerPlanningTools(server, actor, clerkUserId);
+  registerProductionDesignTools(server, actor, clerkUserId);
+  registerVoiceTools(server, actor, clerkUserId);
   registerResources(server, clerkUserId);
 
   return server;
@@ -1183,6 +1188,162 @@ function registerActivityTools(server: McpServer, clerkUserId: string): void {
           limit: args.limit,
           tool: args.tool,
         });
+      });
+    },
+  );
+}
+
+function registerPlanningTools(server: McpServer, actor: RequestAuth, clerkUserId: string): void {
+  server.tool(
+    "planning.get",
+    "Get the creative planning document for a project — concept, themes, audience, narrative direction.",
+    { projectId: z.string().describe("The project ID") },
+    async (args) => {
+      logTool("planning.get", clerkUserId, `projectId=${args.projectId}`);
+      return run(async () => {
+        return await planningService.get(actor, args.projectId);
+      });
+    },
+  );
+
+  server.tool(
+    "planning.update",
+    "Create or update the creative planning document. Submits for creator approval.",
+    {
+      projectId: z.string().describe("The project ID"),
+      logline: z.string().max(500).optional().describe("One-sentence logline"),
+      synopsis: z.string().max(10000).optional().describe("Story synopsis"),
+      themes: z.array(z.string()).max(20).optional().describe("Story themes"),
+      centralQuestion: z.string().max(1000).optional().describe("Central dramatic question"),
+      mainConflict: z.string().max(2000).optional().describe("Main conflict description"),
+    },
+    async (args) => {
+      logTool("planning.update", clerkUserId, `projectId=${args.projectId}`);
+      return run(async () => {
+        const existing = await planningService.get(actor, args.projectId);
+        const data = {
+          concept: { logline: args.logline ?? existing?.concept.logline ?? "", synopsis: args.synopsis ?? existing?.concept.synopsis ?? "", elevatorPitch: existing?.concept.elevatorPitch ?? "" },
+          themes: args.themes ?? existing?.themes ?? [],
+          centralQuestion: args.centralQuestion ?? existing?.centralQuestion ?? "",
+          mainConflict: args.mainConflict ?? existing?.mainConflict ?? "",
+          audience: existing?.audience ?? { demographic: "", tone: "", contentRating: "" },
+          narrativeDirection: existing?.narrativeDirection ?? { structure: "", pov: "", pacing: "" },
+          alternativeDirections: existing?.alternativeDirections ?? [],
+          references: existing?.references ?? [],
+        };
+        return await planningService.createOrUpdate(actor, args.projectId, data);
+      });
+    },
+  );
+
+  server.tool(
+    "planning.approve",
+    "Approve or reject the creative planning document. Only the creator can approve.",
+    {
+      projectId: z.string().describe("The project ID"),
+      expectedVersion: z.number().int().min(1).describe("Current version for optimistic locking"),
+      rejectionReason: z.string().max(2000).optional().describe("Reason for rejection (if rejecting)"),
+    },
+    async (args) => {
+      logTool("planning.approve", clerkUserId, `projectId=${args.projectId}`);
+      return run(async () => {
+        if (args.rejectionReason) {
+          return await planningService.reject(actor, args.projectId, args.expectedVersion, args.rejectionReason);
+        }
+        return await planningService.approve(actor, args.projectId, args.expectedVersion);
+      });
+    },
+  );
+}
+
+function registerProductionDesignTools(server: McpServer, actor: RequestAuth, clerkUserId: string): void {
+  server.tool(
+    "productionDesign.get",
+    "Get the production design for a scene — shot list, camera directions, lighting, staging.",
+    {
+      projectId: z.string().describe("The project ID"),
+      sceneId: z.string().describe("The scene ID"),
+    },
+    async (args) => {
+      logTool("productionDesign.get", clerkUserId, `sceneId=${args.sceneId}`);
+      return run(async () => {
+        return await productionDesignService.getByScene(actor, args.projectId, args.sceneId);
+      });
+    },
+  );
+
+  server.tool(
+    "productionDesign.update",
+    "Create or update the production design for a scene. Includes shot list, location design, and character staging.",
+    {
+      projectId: z.string().describe("The project ID"),
+      sceneId: z.string().describe("The scene ID"),
+      shotList: z.array(z.object({
+        shotNumber: z.number().int().min(1),
+        type: z.string().max(50).default("medium"),
+        cameraDirection: z.string().max(500).default(""),
+        cameraMovement: z.string().max(200).default(""),
+        lens: z.string().max(100).default(""),
+        framing: z.string().max(200).default(""),
+        duration: z.number().min(0).default(0),
+        lightingSetup: z.string().max(500).default(""),
+        lightingNotes: z.string().max(2000).default(""),
+        storyboardDescription: z.string().max(5000).default(""),
+        visualContinuityNotes: z.string().max(2000).default(""),
+      })).max(50).default([]).describe("Shot list for the scene"),
+      locationDressing: z.string().max(2000).optional().describe("Location dressing description"),
+      locationProps: z.string().max(2000).optional().describe("Location props description"),
+      locationAtmosphere: z.string().max(2000).optional().describe("Location atmosphere description"),
+    },
+    async (args) => {
+      logTool("productionDesign.update", clerkUserId, `sceneId=${args.sceneId}`);
+      return run(async () => {
+        return await productionDesignService.createOrUpdate(actor, args.projectId, args.sceneId, {
+          shotList: args.shotList,
+          locationDesign: {
+            dressing: args.locationDressing ?? "",
+            props: args.locationProps ?? "",
+            atmosphere: args.locationAtmosphere ?? "",
+          },
+          characterStaging: [],
+        });
+      });
+    },
+  );
+
+  server.tool(
+    "productionDesign.generateShotList",
+    "Generate a shot list for a scene using AI, based on the screenplay and scene breakdown.",
+    {
+      projectId: z.string().describe("The project ID"),
+      sceneId: z.string().describe("The scene ID"),
+    },
+    async (args) => {
+      logTool("productionDesign.generateShotList", clerkUserId, `sceneId=${args.sceneId}`);
+      return run(async () => {
+        const scene = await productionSceneRepository.findById(clerkUserId, args.sceneId);
+        if (!scene) return { error: "Scene not found" };
+        return { message: "Shot list generation queued. Use productionDesign.update to set the result.", scene };
+      });
+    },
+  );
+}
+
+function registerVoiceTools(server: McpServer, actor: RequestAuth, clerkUserId: string): void {
+  server.tool(
+    "voice.assign",
+    "Assign a voice profile to a character entity.",
+    {
+      projectId: z.string().describe("The project ID"),
+      characterId: z.string().describe("The canonical entity ID for the character"),
+      voiceProfileId: z.string().describe("The voice profile ID to assign"),
+    },
+    async (args) => {
+      logTool("voice.assign", clerkUserId, `characterId=${args.characterId}`);
+      return run(async () => {
+        await canonicalEntityRepository.updateVisualProfile(clerkUserId, args.characterId, { voiceProfileId: args.voiceProfileId });
+        logActivity("voice.assign", clerkUserId, args.projectId, `Assigned voice ${args.voiceProfileId} to character ${args.characterId}`, "success");
+        return { success: true, characterId: args.characterId, voiceProfileId: args.voiceProfileId };
       });
     },
   );

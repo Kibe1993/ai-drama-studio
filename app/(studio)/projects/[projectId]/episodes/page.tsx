@@ -26,8 +26,35 @@ export default function EpisodesPage() {
   const planNeedsReview = workflow.data?.plan.needsReview ?? false;
   const planApproved = workflow.data?.plan.approved ?? false;
 
-  async function handleImport(_content: string, _format: "markdown" | "json" | "text") {
-    setShowImport(false);
+  async function handleImport(content: string, format: "markdown" | "json" | "text") {
+    let episodes: Array<{ title: string; premise: string; targetDurationSeconds: number }>;
+    if (format === "json") {
+      const parsed = JSON.parse(content);
+      episodes = Array.isArray(parsed) ? parsed : [parsed];
+    } else {
+      episodes = content
+        .split("\n")
+        .filter((line) => line.trim())
+        .map((line) => {
+          const [title, premise, duration] = line.split("|").map((s) => s.trim());
+          return {
+            title: title ?? "Imported Episode",
+            premise: premise ?? "",
+            targetDurationSeconds: duration ? parseInt(duration, 10) : 180,
+          };
+        });
+    }
+    for (const ep of episodes) {
+      const res = await fetch(`/api/projects/${projectId}/episodes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ep),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message ?? `Failed to create episode "${ep.title}" (${res.status})`);
+      }
+    }
   }
 
   return (

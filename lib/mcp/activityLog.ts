@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { activityLogRepository } from "@/lib/repositories/activityLogRepository";
 
 export interface ActivityEntry {
   id: string;
@@ -36,6 +37,18 @@ export function logActivity(
   if (activityLog.length > MAX_ENTRIES) {
     activityLog.length = MAX_ENTRIES;
   }
+  void activityLogRepository.insert({
+    clerkUserId,
+    projectId,
+    actorType: "assistant",
+    actorId: clerkUserId,
+    assistantName,
+    tool,
+    operation: tool.includes(".") ? "write" : "read",
+    target: tool.split(".")[0] ?? "unknown",
+    result: result === "success" ? "success" : "failure",
+    details: { detail },
+  });
 }
 
 export function getActivityLog(
@@ -54,6 +67,27 @@ export function getActivityLog(
     entries = entries.filter((e) => e.tool === options.tool);
   }
   return entries.slice(0, options?.limit ?? 50);
+}
+
+export async function getActivityLogFromDb(
+  clerkUserId: string,
+  options?: {
+    projectId?: string;
+    limit?: number;
+    tool?: string;
+  },
+): Promise<ActivityEntry[]> {
+  const records = await activityLogRepository.list(clerkUserId, options);
+  return records.map((r) => ({
+    id: r.id,
+    timestamp: r.createdAt,
+    tool: r.tool,
+    clerkUserId: r.clerkUserId,
+    projectId: r.projectId,
+    detail: String(r.details.detail ?? ""),
+    result: r.result === "success" ? "success" : "error",
+    assistantName: r.assistantName,
+  }));
 }
 
 export const activityQuerySchema = z.object({

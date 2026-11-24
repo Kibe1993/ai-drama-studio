@@ -12,7 +12,7 @@ export default function ProductionPage() {
   const project = query.data?.project;
 
   return (
-    <StageLayout projectId={projectId} stage="production">
+    <StageLayout projectId={projectId} stage="production_design">
       {project ? <ProductionPanel projectId={project.id} status={project.status} /> : null}
     </StageLayout>
   );

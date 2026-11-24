@@ -1,0 +1,16 @@
+.page { max-width: 64rem; margin: 0 auto; }
+.sceneSelect { margin-top: 1.5rem; }
+.select { width: 100%; background: #1a1815; border: 1px solid #3a342c; border-radius: 0.25rem; padding: 0.5rem; color: #f3efe6; font-size: 0.875rem; }
+.shotTable { width: 100%; border-collapse: collapse; margin-top: 1.5rem; }
+.shotTable th { text-align: left; font-size: 0.75rem; color: #a39b8f; padding: 0.5rem; border-bottom: 1px solid #3a342c; }
+.shotTable td { padding: 0.5rem; border-bottom: 1px solid #2a2620; font-size: 0.875rem; color: #f3efe6; }
+.shotInput { width: 100%; background: #1a1815; border: 1px solid #3a342c; border-radius: 0.25rem; padding: 0.25rem 0.5rem; color: #f3efe6; font-size: 0.75rem; }
+.section { border: 1px solid #2a2620; border-radius: 0.5rem; padding: 1.5rem; margin-top: 1.5rem; }
+.field { margin-bottom: 1rem; }
+.label { display: block; font-size: 0.75rem; color: #a39b8f; margin-bottom: 0.25rem; }
+.textarea { width: 100%; background: #1a1815; border: 1px solid #3a342c; border-radius: 0.25rem; padding: 0.5rem; color: #f3efe6; font-size: 0.875rem; min-height: 4rem; resize: vertical; }
+.actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+.empty { text-align: center; padding: 3rem; color: #a39b8f; }
+.error { color: #e7b2a8; margin-top: 1rem; }
+.loading { color: #a39b8f; margin-top: 1rem; }
+.addShot { margin-top: 0.5rem; }

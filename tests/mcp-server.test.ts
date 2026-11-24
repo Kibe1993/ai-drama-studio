@@ -547,6 +547,13 @@ describe("MCP server: tool listing", () => {
       expect(names).toContain("story.approve");
       expect(names).toContain("project.context");
       expect(names).toContain("activity.list");
+      expect(names).toContain("planning.get");
+      expect(names).toContain("planning.update");
+      expect(names).toContain("planning.approve");
+      expect(names).toContain("productionDesign.get");
+      expect(names).toContain("productionDesign.update");
+      expect(names).toContain("productionDesign.generateShotList");
+      expect(names).toContain("voice.assign");
     } finally {
       await server.close();
     }

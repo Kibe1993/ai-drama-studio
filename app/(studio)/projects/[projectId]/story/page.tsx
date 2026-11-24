@@ -17,8 +17,26 @@ export default function StoryDraftPage() {
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
 
-  async function handleImport(_content: string, _format: "markdown" | "json" | "text") {
-    setShowImport(false);
+  async function handleImport(content: string, format: "markdown" | "json" | "text") {
+    let body: Record<string, unknown>;
+    if (format === "json") {
+      body = JSON.parse(content);
+    } else {
+      body = {
+        title: "Imported Story",
+        synopsis: content.slice(0, 2000),
+        screenplay: [{ heading: "SCENE 1", action: content, dialogue: [] }],
+      };
+    }
+    const res = await fetch(`/api/projects/${projectId}/story-draft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ operation: "generate", instruction: JSON.stringify(body), creativeDirection: "Imported content" }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message ?? `Import failed (${res.status})`);
+    }
   }
 
   return (

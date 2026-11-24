@@ -12,7 +12,7 @@ export default function SeasonPlanPage() {
   const project = query.data?.project;
 
   return (
-    <StageLayout projectId={projectId} stage="plan">
+    <StageLayout projectId={projectId} stage="episodes">
       {project ? <SeasonPlanWorkspace project={project} /> : null}
     </StageLayout>
   );

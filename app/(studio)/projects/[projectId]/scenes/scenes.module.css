@@ -1,0 +1,19 @@
+.page { max-width: 64rem; margin: 0 auto; }
+.list { display: grid; gap: 0.5rem; margin-top: 1.5rem; }
+.sceneRow { border: 1px solid #2a2620; border-radius: 0.375rem; padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s; }
+.sceneRow:hover { border-color: #4a453d; }
+.sceneRowActive { border-color: #c4a574; }
+.sceneNumber { font-weight: 600; color: #c4a574; }
+.sceneHeading { color: #f3efe6; margin-top: 0.25rem; }
+.sceneMeta { font-size: 0.75rem; color: #a39b8f; margin-top: 0.25rem; }
+.detail { border: 1px solid #2a2620; border-radius: 0.5rem; padding: 1.5rem; margin-top: 1.5rem; }
+.field { margin-bottom: 1rem; }
+.label { display: block; font-size: 0.75rem; color: #a39b8f; margin-bottom: 0.25rem; }
+.input { width: 100%; background: #1a1815; border: 1px solid #3a342c; border-radius: 0.25rem; padding: 0.5rem; color: #f3efe6; font-size: 0.875rem; }
+.textarea { composes: input; min-height: 4rem; resize: vertical; }
+.actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+.empty { text-align: center; padding: 3rem; color: #a39b8f; }
+.error { color: #e7b2a8; margin-top: 1rem; }
+.loading { color: #a39b8f; margin-top: 1rem; }
+.select { composes: input; width: auto; min-width: 12rem; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem; }

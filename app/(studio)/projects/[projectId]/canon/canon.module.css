@@ -1,0 +1,16 @@
+.page { max-width: 64rem; margin: 0 auto; }
+.categories { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.5rem; }
+.category { padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.75rem; cursor: pointer; border: 1px solid #3a342c; background: transparent; color: #a39b8f; }
+.categoryActive { background: #c4a574; color: #1a140e; border-color: #c4a574; }
+.factList { display: grid; gap: 0.5rem; margin-top: 1.5rem; }
+.fact { border: 1px solid #2a2620; border-radius: 0.375rem; padding: 0.75rem 1rem; }
+.factText { color: #f3efe6; }
+.factMeta { font-size: 0.75rem; color: #a39b8f; margin-top: 0.25rem; }
+.factSource { color: #c4a574; }
+.contradictions { border: 1px solid #6b3a32; border-radius: 0.5rem; padding: 1rem; margin-top: 1.5rem; }
+.contradiction { border-top: 1px solid #3a342c; padding-top: 0.75rem; margin-top: 0.75rem; }
+.empty { text-align: center; padding: 3rem; color: #a39b8f; }
+.error { color: #e7b2a8; margin-top: 1rem; }
+.loading { color: #a39b8f; margin-top: 1rem; }
+.actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.search { width: 100%; background: #1a1815; border: 1px solid #3a342c; border-radius: 0.25rem; padding: 0.5rem; color: #f3efe6; font-size: 0.875rem; margin-top: 1rem; }

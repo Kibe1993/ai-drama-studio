@@ -1,0 +1,134 @@
+.page {
+  max-width: 64rem;
+  margin: 0 auto;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+.tab {
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  border: 1px solid #3a342c;
+  background: transparent;
+  color: #a39b8f;
+}
+
+.tabActive {
+  background: #c4a574;
+  color: #1a140e;
+  border-color: #c4a574;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.card {
+  border: 1px solid #2a2620;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.card:hover {
+  border-color: #4a453d;
+}
+
+.cardTitle {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #f3efe6;
+}
+
+.cardStatus {
+  font-size: 0.75rem;
+  color: #a39b8f;
+  margin-top: 0.25rem;
+}
+
+.statusApproved {
+  color: #7fb069;
+}
+
+.statusPending {
+  color: #e8a87c;
+}
+
+.detail {
+  border: 1px solid #2a2620;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.field {
+  margin-bottom: 1rem;
+}
+
+.label {
+  display: block;
+  font-size: 0.75rem;
+  color: #a39b8f;
+  margin-bottom: 0.25rem;
+}
+
+.input {
+  width: 100%;
+  background: #1a1815;
+  border: 1px solid #3a342c;
+  border-radius: 0.25rem;
+  padding: 0.5rem;
+  color: #f3efe6;
+  font-size: 0.875rem;
+}
+
+.textarea {
+  composes: input;
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.empty {
+  text-align: center;
+  padding: 3rem;
+  color: #a39b8f;
+}
+
+.error {
+  color: #e7b2a8;
+  margin-top: 1rem;
+}
+
+.loading {
+  color: #a39b8f;
+  margin-top: 1rem;
+}
+
+.filter {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  align-items: center;
+}
+
+.select {
+  composes: input;
+  width: auto;
+  min-width: 10rem;
+}

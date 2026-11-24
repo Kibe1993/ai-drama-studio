@@ -59,7 +59,7 @@ describe("workflow stage derivation", () => {
   it("advances to the plan stage after the bible and story are approved", () => {
     expect(
       deriveWorkflowStage(signals({ bibleApproved: true, storyDraftStatus: "approved" }))
-    ).toBe("plan");
+    ).toBe("episodes");
   });
 
   it("advances to episodes after the season plan is approved", () => {
@@ -68,12 +68,12 @@ describe("workflow stage derivation", () => {
     ).toBe("episodes");
   });
 
-  it("advances to production once a production run is active", () => {
+  it("advances to production_design once a production run is active", () => {
     expect(
       deriveWorkflowStage(
         signals({ bibleApproved: true, storyDraftStatus: "approved", planApproved: true, productionActive: true })
       )
-    ).toBe("production");
+    ).toBe("production_design");
   });
 
   it("falls back to project status for legacy projects without a story draft", () => {
@@ -97,9 +97,8 @@ describe("workflow step states", () => {
     const steps = workflowSteps(signals());
     expect(steps.find((s) => s.stage === "bible")?.state).toBe("current");
     expect(steps.find((s) => s.stage === "story")?.state).toBe("upcoming");
-    expect(steps.find((s) => s.stage === "plan")?.state).toBe("upcoming");
     expect(steps.find((s) => s.stage === "episodes")?.state).toBe("upcoming");
-    expect(steps.find((s) => s.stage === "production")?.state).toBe("upcoming");
+    expect(steps.find((s) => s.stage === "production_design")?.state).toBe("upcoming");
   });
 
   it("marks bible as awaiting_approval when a draft is ready but not approved", () => {
@@ -126,15 +125,15 @@ describe("workflow step states", () => {
     const steps = workflowSteps(
       signals({ bibleApproved: true, storyDraftStatus: "approved", planDraftReady: true })
     );
-    expect(steps.find((s) => s.stage === "plan")?.state).toBe("awaiting_approval");
+    expect(steps.find((s) => s.stage === "episodes")?.state).toBe("awaiting_approval");
   });
 
   it("marks earlier stages as completed when production is active", () => {
     const steps = workflowSteps(
       signals({ bibleApproved: true, storyDraftStatus: "approved", planApproved: true, productionActive: true })
     );
-    expect(steps.filter((s) => s.state === "completed")).toHaveLength(4);
-    expect(steps.find((s) => s.stage === "production")?.state).toBe("current");
+    expect(steps.filter((s) => s.state === "completed")).toHaveLength(8);
+    expect(steps.find((s) => s.stage === "production_design")?.state).toBe("current");
   });
 });
 

@@ -449,7 +449,7 @@ describe("production navigation", () => {
     });
 
     const state = await service.get(actor, projectId);
-    expect(state.stage).toBe("production");
+    expect(state.stage).toBe("production_design");
     expect(state.production.started).toBe(true);
   });
 });

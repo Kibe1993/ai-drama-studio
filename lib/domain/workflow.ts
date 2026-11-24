@@ -10,24 +10,70 @@ import type { StoryRecord, StoryStatus } from "@/lib/validation/story";
  * `Create Drama` is the project creation page itself; once a project exists the
  * remaining stages are the four below.
  */
-export const WORKFLOW_STAGES = ["bible", "story", "plan", "episodes", "production"] as const;
+export const WORKFLOW_STAGES = [
+  "project_setup",
+  "planning",
+  "bible",
+  "episodes",
+  "characters",
+  "scenes",
+  "story",
+  "canon",
+  "production_design",
+  "audio",
+  "video",
+  "timeline",
+  "rendering",
+] as const;
 export type WorkflowStage = (typeof WORKFLOW_STAGES)[number];
 
 export const WORKFLOW_STAGE_LABELS: Record<WorkflowStage, string> = {
+  project_setup: "Project Setup",
+  planning: "Creative Planning",
   bible: "Story Bible",
-  story: "Story draft",
-  plan: "Season Plan",
-  episodes: "Episodes",
-  production: "Production",
+  episodes: "Season & Episodes",
+  characters: "Characters & Locations",
+  scenes: "Scene Breakdown",
+  story: "Screenplay",
+  canon: "Canon & Continuity",
+  production_design: "Production Design",
+  audio: "Audio",
+  video: "Video",
+  timeline: "Timeline",
+  rendering: "Rendering",
+};
+
+export const WORKFLOW_STAGE_PHASES: Record<WorkflowStage, "creative" | "structural" | "production" | "output"> = {
+  project_setup: "creative",
+  planning: "creative",
+  bible: "creative",
+  episodes: "structural",
+  characters: "structural",
+  scenes: "structural",
+  story: "structural",
+  canon: "structural",
+  production_design: "production",
+  audio: "production",
+  video: "production",
+  timeline: "production",
+  rendering: "output",
 };
 
 /** Path segment under `/projects/[projectId]`. */
 export const WORKFLOW_STAGE_PATH: Record<WorkflowStage, string> = {
+  project_setup: "",
+  planning: "planning",
   bible: "bible",
-  story: "story",
-  plan: "plan",
   episodes: "episodes",
-  production: "production",
+  characters: "characters",
+  scenes: "scenes",
+  story: "story",
+  canon: "canon",
+  production_design: "production-design",
+  audio: "audio",
+  video: "video",
+  timeline: "timeline",
+  rendering: "rendering",
 };
 
 export type WorkflowStepState =
@@ -133,18 +179,16 @@ export function deriveWorkflowStage(
 ): WorkflowStage {
   if (!signals.bibleApproved) return "bible";
   if (!storyIsApproved(signals)) return "story";
-  // A pending revision or a stale approved plan means the plan stage is open
-  // again; episodes must not continue from a plan the creator has not settled.
-  if (!signals.planApproved || signals.planDraftReady || signals.planNeedsReview) return "plan";
+  if (!signals.planApproved || signals.planDraftReady || signals.planNeedsReview) return "episodes";
   if (!signals.productionActive) return "episodes";
-  return "production";
+  return "production_design";
 }
 
 /** Whether the stage that is currently open is waiting for the user's approval. */
 export function isAwaitingApproval(stage: WorkflowStage, signals: WorkflowSignals): boolean {
   if (stage === "bible") return !signals.bibleApproved && signals.bibleDraftReady;
   if (stage === "story") return storyAwaitingApproval(signals);
-  if (stage === "plan") return !signals.planApproved && signals.planDraftReady;
+  if (stage === "episodes") return !signals.planApproved && signals.planDraftReady;
   return false;
 }
 

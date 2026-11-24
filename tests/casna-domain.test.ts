@@ -553,7 +553,7 @@ describe("canon extraction and ledger merge", () => {
 // ---------------------------------------------------------------------------
 
 describe("workflow invalidation", () => {
-  it("returns to the plan stage when an approved plan is stale", () => {
+  it("returns to the episodes stage when an approved plan is stale", () => {
     expect(
       deriveWorkflowStage({
         projectStatus: "draft",
@@ -565,10 +565,10 @@ describe("workflow invalidation", () => {
         planNeedsReview: true,
         productionActive: false,
       })
-    ).toBe("plan");
+    ).toBe("episodes");
   });
 
-  it("returns to the plan stage while a plan revision is awaiting approval", () => {
+  it("returns to the episodes stage while a plan revision is awaiting approval", () => {
     expect(
       deriveWorkflowStage({
         projectStatus: "draft",
@@ -580,6 +580,6 @@ describe("workflow invalidation", () => {
         planNeedsReview: false,
         productionActive: false,
       })
-    ).toBe("plan");
+    ).toBe("episodes");
   });
 });

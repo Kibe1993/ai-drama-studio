@@ -1,5 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { projectService } from "@/lib/services/projectService";
+import { storyBibleService } from "@/lib/services/storyBibleService";
+import { createPipelineService } from "@/lib/services/pipelineService";
+import { livePipelineDeps } from "@/lib/pipeline/live";
+import { createRenderService } from "@/lib/services/renderService";
 import { projectRepository } from "@/lib/repositories/projectRepository";
 import { storyRepository } from "@/lib/repositories/storyRepository";
 import { storyBibleRepository } from "@/lib/repositories/storyBibleRepository";
@@ -12,6 +17,15 @@ import { timelineRepository } from "@/lib/repositories/timelineRepository";
 import { productionSceneRepository } from "@/lib/repositories/productionSceneRepository";
 import { seasonPlanRepository } from "@/lib/repositories/seasonPlanRepository";
 import { canonStore } from "@/lib/canon/store";
+import { derivedToCanonState } from "@/lib/canon/bridge";
+import type { RequestAuth } from "@/lib/auth/session";
+import { GENRES, LANGUAGES, VISUAL_STYLES, ASPECT_RATIOS, PRODUCTION_TYPES } from "@/lib/domain/projectCatalog";
+
+const genreIds = GENRES.map((g) => g.id) as [(typeof GENRES)[number]["id"], ...(typeof GENRES)[number]["id"][]];
+const languageIds = LANGUAGES.map((l) => l.id) as [(typeof LANGUAGES)[number]["id"], ...(typeof LANGUAGES)[number]["id"][]];
+const visualStyleIds = VISUAL_STYLES.map((v) => v.id) as [(typeof VISUAL_STYLES)[number]["id"], ...(typeof VISUAL_STYLES)[number]["id"][]];
+const aspectRatioIds = ASPECT_RATIOS.map((a) => a.id) as [(typeof ASPECT_RATIOS)[number]["id"], ...(typeof ASPECT_RATIOS)[number]["id"][]];
+const productionTypeIds = PRODUCTION_TYPES.map((p) => p.id) as [(typeof PRODUCTION_TYPES)[number]["id"], ...(typeof PRODUCTION_TYPES)[number]["id"][]];
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 
@@ -35,35 +49,44 @@ function run<T>(fn: () => Promise<T>): Promise<ToolResult> {
   return fn().then(toolResult).catch((err) => toolError(err instanceof Error ? err.message : String(err)));
 }
 
+function makeActor(clerkUserId: string): RequestAuth {
+  return { userId: clerkUserId, isAdmin: false, email: "", name: "MCP", imageUrl: "" };
+}
+
+function logTool(tool: string, clerkUserId: string, detail: string): void {
+  const ts = new Date().toISOString();
+  console.log(`[MCP] ${ts} tool=${tool} user=${clerkUserId} ${detail}`);
+}
+
 export function createMcpServer(clerkUserId: string): McpServer {
+  const actor = makeActor(clerkUserId);
   const server = new McpServer({
     name: "ai-drama-studio",
     version: "1.0.0",
   });
 
-  registerProjectTools(server, clerkUserId);
-  registerDocumentTools(server, clerkUserId);
+  registerProjectTools(server, actor, clerkUserId);
+  registerDocumentTools(server, actor, clerkUserId);
   registerCanonTools(server, clerkUserId);
   registerMediaTools(server, clerkUserId);
-  registerRenderTools(server, clerkUserId);
+  registerRenderTools(server, actor, clerkUserId);
   registerResources(server, clerkUserId);
 
   return server;
 }
 
-function registerProjectTools(server: McpServer, clerkUserId: string): void {
+function registerProjectTools(server: McpServer, actor: RequestAuth, clerkUserId: string): void {
   server.tool(
     "project.list",
     "List all projects for the current user. Returns an array of projects with id, title, status, and metadata.",
     {
       limit: z.number().int().min(1).max(100).default(20).describe("Maximum number of projects to return"),
-      status: z.string().optional().describe("Filter by project status (planning, generating, producing, completed, archived)"),
+      status: z.string().optional().describe("Filter by project status"),
     },
     async (args) => {
       return run(async () => {
-        const limit = args.limit ?? 20;
-        const projects = await projectRepository.list(clerkUserId, null, limit, args.status as never);
-        return projects;
+        const result = await projectService.list(actor, null, (args.status as never) ?? null);
+        return result.projects.slice(0, args.limit ?? 20);
       });
     },
   );
@@ -76,9 +99,7 @@ function registerProjectTools(server: McpServer, clerkUserId: string): void {
     },
     async (args) => {
       return run(async () => {
-        const project = await projectRepository.findOwned(clerkUserId, args.projectId);
-        if (!project) throw new Error(`Project ${args.projectId} not found`);
-        return project;
+        return await projectService.get(actor, args.projectId);
       });
     },
   );
@@ -87,71 +108,93 @@ function registerProjectTools(server: McpServer, clerkUserId: string): void {
     "project.create",
     "Create a new drama project. Required: title and originalStoryIdea. Optional: genre, language, visualStyle, tone, targetDurationSeconds, aspectRatio.",
     {
-      title: z.string().min(1).describe("Project title"),
-      originalStoryIdea: z.string().min(1).describe("The core story idea or premise"),
-      genre: z.string().default("family").describe("Story genre"),
-      language: z.string().default("en").describe("Story language code"),
-      visualStyle: z.string().default("realistic").describe("Visual style for production"),
+      title: z.string().min(1).max(200).describe("Project title"),
+      originalStoryIdea: z.string().min(1).max(10000).describe("The core story idea or premise"),
+      genre: z.enum(genreIds).default("family").describe("Story genre"),
+      language: z.enum(languageIds).default("en").describe("Story language code"),
+      visualStyle: z.enum(visualStyleIds).default("realistic").describe("Visual style for production"),
       tone: z.string().default("quiet").describe("Story tone"),
-      targetDurationSeconds: z.number().int().positive().default(60).describe("Target episode duration in seconds"),
-      aspectRatio: z.string().default("16:9").describe("Video aspect ratio"),
-      workflowMode: z.enum(["guided", "automatic"]).default("guided").describe("Workflow mode"),
-      productionType: z.string().default("fictional_drama").describe("Production type"),
+      targetDurationSeconds: z.number().int().positive().max(3600).default(60).describe("Target episode duration in seconds"),
+      aspectRatio: z.enum(aspectRatioIds).default("16:9").describe("Video aspect ratio"),
+      productionType: z.enum(productionTypeIds).default("fictional_drama").describe("Production type"),
       productionMode: z.enum(["standalone", "serialized", "anthology"]).default("standalone").describe("Production mode"),
     },
     async (args) => {
       return run(async () => {
-        const project = await projectRepository.insert({
-          clerkUserId,
-          ...args,
-          status: "planning",
-        } as never);
-        return project;
+        logTool("project.create", clerkUserId, `title="${args.title}"`);
+        return await projectService.create(actor, {
+          title: args.title,
+          originalStoryIdea: args.originalStoryIdea,
+          genre: args.genre,
+          language: args.language,
+          visualStyle: args.visualStyle,
+          tone: args.tone,
+          targetDurationSeconds: args.targetDurationSeconds,
+          aspectRatio: args.aspectRatio,
+          productionType: args.productionType,
+          productionMode: args.productionMode,
+        }, null);
       });
     },
   );
 
   server.tool(
     "project.update",
-    "Update an existing project's metadata. All fields are optional — only provided fields are updated.",
+    "Update an existing project's metadata. All fields are optional — only provided fields are updated. Cannot update archived or in-production projects.",
     {
       projectId: z.string().describe("The project ID to update"),
-      title: z.string().optional(),
-      originalStoryIdea: z.string().optional(),
-      genre: z.string().optional(),
-      language: z.string().optional(),
-      visualStyle: z.string().optional(),
+      title: z.string().min(1).max(200).optional(),
+      originalStoryIdea: z.string().min(1).max(10000).optional(),
+      genre: z.enum(genreIds).optional(),
+      language: z.enum(languageIds).optional(),
+      visualStyle: z.enum(visualStyleIds).optional(),
       tone: z.string().optional(),
-      targetDurationSeconds: z.number().int().positive().optional(),
-      aspectRatio: z.string().optional(),
+      targetDurationSeconds: z.number().int().positive().max(3600).optional(),
+      aspectRatio: z.enum(aspectRatioIds).optional(),
+      productionType: z.enum(productionTypeIds).optional(),
+      productionMode: z.enum(["standalone", "serialized", "anthology"]).optional(),
     },
     async (args) => {
       return run(async () => {
-        const { projectId, ...patch } = args;
-        const project = await projectRepository.update(clerkUserId, projectId, patch as never);
-        if (!project) throw new Error(`Project ${projectId} not found`);
-        return project;
+        logTool("project.update", clerkUserId, `projectId=${args.projectId}`);
+        const current = await projectService.get(actor, args.projectId);
+        return await projectService.update(actor, args.projectId, {
+          title: args.title ?? current.title,
+          originalStoryIdea: args.originalStoryIdea ?? current.originalStoryIdea,
+          genre: args.genre ?? current.genre,
+          language: args.language ?? current.language,
+          visualStyle: args.visualStyle ?? current.visualStyle,
+          tone: args.tone ?? current.tone,
+          targetDurationSeconds: args.targetDurationSeconds ?? current.targetDurationSeconds,
+          aspectRatio: args.aspectRatio ?? current.aspectRatio,
+          productionType: args.productionType ?? current.productionType,
+          productionMode: args.productionMode ?? current.productionMode,
+        });
       });
     },
   );
 
   server.tool(
     "project.delete",
-    "Delete a project permanently. This also removes all associated stories, scenes, and media.",
+    "Delete a project permanently. Requires confirmProjectName to match the project title exactly. This prevents accidental deletion. Note: only the project record is deleted; child documents (stories, episodes, media) may remain as orphans.",
     {
       projectId: z.string().describe("The project ID to delete"),
+      confirmProjectName: z.string().describe("Must exactly match the project title to confirm deletion"),
     },
     async (args) => {
       return run(async () => {
-        const deleted = await projectRepository.remove(clerkUserId, args.projectId);
-        if (!deleted) throw new Error(`Project ${args.projectId} not found`);
-        return { deleted: true };
+        const project = await projectService.get(actor, args.projectId);
+        if (project.title !== args.confirmProjectName) {
+          throw new Error(`Confirmation failed: confirmProjectName "${args.confirmProjectName}" does not match project title "${project.title}"`);
+        }
+        logTool("project.delete", clerkUserId, `projectId=${args.projectId} title="${project.title}"`);
+        return await projectService.remove(actor, args.projectId);
       });
     },
   );
 }
 
-function registerDocumentTools(server: McpServer, clerkUserId: string): void {
+function registerDocumentTools(server: McpServer, actor: RequestAuth, clerkUserId: string): void {
   server.tool(
     "document.get",
     "Get a document from a project. documentType can be: bible, story, episode, season_plan, or scenes.",
@@ -193,30 +236,56 @@ function registerDocumentTools(server: McpServer, clerkUserId: string): void {
 
   server.tool(
     "document.update",
-    "Update a document. For bible: provide content fields. For story: provide screenplay array. For episode: provide title/premise.",
+    "Propose an update to a document. Returns a preview of the change. Set confirm=true to apply the change. For bible: provide content fields. For story: provide screenplay array. For episode: provide title/premise only (status changes are not allowed via MCP).",
     {
       projectId: z.string().describe("The project ID"),
       documentType: z.enum(["bible", "story", "episode"]).describe("Type of document to update"),
       episodeId: z.string().optional().describe("Required when documentType is 'episode'"),
       data: z.record(z.unknown()).describe("The update data as a JSON object"),
+      confirm: z.boolean().default(false).describe("Set to true to apply the change. Default false returns a preview only."),
     },
     async (args) => {
       return run(async () => {
+        if (!args.confirm) {
+          return {
+            preview: true,
+            message: "This is a preview. Call again with confirm=true to apply the change.",
+            documentType: args.documentType,
+            projectId: args.projectId,
+            proposedData: args.data,
+          };
+        }
+
+        logTool("document.update", clerkUserId, `projectId=${args.projectId} type=${args.documentType}`);
+
         switch (args.documentType) {
           case "bible": {
-            const result = await storyBibleRepository.saveDraft(clerkUserId, args.projectId, args.data as never);
-            return result ?? { message: "Story Bible not found" };
+            const result = await storyBibleService.save(actor, args.projectId, args.data as never);
+            return result;
           }
           case "story": {
             const existing = await storyRepository.findProjectDraft(clerkUserId, args.projectId);
             if (!existing) throw new Error("No story draft found for this project");
+            if (existing.status !== "awaiting_approval") {
+              throw new Error(`Story is in status "${existing.status}". Only stories in "awaiting_approval" status can be updated.`);
+            }
             const result = await storyRepository.updateScreenplay(clerkUserId, existing.id, args.data as never);
-            return result ?? { message: "Story not found" };
+            return result ?? { message: "Story update returned no result" };
           }
           case "episode": {
             if (!args.episodeId) throw new Error("episodeId is required when documentType is 'episode'");
-            const result = await episodeRepository.updateStatus(clerkUserId, args.projectId, args.episodeId, args.data.status as never, args.data.currentStoryId as string | undefined);
-            return result ?? { message: "Episode not found" };
+            const episode = await episodeRepository.findOwned(clerkUserId, args.projectId, args.episodeId);
+            if (!episode) throw new Error(`Episode ${args.episodeId} not found`);
+            const allowedFields = ["title", "premise", "synopsis"];
+            const patch: Record<string, unknown> = {};
+            for (const key of allowedFields) {
+              if (key in args.data) patch[key] = args.data[key];
+            }
+            if (Object.keys(patch).length === 0) {
+              throw new Error("No updatable fields provided. Allowed fields: title, premise, synopsis. Episode status cannot be changed via MCP.");
+            }
+            const result = await episodeRepository.update(clerkUserId, args.projectId, args.episodeId, patch as { title?: string; premise?: string; synopsis?: string });
+            return result ?? { message: "Episode update returned no result" };
           }
         }
       });
@@ -225,23 +294,40 @@ function registerDocumentTools(server: McpServer, clerkUserId: string): void {
 
   server.tool(
     "document.import",
-    "Import content into a project document. Accepts a JSON string that is parsed and saved as the document body.",
+    "Import content into a project document. Accepts a JSON string that is parsed and saved. Set confirm=true to apply.",
     {
       projectId: z.string().describe("The project ID"),
       documentType: z.enum(["bible", "story"]).describe("Type of document to import into"),
-      content: z.string().describe("JSON string of the document content to import"),
+      content: z.string().max(500000).describe("JSON string of the document content to import"),
+      confirm: z.boolean().default(false).describe("Set to true to apply the import. Default false returns a preview only."),
     },
     async (args) => {
       return run(async () => {
         const parsed = JSON.parse(args.content);
+
+        if (!args.confirm) {
+          return {
+            preview: true,
+            message: "This is a preview. Call again with confirm=true to apply the import.",
+            documentType: args.documentType,
+            projectId: args.projectId,
+            parsedContent: parsed,
+          };
+        }
+
+        logTool("document.import", clerkUserId, `projectId=${args.projectId} type=${args.documentType}`);
+
         if (args.documentType === "bible") {
-          const result = await storyBibleRepository.saveDraft(clerkUserId, args.projectId, parsed);
-          return result ?? { message: "Story Bible not found" };
+          const result = await storyBibleService.save(actor, args.projectId, parsed);
+          return result;
         }
         const existing = await storyRepository.findProjectDraft(clerkUserId, args.projectId);
         if (!existing) throw new Error("No story draft found — generate a story first or create one");
+        if (existing.status !== "awaiting_approval") {
+          throw new Error(`Story is in status "${existing.status}". Only stories in "awaiting_approval" status can be updated.`);
+        }
         const result = await storyRepository.updateScreenplay(clerkUserId, existing.id, parsed);
-        return result ?? { message: "Story not found" };
+        return result ?? { message: "Story import returned no result" };
       });
     },
   );
@@ -307,13 +393,25 @@ function registerCanonTools(server: McpServer, clerkUserId: string): void {
 
   server.tool(
     "canon.add",
-    "Add a canon fact to the project's canon fact log. The fact is appended to the append-only event store.",
+    "Add a canon fact to the project's canon fact log. Set confirm=true to apply; default false returns a preview. When confirmed, the fact is appended to the append-only event store and a new canon state version is committed.",
     {
       projectId: z.string().describe("The project ID"),
       fact: z.record(z.unknown()).describe("The canon fact to add, as a JSON object"),
+      confirm: z.boolean().default(false).describe("Set to true to apply. Default false returns a preview only."),
     },
     async (args) => {
       return run(async () => {
+        if (!args.confirm) {
+          return {
+            preview: true,
+            message: "This is a preview. Call again with confirm=true to apply the canon fact.",
+            projectId: args.projectId,
+            proposedFact: args.fact,
+          };
+        }
+
+        logTool("canon.add", clerkUserId, `projectId=${args.projectId}`);
+
         const sequence = await canonStore.getLatestSequence(clerkUserId, args.projectId);
         const entry = await canonStore.append({
           clerkUserId,
@@ -321,27 +419,44 @@ function registerCanonTools(server: McpServer, clerkUserId: string): void {
           expectedSequence: sequence,
           entry: args.fact as never,
         });
+
+        const canon = await canonStore.latestState(clerkUserId, args.projectId);
+        const latest = await narrativeCanonRepository.latest(clerkUserId, args.projectId);
+        const nextVersion = (latest?.version ?? 0) + 1;
+        const canonState = derivedToCanonState(canon, {
+          basedOnBibleVersion: latest?.basedOnBibleVersion ?? 0,
+          basedOnPlanVersion: latest?.basedOnPlanVersion ?? 0,
+        });
+        await narrativeCanonRepository.commit({
+          clerkUserId,
+          projectId: args.projectId,
+          expectedVersion: latest?.version ?? 0,
+          state: { ...canonState, version: nextVersion },
+          reason: `MCP canon.add: ${JSON.stringify(args.fact).slice(0, 100)}`,
+        }).catch((err: unknown) => {
+          console.error(`[MCP] canon state commit failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+        });
+
         return entry;
       });
     },
   );
 
   server.tool(
-    "canon.validate",
-    "Validate canon consistency for a project. Checks the latest canon state for contradictions or gaps.",
+    "canon.summary",
+    "Get a summary of the canon state for a project — entity counts, version, and state snapshot. This is a summary tool, not a validator.",
     {
       projectId: z.string().describe("The project ID"),
     },
     async (args) => {
       return run(async () => {
         const canon = await narrativeCanonRepository.latest(clerkUserId, args.projectId);
-        if (!canon) return { valid: false, message: "No canon found for this project" };
+        if (!canon) return { message: "No canon found for this project" };
         const entities = await canonicalEntityRepository.listByProject(clerkUserId, args.projectId);
         const characters = entities.filter((e) => e.entityType === "character");
         const locations = entities.filter((e) => e.entityType === "location");
         const objects = entities.filter((e) => e.entityType === "object");
         return {
-          valid: true,
           canonVersion: canon.version,
           entityCount: { characters: characters.length, locations: locations.length, objects: objects.length },
           canonState: canon,
@@ -368,29 +483,30 @@ function registerMediaTools(server: McpServer, clerkUserId: string): void {
 
   server.tool(
     "media.upload",
-    "Register a media asset in the project. The actual file bytes should be uploaded separately via the web UI or API. This tool records the asset metadata.",
+    "Register a media asset in the project. The actual file bytes should be uploaded separately via the web UI or API. This tool records the asset metadata. The asset is created with reviewStatus=pending and validationStatus=pending — it must be reviewed and validated through the web UI before use.",
     {
       projectId: z.string().describe("The project ID"),
-      type: z.string().describe("Asset type (e.g. scene_video, dialogue_audio, scene_image, narration_audio, final_render)"),
+      type: z.enum(["scene_video", "dialogue_audio", "scene_image", "narration_audio", "final_render", "music", "sfx"]).describe("Asset type"),
       provider: z.string().default("manual").describe("Asset provider/source"),
-      mimeType: z.string().describe("MIME type of the asset"),
-      fileName: z.string().describe("Original file name"),
+      mimeType: z.string().max(200).describe("MIME type of the asset"),
+      fileName: z.string().max(500).describe("Original file name"),
       byteSize: z.number().int().positive().describe("File size in bytes"),
-      storageKey: z.string().describe("Storage key/path for the asset"),
+      storageKey: z.string().max(1000).describe("Storage key/path for the asset"),
     },
     async (args) => {
       return run(async () => {
+        logTool("media.upload", clerkUserId, `projectId=${args.projectId} type=${args.type}`);
         const asset = await mediaAssetRepository.createVerified(clerkUserId, {
           projectId: args.projectId,
-          type: args.type as never,
+          type: args.type,
           provider: args.provider,
           mimeType: args.mimeType,
           fileName: args.fileName,
           byteSize: args.byteSize,
           storageProvider: "local",
           storageKey: args.storageKey,
-          validationStatus: "verified" as never,
-          reviewStatus: "approved" as never,
+          validationStatus: "pending",
+          reviewStatus: "pending",
         } as never);
         return asset;
       });
@@ -399,46 +515,34 @@ function registerMediaTools(server: McpServer, clerkUserId: string): void {
 
   server.tool(
     "media.generate_audio",
-    "Trigger audio generation for a project. This queues a TTS job for the project's dialogue and narration.",
+    "Audio generation is not available through MCP. TTS audio generation requires a running worker process and a configured Kokoro TTS provider. Use the web UI or the production API to trigger audio generation.",
     {
       projectId: z.string().describe("The project ID"),
       episodeId: z.string().optional().describe("Specific episode to generate audio for"),
     },
-    async (args) => {
-      return run(async () => {
-        return {
-          message: "Audio generation queued. Use render.status to check progress.",
-          projectId: args.projectId,
-          episodeId: args.episodeId,
-          note: "Audio generation requires a running worker process and a configured TTS provider.",
-        };
+    async () => {
+      return toolResult({
+        supported: false,
+        reason: "Audio generation is not available through MCP. Use the web UI at /projects/{projectId}/audio to trigger TTS generation.",
       });
     },
   );
 }
 
-function registerRenderTools(server: McpServer, clerkUserId: string): void {
+function registerRenderTools(server: McpServer, actor: RequestAuth, clerkUserId: string): void {
   server.tool(
     "render.start",
-    "Start a render job for an episode's timeline. Requires an approved timeline.",
+    "Start a render job for an episode's timeline. Requires an approved timeline. Routes through the render service which validates the preset, checks timeline approval, collects assets, and enqueues the job.",
     {
       episodeId: z.string().describe("The episode ID to render"),
       timelineId: z.string().describe("The timeline ID to render"),
-      presetId: z.string().default("standard").describe("Render preset (standard, high, social)"),
+      presetId: z.enum(["standard", "high", "social"]).default("standard").describe("Render preset"),
     },
     async (args) => {
       return run(async () => {
-        const timeline = await timelineRepository.findOwned(clerkUserId, args.timelineId);
-        if (!timeline) throw new Error(`Timeline ${args.timelineId} not found`);
-        const renderJob = await renderJobRepository.create(clerkUserId, {
-          projectId: timeline.projectId,
-          episodeId: args.episodeId,
-          timelineId: args.timelineId,
-          presetId: args.presetId,
-          inputAssetIds: [],
-          renderSettings: {},
-        } as never);
-        return renderJob;
+        logTool("render.start", clerkUserId, `timeline=${args.timelineId} preset=${args.presetId}`);
+        const renderService = createRenderService();
+        return await renderService.triggerRender(actor, args.timelineId, args.presetId);
       });
     },
   );

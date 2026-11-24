@@ -94,6 +94,16 @@ export const episodeRepository = {
     return doc ? toRecord(doc) : null;
   },
 
+  async update(clerkUserId: string, projectId: string, episodeId: string, patch: { title?: string; premise?: string; synopsis?: string }): Promise<EpisodeRecord | null> {
+    const { Episode } = await models();
+    const doc = await Episode.findOneAndUpdate(
+      { clerkUserId, projectId, _id: episodeId },
+      { $set: patch },
+      { new: true },
+    ).lean<EpisodeDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
   async updateCanonExtractionStatus(
     clerkUserId: string,
     projectId: string,

@@ -59,6 +59,21 @@ function writer() {
       rows.set(input.idempotencyKey, record);
       return record;
     },
+    async delete(clerkUserId: string, assetId: string) {
+      for (const [key, row] of rows) {
+        if (row.clerkUserId === clerkUserId && row.id === assetId) {
+          rows.delete(key);
+          return row;
+        }
+      }
+      return null;
+    },
+    async listFiltered(clerkUserId: string, projectId: string) {
+      return [...rows.values()].filter((row) => row.clerkUserId === clerkUserId && row.projectId === projectId);
+    },
+    async count(clerkUserId: string, projectId: string) {
+      return [...rows.values()].filter((row) => row.clerkUserId === clerkUserId && row.projectId === projectId).length;
+    },
   };
 }
 

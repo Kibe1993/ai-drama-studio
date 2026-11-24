@@ -217,6 +217,10 @@ export function ProductionPanel({
             <a href={`/projects/${projectId}/timeline`} className="text-[#c4a574] underline">
               Open timeline editor
             </a>
+            {" · "}
+            <a href={`/projects/${projectId}/media`} className="text-[#c4a574] underline">
+              Open media library
+            </a>
           </p>
           <p className="mt-1">Audio: {audioJobSummary(jobs)}</p>
         </div>

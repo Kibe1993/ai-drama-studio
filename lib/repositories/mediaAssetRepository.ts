@@ -142,4 +142,55 @@ export const mediaAssetRepository = {
     }).sort({ createdAt: -1 }).lean<AssetDoc | null>();
     return doc ? toRecord(doc) : null;
   },
+
+  async listFiltered(
+    clerkUserId: string,
+    projectId: string,
+    filters: {
+      type?: MediaAssetRecord["type"];
+      reviewStatus?: MediaAssetRecord["reviewStatus"];
+      episodeId?: string;
+      sceneId?: string;
+      isMock?: boolean;
+    },
+    limit: number = 100,
+    offset: number = 0
+  ): Promise<MediaAssetRecord[] | null> {
+    const { Asset, Project } = await models();
+    if (!(await Project.exists({ clerkUserId, _id: projectId }))) return null;
+    const query: Record<string, unknown> = { clerkUserId, projectId };
+    if (filters.type) query.type = filters.type;
+    if (filters.reviewStatus) query.reviewStatus = filters.reviewStatus;
+    if (filters.episodeId) query.episodeId = filters.episodeId;
+    if (filters.sceneId) query.sceneId = filters.sceneId;
+    if (filters.isMock !== undefined) query.isMock = filters.isMock;
+    const docs = await Asset.find(query).sort({ createdAt: -1 }).skip(offset).limit(limit).lean<AssetDoc[]>();
+    return docs.map(toRecord);
+  },
+
+  async delete(
+    clerkUserId: string,
+    assetId: string
+  ): Promise<MediaAssetRecord | null> {
+    const Asset = mediaAssetModel(await connectDB());
+    const doc = await Asset.findOneAndDelete({ clerkUserId, _id: assetId }).lean<AssetDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  async count(
+    clerkUserId: string,
+    projectId: string,
+    filters: {
+      type?: MediaAssetRecord["type"];
+      reviewStatus?: MediaAssetRecord["reviewStatus"];
+      isMock?: boolean;
+    } = {}
+  ): Promise<number> {
+    const Asset = mediaAssetModel(await connectDB());
+    const query: Record<string, unknown> = { clerkUserId, projectId };
+    if (filters.type) query.type = filters.type;
+    if (filters.reviewStatus) query.reviewStatus = filters.reviewStatus;
+    if (filters.isMock !== undefined) query.isMock = filters.isMock;
+    return Asset.countDocuments(query);
+  },
 };

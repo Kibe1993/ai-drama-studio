@@ -44,6 +44,7 @@ export type MediaAssetRecord = CreateMediaAssetInput & {
   canonicalEntityId?: string | null;
   previousVersionId?: string | null;
   replacedById?: string | null;
+  isMock: boolean;
   createdAt: string;
   updatedAt: string;
 };

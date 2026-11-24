@@ -1,5 +1,6 @@
 import { logged } from "@/lib/http/logged";
 import { readActor } from "@/lib/http/request";
+import { jsonData, toErrorResponse } from "@/lib/http/errors";
 import { mediaAssetRepository } from "@/lib/repositories/mediaAssetRepository";
 import { createStorageProvider } from "@/lib/providers/storage/registry";
 import { createMediaAssetService } from "@/lib/services/mediaAssetService";
@@ -26,5 +27,19 @@ export function GET(request: Request, context: Context) {
         "X-Content-Type-Options": "nosniff",
       },
     });
+  });
+}
+
+export function DELETE(request: Request, context: Context) {
+  return logged(request, async () => {
+    try {
+      const actor = await readActor();
+      const { projectId, assetId } = await context.params;
+      const service = createMediaAssetService(createStorageProvider(), mediaAssetRepository);
+      const deleted = await service.deleteOwned(actor.userId, projectId, assetId);
+      return jsonData({ deleted: true, id: deleted.id });
+    } catch (error) {
+      return toErrorResponse(error);
+    }
   });
 }

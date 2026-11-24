@@ -5,7 +5,7 @@ import { mediaAssetRepository } from "@/lib/repositories/mediaAssetRepository";
 import type { StorageProvider } from "@/lib/providers/storage/types";
 import { createMediaAssetSchema, validateMediaBytes, type CreateMediaAssetInput, type MediaAssetRecord } from "@/lib/validation/mediaAsset";
 
-type AssetWriter = Pick<typeof mediaAssetRepository, "createVerified" | "ownsProject" | "findOwned" | "listProject" | "listStorageKeys">;
+type AssetWriter = Pick<typeof mediaAssetRepository, "createVerified" | "ownsProject" | "findOwned" | "listProject" | "listStorageKeys" | "delete" | "listFiltered" | "count">;
 
 function extension(mimeType: string): string {
   const map: Record<string, string> = {
@@ -70,6 +70,7 @@ export function createMediaAssetService(storage: StorageProvider, assets: AssetW
         storageVerified: true,
         width: checked.width ?? input.width,
         height: checked.height ?? input.height,
+        isMock: false,
       });
       if (!asset) throw new StudioError("Project not found", 404, "not_found");
       return asset;
@@ -95,6 +96,43 @@ export function createMediaAssetService(storage: StorageProvider, assets: AssetW
       const rows = await assets.listProject(clerkUserId, projectId);
       if (!rows) throw new StudioError("Project not found", 404, "not_found");
       return rows;
+    },
+
+    async listFiltered(
+      clerkUserId: string,
+      projectId: string,
+      filters: {
+        type?: MediaAssetRecord["type"];
+        reviewStatus?: MediaAssetRecord["reviewStatus"];
+        episodeId?: string;
+        sceneId?: string;
+        isMock?: boolean;
+      },
+      limit: number = 100,
+      offset: number = 0
+    ) {
+      if (!/^[a-f\d]{24}$/i.test(projectId)) throw new StudioError("Project not found", 404, "not_found");
+      const rows = await assets.listFiltered(clerkUserId, projectId, filters, limit, offset);
+      if (!rows) throw new StudioError("Project not found", 404, "not_found");
+      return rows;
+    },
+
+    async deleteOwned(clerkUserId: string, projectId: string, assetId: string): Promise<MediaAssetRecord> {
+      if (!/^[a-f\d]{24}$/i.test(projectId) || !/^[a-f\d]{24}$/i.test(assetId)) {
+        throw new StudioError("Media asset not found", 404, "not_found");
+      }
+      const asset = await assets.findOwned(clerkUserId, assetId);
+      if (!asset || asset.projectId !== projectId) {
+        throw new StudioError("Media asset not found", 404, "not_found");
+      }
+      try {
+        await storage.delete(asset.storageKey);
+      } catch {
+        // Storage object may already be gone; proceed to delete DB record
+      }
+      const deleted = await assets.delete(clerkUserId, assetId);
+      if (!deleted) throw new StudioError("Media asset not found", 404, "not_found");
+      return deleted;
     },
 
     async auditOrphans(options: { olderThanMs: number; apply?: boolean }) {

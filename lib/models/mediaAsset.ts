@@ -29,6 +29,7 @@ const MediaAssetSchema = new Schema({
   canonicalEntityId: { type: Schema.Types.ObjectId, default: null },
   previousVersionId: { type: Schema.Types.ObjectId, default: null },
   replacedById: { type: Schema.Types.ObjectId, default: null },
+  isMock: { type: Boolean, default: false },
 }, { timestamps: true, collection: "mediaAssets" });
 
 MediaAssetSchema.index({ clerkUserId: 1, idempotencyKey: 1 }, { unique: true });

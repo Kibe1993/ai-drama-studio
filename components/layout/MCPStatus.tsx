@@ -7,8 +7,9 @@ export function MCPStatus({ configured }: { configured: boolean }) {
     <div
       className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
       style={{
-        backgroundColor: configured ? "var(--color-green-100, #dcfce7)" : "var(--color-gray-100, #f3f4f6)",
-        color: configured ? "var(--color-green-700, #15803d)" : "var(--color-gray-500, #6b7280)",
+        backgroundColor: configured ? "rgba(107, 179, 107, 0.12)" : "rgba(107, 98, 88, 0.12)",
+        color: configured ? "#6bb36b" : "#a39b8f",
+        border: `1px solid ${configured ? "rgba(107, 179, 107, 0.3)" : "rgba(107, 98, 88, 0.3)"}`,
       }}
       title={configured ? "MCP server is configured" : "MCP server is not configured"}
     >

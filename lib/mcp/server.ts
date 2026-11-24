@@ -29,6 +29,8 @@ import { derivedToCanonState } from "@/lib/canon/bridge";
 import { logActivity, getActivityLog } from "./activityLog";
 import type { RequestAuth } from "@/lib/auth/session";
 import { GENRES, LANGUAGES, VISUAL_STYLES, ASPECT_RATIOS, PRODUCTION_TYPES } from "@/lib/domain/projectCatalog";
+import { storyStructureSchema, screenplaySceneSchema } from "@/lib/validation/story";
+import { LLM_GENERATION_ENABLED } from "@/lib/config";
 
 const genreIds = GENRES.map((g) => g.id) as [(typeof GENRES)[number]["id"], ...(typeof GENRES)[number]["id"][]];
 const languageIds = LANGUAGES.map((l) => l.id) as [(typeof LANGUAGES)[number]["id"], ...(typeof LANGUAGES)[number]["id"][]];
@@ -309,6 +311,36 @@ function registerDocumentTools(server: McpServer, actor: RequestAuth, clerkUserI
             return result ?? { message: "Episode update returned no result" };
           }
         }
+      });
+    },
+  );
+
+  server.tool(
+    "story.createDraft",
+    "Create a project-level story draft from externally authored content. The draft is saved in awaiting_approval status, ready for review and approval. This bypasses LLM generation entirely.",
+    {
+      projectId: z.string().describe("The project ID"),
+      title: z.string().min(1).max(120).describe("Story title"),
+      synopsis: z.string().min(1).max(2000).describe("Story synopsis"),
+      structure: storyStructureSchema.describe("Three-act structure breakdown"),
+      screenplay: z.array(screenplaySceneSchema).min(1).max(40).describe("Screenplay scenes (1-40 scenes)"),
+    },
+    async (args) => {
+      logTool("story.createDraft", clerkUserId, `projectId=${args.projectId}`);
+      return run(async () => {
+        await projectService.get(actor, args.projectId);
+        const result = await storyRepository.upsertProjectDraft({
+          clerkUserId,
+          projectId: args.projectId,
+          title: args.title,
+          synopsis: args.synopsis,
+          structure: args.structure,
+          screenplay: args.screenplay,
+          provider: "external",
+          model: "mcp",
+        });
+        logActivity("story.createDraft", clerkUserId, args.projectId, `Created story draft: ${args.title}`, "success");
+        return result;
       });
     },
   );
@@ -619,6 +651,9 @@ function registerPipelineTools(server: McpServer, actor: RequestAuth, clerkUserI
     },
     async (args) => {
       return run(async () => {
+        if (!LLM_GENERATION_ENABLED) {
+          throw new Error("LLM generation is disabled (LLM_GENERATION_ENABLED=false). Use story.createDraft to create content manually via MCP, then pipeline.approveStory with skipAutoAdvance=true.");
+        }
         logTool("pipeline.start", clerkUserId, `projectId=${args.projectId}`);
         const result = await pipelineService.start(actor, args.projectId, args.workflowMode, args.episodeId);
         logActivity("pipeline.start", clerkUserId, args.projectId, `Started pipeline in ${args.workflowMode} mode`, "success");
@@ -633,6 +668,9 @@ function registerPipelineTools(server: McpServer, actor: RequestAuth, clerkUserI
     { projectId: z.string().describe("The project ID") },
     async (args) => {
       return run(async () => {
+        if (!LLM_GENERATION_ENABLED) {
+          throw new Error("LLM generation is disabled (LLM_GENERATION_ENABLED=false). Use story.createDraft to create the story content manually via MCP.");
+        }
         logTool("pipeline.generateStory", clerkUserId, `projectId=${args.projectId}`);
         return await pipelineService.generateStory(actor, args.projectId);
       });
@@ -641,16 +679,17 @@ function registerPipelineTools(server: McpServer, actor: RequestAuth, clerkUserI
 
   server.tool(
     "pipeline.approveStory",
-    "Approve the generated story draft. This advances the pipeline to the next stage (character extraction).",
+    "Approve the generated story draft. This advances the pipeline to the next stage (character extraction). Set skipAutoAdvance=true to approve without enqueuing the LLM character extraction job — the pipeline will wait for manual character creation via MCP.",
     {
       projectId: z.string().describe("The project ID"),
       storyId: z.string().describe("The story ID to approve"),
+      skipAutoAdvance: z.boolean().default(false).describe("If true, do not enqueue the LLM character extraction job. The pipeline moves to the characters stage and waits for manual input."),
     },
     async (args) => {
       return run(async () => {
-        logTool("pipeline.approveStory", clerkUserId, `projectId=${args.projectId} storyId=${args.storyId}`);
-        const result = await pipelineService.approveStory(actor, args.projectId, args.storyId);
-        logActivity("pipeline.approveStory", clerkUserId, args.projectId, `Approved story ${args.storyId}`, "success");
+        logTool("pipeline.approveStory", clerkUserId, `projectId=${args.projectId} storyId=${args.storyId} skipAutoAdvance=${args.skipAutoAdvance}`);
+        const result = await pipelineService.approveStory(actor, args.projectId, args.storyId, args.skipAutoAdvance);
+        logActivity("pipeline.approveStory", clerkUserId, args.projectId, `Approved story ${args.storyId}${args.skipAutoAdvance ? " (auto-advance skipped)" : ""}`, "success");
         return result;
       });
     },
@@ -658,13 +697,30 @@ function registerPipelineTools(server: McpServer, actor: RequestAuth, clerkUserI
 
   server.tool(
     "pipeline.approve",
-    "Approve the current pipeline stage and advance to the next. Used for character and scene approval gates.",
+    "Approve the current pipeline stage and advance to the next. Used for character and scene approval gates. Set skipAutoAdvance=true to approve without enqueuing the next LLM job.",
+    {
+      projectId: z.string().describe("The project ID"),
+      skipAutoAdvance: z.boolean().default(false).describe("If true, do not enqueue the next LLM job. The pipeline moves to the next stage and waits for manual input via MCP."),
+    },
+    async (args) => {
+      return run(async () => {
+        logTool("pipeline.approve", clerkUserId, `projectId=${args.projectId} skipAutoAdvance=${args.skipAutoAdvance}`);
+        const result = await pipelineService.approve(actor, args.projectId, args.skipAutoAdvance);
+        logActivity("pipeline.approve", clerkUserId, args.projectId, `Approved pipeline stage${args.skipAutoAdvance ? " (auto-advance skipped)" : ""}`, "success");
+        return result;
+      });
+    },
+  );
+
+  server.tool(
+    "pipeline.advance",
+    "Advance the pipeline to the next stage without enqueuing any LLM job. The current stage is marked approved and the pipeline moves to the next stage in waiting_for_approval status, ready for manual content creation via MCP.",
     { projectId: z.string().describe("The project ID") },
     async (args) => {
       return run(async () => {
-        logTool("pipeline.approve", clerkUserId, `projectId=${args.projectId}`);
-        const result = await pipelineService.approve(actor, args.projectId);
-        logActivity("pipeline.approve", clerkUserId, args.projectId, "Approved pipeline stage", "success");
+        logTool("pipeline.advance", clerkUserId, `projectId=${args.projectId}`);
+        const result = await pipelineService.approve(actor, args.projectId, true);
+        logActivity("pipeline.advance", clerkUserId, args.projectId, "Advanced pipeline stage (no LLM)", "success");
         return result;
       });
     },
@@ -676,6 +732,9 @@ function registerPipelineTools(server: McpServer, actor: RequestAuth, clerkUserI
     { projectId: z.string().describe("The project ID") },
     async (args) => {
       return run(async () => {
+        if (!LLM_GENERATION_ENABLED) {
+          throw new Error("LLM generation is disabled (LLM_GENERATION_ENABLED=false). Use scene.create to create scenes manually via MCP.");
+        }
         logTool("pipeline.generateScenes", clerkUserId, `projectId=${args.projectId}`);
         return await pipelineService.generateScenes(actor, args.projectId);
       });
@@ -839,6 +898,42 @@ function registerEpisodeTools(server: McpServer, actor: RequestAuth, clerkUserId
       });
     },
   );
+
+  server.tool(
+    "episode.updateScreenplay",
+    "Update the screenplay of the story linked to an episode. The story must be in awaiting_approval status. Accepts title, synopsis, and screenplay scenes.",
+    {
+      projectId: z.string().describe("The project ID"),
+      episodeId: z.string().describe("The episode ID"),
+      title: z.string().min(1).max(120).optional().describe("New story title (optional)"),
+      synopsis: z.string().min(1).max(2000).optional().describe("New story synopsis (optional)"),
+      screenplay: z.array(screenplaySceneSchema).min(1).max(40).describe("The full screenplay scenes array"),
+    },
+    async (args) => {
+      logTool("episode.updateScreenplay", clerkUserId, `projectId=${args.projectId} episodeId=${args.episodeId}`);
+      return run(async () => {
+        const episode = await episodeRepository.findOwned(clerkUserId, args.projectId, args.episodeId);
+        if (!episode) throw new Error(`Episode ${args.episodeId} not found`);
+        if (!episode.currentStoryId) {
+          throw new Error("This episode has no associated story. Start the pipeline or generate a story draft first.");
+        }
+        const story = await storyRepository.findOwned(clerkUserId, episode.currentStoryId);
+        if (!story) throw new Error("The story linked to this episode was not found.");
+        if (story.status === "approved") {
+          throw new Error("This story is already approved. Create a new story draft to make changes.");
+        }
+        const result = await storyRepository.updateScreenplay(clerkUserId, story.id, {
+          ...(args.title ? { title: args.title } : {}),
+          ...(args.synopsis ? { synopsis: args.synopsis } : {}),
+          screenplay: args.screenplay,
+          validationFindings: null,
+        });
+        if (!result) throw new Error("The screenplay could not be updated. The story may have been approved concurrently.");
+        logActivity("episode.updateScreenplay", clerkUserId, args.projectId, `Updated screenplay for episode ${args.episodeId}`, "success");
+        return result;
+      });
+    },
+  );
 }
 
 function registerSceneTools(server: McpServer, actor: RequestAuth, clerkUserId: string): void {
@@ -849,6 +944,48 @@ function registerSceneTools(server: McpServer, actor: RequestAuth, clerkUserId: 
     async (args) => {
       return run(async () => {
         return await productionSceneService.list(actor, args.projectId);
+      });
+    },
+  );
+
+  server.tool(
+    "scene.create",
+    "Manually create a production scene. Requires the pipeline to be at the scenes stage (waiting for approval).",
+    {
+      projectId: z.string().describe("The project ID"),
+      sceneNumber: z.number().int().positive().describe("The scene number (must be unique within the run)"),
+      title: z.string().min(1).max(160).describe("Scene title"),
+      location: z.string().min(1).max(160).describe("Scene location"),
+      interiorExterior: z.enum(["interior", "exterior", ""]).default("").describe("Interior or exterior"),
+      timeOfDay: z.string().min(1).max(40).describe("Time of day (e.g. DAY, NIGHT, DAWN)"),
+      charactersPresent: z.array(z.string().min(1).max(80)).min(1).max(8).describe("Characters present in the scene"),
+      visualDescription: z.string().min(1).max(1200).describe("Visual description of the scene"),
+      action: z.string().min(1).max(1200).describe("Action description"),
+      dialogue: z.array(z.object({
+        characterName: z.string().min(1).max(80),
+        line: z.string().min(1).max(500),
+      })).max(12).default([]).describe("Dialogue lines"),
+      cameraDirection: z.string().max(400).default("").describe("Camera direction notes"),
+      estimatedDurationSeconds: z.number().int().positive().max(180).nullable().default(null).describe("Estimated duration in seconds"),
+    },
+    async (args) => {
+      logTool("scene.create", clerkUserId, `projectId=${args.projectId} scene=${args.sceneNumber}`);
+      return run(async () => {
+        const result = await productionSceneService.create(actor, args.projectId, args.sceneNumber, {
+          title: args.title,
+          location: args.location,
+          interiorExterior: args.interiorExterior,
+          timeOfDay: args.timeOfDay,
+          charactersPresent: args.charactersPresent,
+          visualDescription: args.visualDescription,
+          action: args.action,
+          dialogue: args.dialogue,
+          cameraDirection: args.cameraDirection,
+          estimatedDurationSeconds: args.estimatedDurationSeconds,
+          shotPlan: [],
+        });
+        logActivity("scene.create", clerkUserId, args.projectId, `Created scene ${args.sceneNumber}: ${args.title}`, "success");
+        return result;
       });
     },
   );
@@ -1237,6 +1374,22 @@ function registerPlanningTools(server: McpServer, actor: RequestAuth, clerkUserI
   );
 
   server.tool(
+    "planning.submit",
+    "Submit the creative planning document for creator review. Transitions status from draft/rejected to submitted.",
+    {
+      projectId: z.string().describe("The project ID"),
+    },
+    async (args) => {
+      logTool("planning.submit", clerkUserId, `projectId=${args.projectId}`);
+      return run(async () => {
+        const result = await planningService.submit(actor, args.projectId);
+        logActivity("planning.submit", clerkUserId, args.projectId, "Submitted planning document for review", "success");
+        return result;
+      });
+    },
+  );
+
+  server.tool(
     "planning.approve",
     "Approve or reject the creative planning document. Only the creator can approve.",
     {
@@ -1313,7 +1466,7 @@ function registerProductionDesignTools(server: McpServer, actor: RequestAuth, cl
 
   server.tool(
     "productionDesign.generateShotList",
-    "Generate a shot list for a scene using AI, based on the screenplay and scene breakdown.",
+    "Returns the scene data needed to author a shot list. This is a hint tool — it does not generate content. Use productionDesign.update to save the actual shot list.",
     {
       projectId: z.string().describe("The project ID"),
       sceneId: z.string().describe("The scene ID"),
@@ -1323,7 +1476,7 @@ function registerProductionDesignTools(server: McpServer, actor: RequestAuth, cl
       return run(async () => {
         const scene = await productionSceneRepository.findById(clerkUserId, args.sceneId);
         if (!scene) return { error: "Scene not found" };
-        return { message: "Shot list generation queued. Use productionDesign.update to set the result.", scene };
+        return { message: "Use this scene data to author a shot list, then save it via productionDesign.update.", scene };
       });
     },
   );

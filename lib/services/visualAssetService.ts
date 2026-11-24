@@ -32,6 +32,15 @@ export function createVisualAssetService(storage: StorageProvider) {
       return entity;
     },
 
+    async approveEntity(actor: { userId: string }, entityId: string) {
+      const entity = await canonicalEntityRepository.findOwned(actor.userId, entityId);
+      if (!entity) throw new StudioError("Entity not found", 404, "not_found");
+      if (entity.status === "approved") return entity;
+      const updated = await canonicalEntityRepository.approve(actor.userId, entityId);
+      if (!updated) throw new StudioError("Entity not found", 404, "not_found");
+      return updated;
+    },
+
     async createObjectProfile(
       actor: { userId: string },
       projectId: string,

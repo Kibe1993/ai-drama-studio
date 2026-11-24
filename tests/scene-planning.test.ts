@@ -43,6 +43,10 @@ function harness() {
         Object.assign(scene, input, { updatedAt: now });
         return scene;
       },
+      async create(_userId, _projectId, _runId, _storyId, _sceneNumber, input) {
+        Object.assign(scene, input, { updatedAt: now });
+        return scene;
+      },
     },
     {
       async findLatest(userId, id) { return userId === owner.userId && id === projectId ? run : null; },

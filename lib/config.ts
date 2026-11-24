@@ -1,0 +1,1 @@
+export const LLM_GENERATION_ENABLED = (process.env.LLM_GENERATION_ENABLED ?? "true").toLowerCase() !== "false";

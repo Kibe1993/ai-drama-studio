@@ -66,6 +66,29 @@ export const productionSceneRepository = {
     return this.listForRun(clerkUserId, run.id);
   },
 
+  async create(clerkUserId: string, projectId: string, runId: string, storyId: string, sceneNumber: number, input: SceneEdit): Promise<SceneRecord> {
+    const Scene = await model();
+    const doc = await Scene.create({
+      clerkUserId,
+      projectId,
+      productionRunId: runId,
+      storyId,
+      sceneNumber,
+      ...input,
+      shotPlan: input.shotPlan ?? [],
+      videoReady: false,
+      videoStatus: "pending",
+      videoAssetId: null,
+      failed: false,
+      productionStatus: "pending",
+      approvedAt: null,
+      sourceCanonVersion: null,
+      canonStale: false,
+      canonStaleReason: "",
+    });
+    return toRecord(doc.toObject() as unknown as SceneDoc);
+  },
+
   async updateOwned(clerkUserId: string, projectId: string, runId: string, sceneNumber: number, input: SceneEdit): Promise<SceneRecord | null> {
     const Scene = await model();
     const doc = await Scene.findOneAndUpdate(

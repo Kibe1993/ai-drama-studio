@@ -52,8 +52,9 @@ async function acceptStory(
   actor: RequestAuth,
   projectId: string,
   run: RunRecord,
-  story: StoryRecord
-): Promise<{ story: StoryRecord; job: JobRecord }> {
+  story: StoryRecord,
+  skipAutoAdvance?: boolean,
+): Promise<{ story: StoryRecord; job: JobRecord | null }> {
   const project = await deps.projects.findOwned(actor.userId, projectId);
   if (!project) throw new StudioError("Project not found", 404, "not_found");
   await requireApprovedBible(deps, actor, projectId);
@@ -99,8 +100,14 @@ async function acceptStory(
     await deps.projects.update(actor.userId, projectId, { status: "story_ready" });
   }
   run.currentStage = "characters";
-  run.status = "running";
+  if (skipAutoAdvance) {
+    run.status = "waiting_for_approval";
+    run.stageResults.characters = { approved: false, names: [] };
+  } else {
+    run.status = "running";
+  }
   await deps.runs.save(run);
+  if (skipAutoAdvance) return { story: saved, job: null };
   const job =
     (await existingCharacterJob(deps, run.id)) ??
     (await enqueueForRun(deps, run, "character.extract", null, {}));
@@ -204,7 +211,7 @@ export function createPipelineService(deps: PipelineDeps) {
       });
     },
 
-    async approveStory(actor: RequestAuth, projectId: string, storyId: string) {
+    async approveStory(actor: RequestAuth, projectId: string, storyId: string, skipAutoAdvance?: boolean) {
       requireProjectId(projectId);
       if (!isObjectId(storyId)) throw new StudioError("That story id is not valid", 400, "invalid_id");
       const run = await ownedRun(deps, actor, projectId);
@@ -239,7 +246,8 @@ export function createPipelineService(deps: PipelineDeps) {
         if (run.stageResults.story && !run.stageResults.story.approved) {
           run.stageResults.story.approved = true;
           run.currentStage = "characters";
-          run.status = "running";
+          run.status = skipAutoAdvance ? "waiting_for_approval" : "running";
+          if (skipAutoAdvance) run.stageResults.characters = { approved: false, names: [] };
           await deps.runs.save(run);
         }
         if (run.episode && deps.episodes) await deps.episodes.updateStatus(actor.userId, projectId, run.episode.id, "story_approved", story.id);
@@ -268,6 +276,7 @@ export function createPipelineService(deps: PipelineDeps) {
         if (project?.status === "planning" && canTransition(project.status, "story_ready")) {
           await deps.projects.update(actor.userId, projectId, { status: "story_ready" });
         }
+        if (skipAutoAdvance) return { story, job: null, alreadyApproved: true as const };
         const job =
           (await existingCharacterJob(deps, run.id)) ??
           (await enqueueForRun(deps, run, "character.extract", null, {}));
@@ -310,7 +319,7 @@ export function createPipelineService(deps: PipelineDeps) {
           "story_incomplete"
         );
       }
-      const approved = await acceptStory(deps, actor, projectId, run, story);
+      const approved = await acceptStory(deps, actor, projectId, run, story, skipAutoAdvance);
       return { story: approved.story, job: approved.job, alreadyApproved: false as const };
     },
 
@@ -451,14 +460,21 @@ export function createPipelineService(deps: PipelineDeps) {
       return { story: saved };
     },
 
-    async approve(actor: RequestAuth, projectId: string) {
+    async approve(actor: RequestAuth, projectId: string, skipAutoAdvance?: boolean) {
       const run = await ownedRun(deps, actor, projectId);
       if (run.currentStage === "story" && run.stageResults.story?.storyId) {
-        const result = await this.approveStory(actor, projectId, run.stageResults.story.storyId);
+        const result = await this.approveStory(actor, projectId, run.stageResults.story.storyId, skipAutoAdvance);
         return result.job ?? result.story;
       }
       if (run.stageResults.story?.approved && run.currentStage === "story") {
         await requireApprovedBible(deps, actor, projectId);
+        if (skipAutoAdvance) {
+          run.currentStage = "characters";
+          run.status = "waiting_for_approval";
+          run.stageResults.characters = { approved: false, names: [] };
+          await deps.runs.save(run);
+          return { message: "Story approved. Characters stage ready for manual input (auto-advance skipped)." };
+        }
         return enqueueForRun(deps, run, "character.extract", null, {});
       }
       if (run.status !== "waiting_for_approval") {
@@ -478,8 +494,10 @@ export function createPipelineService(deps: PipelineDeps) {
         }
         await deps.projects.update(actor.userId, projectId, { status: "story_ready" });
         run.currentStage = "characters";
-        run.status = "running";
+        run.status = skipAutoAdvance ? "waiting_for_approval" : "running";
+        if (skipAutoAdvance) run.stageResults.characters = { approved: false, names: [] };
         await deps.runs.save(run);
+        if (skipAutoAdvance) return { message: "Story approved. Characters stage ready for manual input (auto-advance skipped)." };
         return enqueueForRun(deps, run, "character.extract", null, {});
       }
 
@@ -491,8 +509,10 @@ export function createPipelineService(deps: PipelineDeps) {
         }
         await deps.projects.update(actor.userId, projectId, { status: "characters_ready" });
         run.currentStage = "scenes";
-        run.status = "running";
+        run.status = skipAutoAdvance ? "waiting_for_approval" : "running";
+        if (skipAutoAdvance) run.stageResults.scenes = { approved: false, items: [] };
         await deps.runs.save(run);
+        if (skipAutoAdvance) return { message: "Characters approved. Scenes stage ready for manual input (auto-advance skipped)." };
         return enqueueForRun(deps, run, "scene.breakdown", null, {});
       }
 
@@ -505,8 +525,9 @@ export function createPipelineService(deps: PipelineDeps) {
         await deps.projects.update(actor.userId, projectId, { status: "scenes_ready" });
         await deps.projects.update(actor.userId, projectId, { status: "generating" });
         run.currentStage = "media";
-        run.status = "running";
+        run.status = skipAutoAdvance ? "waiting_for_approval" : "running";
         await deps.runs.save(run);
+        if (skipAutoAdvance) return { message: "Scenes approved. Media stage ready for manual input (auto-advance skipped)." };
         const jobs = [];
         for (const scene of run.stageResults.scenes.items) {
           jobs.push(
@@ -532,8 +553,9 @@ export function createPipelineService(deps: PipelineDeps) {
         }
         await deps.projects.update(actor.userId, projectId, { status: "rendering" });
         run.currentStage = "render";
-        run.status = "running";
+        run.status = skipAutoAdvance ? "waiting_for_approval" : "running";
         await deps.runs.save(run);
+        if (skipAutoAdvance) return { message: "Media approved. Render stage ready for manual input (auto-advance skipped)." };
         return enqueueForRun(deps, run, "render.final", null, {});
       }
 

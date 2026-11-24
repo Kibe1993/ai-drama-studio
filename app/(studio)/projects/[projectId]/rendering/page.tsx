@@ -88,6 +88,7 @@ export default function RenderingPage() {
     <StageLayout projectId={projectId} stage="rendering">
       <div className="grid gap-6">
         {error ? <p className="text-red-400">{error}</p> : null}
+        {loading ? <p className="text-[#a39b8f]">Loading…</p> : null}
 
         <div className="grid gap-3">
           <input
@@ -126,6 +127,10 @@ export default function RenderingPage() {
           </Button>
         </div>
 
+        {!loading && renderJobs.length === 0 && episodeId ? (
+          <p className="text-[#a39b8f]">No render jobs yet for this episode.</p>
+        ) : null}
+
         {renderJobs.length > 0 ? (
           <div className="grid gap-3">
             {renderJobs.map((job) => (
@@ -161,11 +166,14 @@ export default function RenderingPage() {
                       </Button>
                     ) : null}
                     {job.status === "completed" && job.outputAssetId ? (
-                      <Button variant="quiet">
-                        <a href={`/api/projects/${projectId}/media/${job.outputAssetId}`} target="_blank" rel="noopener noreferrer">
-                          Download
-                        </a>
-                      </Button>
+                      <a
+                        href={`/api/projects/${projectId}/media/${job.outputAssetId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center rounded border border-[#3a342c] px-3 py-1 text-sm text-[#cfc6b8] hover:border-[#4a453d]"
+                      >
+                        Download
+                      </a>
                     ) : null}
                   </div>
                 </div>

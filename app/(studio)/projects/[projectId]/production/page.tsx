@@ -13,6 +13,8 @@ export default function ProductionPage() {
 
   return (
     <StageLayout projectId={projectId} stage="production_design">
+      {query.isLoading ? <p className="text-[#a39b8f]">Loading…</p> : null}
+      {query.isError ? <p className="text-[#e7b2a8]">Failed to load project.</p> : null}
       {project ? <ProductionPanel projectId={project.id} status={project.status} /> : null}
     </StageLayout>
   );

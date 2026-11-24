@@ -250,11 +250,14 @@ export default function VideoPage() {
             <div className="mt-3">
               <p className="text-sm text-green-400">Render completed.</p>
               {run.stageResults.render.mediaAssetId ? (
-                <Button variant="quiet" size="sm" className="mt-2">
-                  <a href={`/api/projects/${projectId}/media/${run.stageResults.render.mediaAssetId}`} target="_blank" rel="noopener noreferrer">
-                    Download video
-                  </a>
-                </Button>
+                <a
+                  href={`/api/projects/${projectId}/media/${run.stageResults.render.mediaAssetId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-flex items-center rounded border border-[#3a342c] px-3 py-1 text-sm text-[#cfc6b8] hover:border-[#4a453d]"
+                >
+                  Download video
+                </a>
               ) : null}
             </div>
           ) : run?.stageResults.render ? (

@@ -67,6 +67,7 @@ export default function ShotProductionPage() {
       <div className="mt-8 grid gap-6">
         <h1 className="font-display text-3xl">Shot Production</h1>
         {error ? <p className="text-red-400">{error}</p> : null}
+        {loading ? <p className="text-[#a39b8f]">Loading…</p> : null}
 
         <div className="flex gap-3">
           <input
@@ -85,6 +86,10 @@ export default function ShotProductionPage() {
             Retry failed
           </Button>
         </div>
+
+        {!loading && shots.length === 0 && sceneId ? (
+          <p className="text-[#a39b8f]">No shots found for this scene.</p>
+        ) : null}
 
         {shots.length > 0 ? (
           <div className="rounded border border-[#39342d] p-6">

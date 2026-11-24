@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { ProjectHeader } from "@/components/workflow/ProjectHeader";
 import { Button } from "@/components/ui/button";
@@ -51,21 +51,17 @@ export default function VisualAssetsPage() {
     }
   }, [projectId]);
 
-  const loadReferences = useCallback(async (entityId: string) => {
+  const loadReferences = useCallback(async (entity: Entity) => {
+    const endpoints: Record<Entity["entityType"], string> = {
+      character: `/api/projects/${projectId}/visual-assets/characters/${entity.id}/reference`,
+      location: `/api/projects/${projectId}/visual-assets/environments/${entity.id}/reference`,
+      object: `/api/projects/${projectId}/visual-assets/objects/${entity.id}/reference`,
+    };
     try {
-      const data = await api<{ references: ReferenceAsset[] }>(
-        `/api/projects/${projectId}/visual-assets/characters/${entityId}/reference`
-      );
-      setReferences((prev) => ({ ...prev, [entityId]: data.references }));
+      const data = await api<{ references: ReferenceAsset[] }>(endpoints[entity.entityType]);
+      setReferences((prev) => ({ ...prev, [entity.id]: data.references }));
     } catch {
-      try {
-        const data = await api<{ references: ReferenceAsset[] }>(
-          `/api/projects/${projectId}/visual-assets/environments/${entityId}/reference`
-        );
-        setReferences((prev) => ({ ...prev, [entityId]: data.references }));
-      } catch {
-        setReferences((prev) => ({ ...prev, [entityId]: [] }));
-      }
+      setReferences((prev) => ({ ...prev, [entity.id]: [] }));
     }
   }, [projectId]);
 
@@ -82,9 +78,11 @@ export default function VisualAssetsPage() {
     }
   }, [projectId, loadEntities]);
 
-  if (!entities && !loading) {
-    void loadEntities();
-  }
+  useEffect(() => {
+    if (!entities && !loading) {
+      void loadEntities();
+    }
+  }, [entities, loading, loadEntities]);
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -134,10 +132,15 @@ function EntitySection({
   title: string;
   entities: Entity[];
   references: Record<string, ReferenceAsset[]>;
-  onLoadRefs: (entityId: string) => void;
+  onLoadRefs: (entity: Entity) => void;
   onReview: (assetId: string, action: "approve" | "reject") => void;
 }) {
-  if (entities.length === 0) return null;
+  if (entities.length === 0) return (
+    <section className="rounded border border-[#39342d] p-6">
+      <h2 className="font-display text-xl">{title}</h2>
+      <p className="mt-3 text-sm text-[#a39b8f]">No {title.toLowerCase()} found.</p>
+    </section>
+  );
   return (
     <section className="rounded border border-[#39342d] p-6">
       <h2 className="font-display text-xl">{title}</h2>
@@ -151,7 +154,7 @@ function EntitySection({
                   {entity.status === "approved" ? "Approved" : "Pending review"}
                 </p>
               </div>
-              <Button variant="quiet" onClick={() => onLoadRefs(entity.id)}>
+              <Button variant="quiet" onClick={() => onLoadRefs(entity)}>
                 Load references
               </Button>
             </div>

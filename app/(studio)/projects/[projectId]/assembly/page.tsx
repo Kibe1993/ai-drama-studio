@@ -95,6 +95,7 @@ export default function AssemblyPage() {
       <div className="mt-8 grid gap-6">
         <h1 className="font-display text-3xl">Timeline Assembly</h1>
         {error ? <p className="text-red-400">{error}</p> : null}
+        {loading ? <p className="text-[#a39b8f]">Loading…</p> : null}
 
         <div className="flex gap-3">
           <input
@@ -107,6 +108,10 @@ export default function AssemblyPage() {
             Preview timeline
           </Button>
         </div>
+
+        {!loading && !timeline && episodeId ? (
+          <p className="text-[#a39b8f]">No assembly found for this episode.</p>
+        ) : null}
 
         {timeline ? (
           <div className="grid gap-4">

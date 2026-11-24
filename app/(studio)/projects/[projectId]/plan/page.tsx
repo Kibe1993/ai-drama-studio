@@ -13,6 +13,8 @@ export default function SeasonPlanPage() {
 
   return (
     <StageLayout projectId={projectId} stage="episodes">
+      {query.isLoading ? <p className="text-[#a39b8f]">Loading…</p> : null}
+      {query.isError ? <p className="text-[#e7b2a8]">Failed to load project.</p> : null}
       {project ? <SeasonPlanWorkspace project={project} /> : null}
     </StageLayout>
   );

@@ -26,6 +26,7 @@ export type ProjectRecord = {
    * determines the range. Not every project persists one.
    */
   sceneRange?: { min: number; max: number } | null;
+  stageOverride?: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -69,6 +70,7 @@ function toRecord(doc: ProjectDoc): ProjectRecord {
     productionType: doc.productionType ?? "fictional_drama",
     productionMode: doc.productionMode ?? "standalone",
     currentStoryId: doc.currentStoryId?.toString() ?? null,
+    stageOverride: doc.stageOverride ?? [],
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };

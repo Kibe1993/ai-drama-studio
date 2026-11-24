@@ -1,11 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import { StageLayout } from "@/components/workflow/StageLayout";
 import { EpisodeManager } from "@/components/projects/EpisodeManager";
 import { ContinuityLedgerView } from "@/components/workflow/ContinuityLedgerView";
+import { ImportDialog } from "@/components/projects/ImportDialog";
+import { ExportDialog } from "@/components/projects/ExportDialog";
+import { Button } from "@/components/ui/button";
 import { useProject } from "@/hooks/useProjects";
 import { useWorkflow } from "@/hooks/useWorkflow";
+import { useEpisodes } from "@/hooks/useEpisodes";
 
 export default function EpisodesPage() {
   const params = useParams<{ projectId: string }>();
@@ -13,10 +18,17 @@ export default function EpisodesPage() {
   const query = useProject(projectId);
   const project = query.data?.project;
   const workflow = useWorkflow(projectId);
+  const episodesQuery = useEpisodes(projectId);
+  const [showImport, setShowImport] = useState(false);
+  const [showExport, setShowExport] = useState(false);
 
   const episodesNeedingReview = workflow.data?.episodes.needingReview ?? 0;
   const planNeedsReview = workflow.data?.plan.needsReview ?? false;
   const planApproved = workflow.data?.plan.approved ?? false;
+
+  async function handleImport(_content: string, _format: "markdown" | "json" | "text") {
+    setShowImport(false);
+  }
 
   return (
     <StageLayout projectId={projectId} stage="episodes">
@@ -45,6 +57,10 @@ export default function EpisodesPage() {
               </p>
             </div>
           ) : null}
+          <div className="mb-4 flex gap-2">
+            <Button variant="quiet" size="sm" onClick={() => setShowImport(true)}>Import</Button>
+            <Button variant="quiet" size="sm" onClick={() => setShowExport(true)}>Export</Button>
+          </div>
           <EpisodeManager
             projectId={project.id}
             productionMode={project.productionMode}
@@ -56,6 +72,18 @@ export default function EpisodesPage() {
             nextLockReason={workflow.data?.episodes.nextLockReason ?? null}
           />
           <ContinuityLedgerView projectId={project.id} />
+          <ImportDialog
+            open={showImport}
+            onClose={() => setShowImport(false)}
+            onImport={handleImport}
+            title="Import Episodes"
+          />
+          <ExportDialog
+            open={showExport}
+            onClose={() => setShowExport(false)}
+            data={episodesQuery.data?.episodes ?? []}
+            title="Export Episodes"
+          />
         </>
       ) : null}
     </StageLayout>

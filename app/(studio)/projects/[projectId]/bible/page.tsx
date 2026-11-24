@@ -1,12 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useParams } from "next/navigation";
 import { StageLayout } from "@/components/workflow/StageLayout";
 import { StoryBibleEditor } from "@/components/projects/StoryBibleEditor";
+import { ImportDialog } from "@/components/projects/ImportDialog";
+import { ExportDialog } from "@/components/projects/ExportDialog";
 import { Button } from "@/components/ui/button";
 import { useProject } from "@/hooks/useProjects";
 import { useWorkflow } from "@/hooks/useWorkflow";
+import { useStoryBible, useSaveStoryBible } from "@/hooks/useStoryBible";
 
 export default function StoryBiblePage() {
   const params = useParams<{ projectId: string }>();
@@ -15,9 +19,23 @@ export default function StoryBiblePage() {
   const query = useProject(projectId);
   const project = query.data?.project;
   const workflow = useWorkflow(projectId);
+  const bibleQuery = useStoryBible(projectId);
+  const saveBible = useSaveStoryBible(projectId);
+  const [showImport, setShowImport] = useState(false);
+  const [showExport, setShowExport] = useState(false);
 
   const bibleApproved = workflow.data?.bible.approved ?? false;
   const bibleNeedsReview = workflow.data?.bible.needsReview ?? false;
+
+  async function handleImport(content: string, format: "markdown" | "json" | "text") {
+    let draft: Record<string, unknown>;
+    if (format === "json") {
+      draft = JSON.parse(content);
+    } else {
+      draft = { premise: content, worldRules: [], themes: [], boundaries: [], canonFacts: [], sourceIdea: content, creativeDirection: "", creatorDecisions: [] };
+    }
+    await saveBible.mutateAsync(draft as never);
+  }
 
   return (
     <StageLayout projectId={projectId} stage="bible">
@@ -30,6 +48,10 @@ export default function StoryBiblePage() {
               </p>
             </div>
           ) : null}
+          <div className="mb-4 flex gap-2">
+            <Button variant="quiet" size="sm" onClick={() => setShowImport(true)}>Import</Button>
+            <Button variant="quiet" size="sm" onClick={() => setShowExport(true)}>Export</Button>
+          </div>
           <StoryBibleEditor
             projectId={project.id}
             initialIdea={project.originalStoryIdea}
@@ -42,6 +64,18 @@ export default function StoryBiblePage() {
               </Button>
             </div>
           ) : null}
+          <ImportDialog
+            open={showImport}
+            onClose={() => setShowImport(false)}
+            onImport={handleImport}
+            title="Import Story Bible"
+          />
+          <ExportDialog
+            open={showExport}
+            onClose={() => setShowExport(false)}
+            data={bibleQuery.data?.bible ?? project}
+            title="Export Story Bible"
+          />
         </>
       ) : null}
     </StageLayout>

@@ -34,6 +34,7 @@ export type ProjectShape = {
   thumbnailAssetId?: Types.ObjectId | null;
   currentStoryId?: Types.ObjectId | null;
   idempotencyKey?: string | null;
+  stageOverride?: string[];
 };
 
 const ProjectSchema = new Schema(
@@ -55,6 +56,7 @@ const ProjectSchema = new Schema(
     currentStoryId: { type: Schema.Types.ObjectId, default: null },
     idempotencyKey: { type: String, default: null },
     costLimitCents: { type: Number, default: null, min: 0 },
+    stageOverride: { type: [String], default: [] },
   },
   { timestamps: true, collection: "projects" }
 );

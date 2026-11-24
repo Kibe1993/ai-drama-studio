@@ -44,6 +44,12 @@ export function createTimelineAssemblyService() {
           audioOffsetSeconds: 0,
           transition: "",
           optional: false,
+          title: "",
+          sceneNumber: clip.sceneNumber,
+          shotNumber: clip.shotNumber,
+          trimStartSeconds: 0,
+          trimEndSeconds: null,
+          volume: 1,
         });
         cumulativeStart += clip.durationSeconds;
       }
@@ -60,6 +66,12 @@ export function createTimelineAssemblyService() {
             audioOffsetSeconds: 0,
             transition: "",
             optional: false,
+            title: "",
+            sceneNumber: null,
+            shotNumber: null,
+            trimStartSeconds: 0,
+            trimEndSeconds: null,
+            volume: 1,
           })),
         });
       }
@@ -73,6 +85,12 @@ export function createTimelineAssemblyService() {
             audioOffsetSeconds: 0,
             transition: "",
             optional: c.optional ?? false,
+            title: "",
+            sceneNumber: null,
+            shotNumber: null,
+            trimStartSeconds: 0,
+            trimEndSeconds: null,
+            volume: c.volume,
           })),
         });
       }
@@ -86,6 +104,12 @@ export function createTimelineAssemblyService() {
             audioOffsetSeconds: 0,
             transition: "",
             optional: false,
+            title: "",
+            sceneNumber: null,
+            shotNumber: null,
+            trimStartSeconds: 0,
+            trimEndSeconds: null,
+            volume: 1,
           })),
         });
       }
@@ -99,6 +123,12 @@ export function createTimelineAssemblyService() {
             audioOffsetSeconds: 0,
             transition: "",
             optional: false,
+            title: "",
+            sceneNumber: null,
+            shotNumber: null,
+            trimStartSeconds: 0,
+            trimEndSeconds: null,
+            volume: 1,
           })),
         });
       }

@@ -14,6 +14,12 @@ describe("timeline assembly service", () => {
       audioOffsetSeconds: 0,
       transition: "",
       optional: false,
+      title: "",
+      sceneNumber: null,
+      shotNumber: null,
+      trimStartSeconds: 0,
+      trimEndSeconds: null,
+      volume: 1,
     })),
   });
 
@@ -94,6 +100,12 @@ describe("timeline assembly service", () => {
           audioOffsetSeconds: 0,
           transition: "",
           optional: true,
+          title: "",
+          sceneNumber: null,
+          shotNumber: null,
+          trimStartSeconds: 0,
+          trimEndSeconds: null,
+          volume: 1,
         }],
       },
     ];
@@ -107,19 +119,19 @@ describe("timeline assembly service", () => {
       makeVideoTrack([{ assetId: "v1", start: 0, dur: 10 }]),
       {
         kind: "dialogue",
-        clips: [{ assetId: "d1", startSeconds: 0, durationSeconds: 10, audioOffsetSeconds: 0, transition: "", optional: false }],
+        clips: [{ assetId: "d1", startSeconds: 0, durationSeconds: 10, audioOffsetSeconds: 0, transition: "", optional: false, title: "", sceneNumber: null, shotNumber: null, trimStartSeconds: 0, trimEndSeconds: null, volume: 1 }],
       },
       {
         kind: "music",
-        clips: [{ assetId: "m1", startSeconds: 0, durationSeconds: 10, audioOffsetSeconds: 0, transition: "", optional: false }],
+        clips: [{ assetId: "m1", startSeconds: 0, durationSeconds: 10, audioOffsetSeconds: 0, transition: "", optional: false, title: "", sceneNumber: null, shotNumber: null, trimStartSeconds: 0, trimEndSeconds: null, volume: 1 }],
       },
       {
         kind: "sfx",
-        clips: [{ assetId: "s1", startSeconds: 2, durationSeconds: 1, audioOffsetSeconds: 0, transition: "", optional: false }],
+        clips: [{ assetId: "s1", startSeconds: 2, durationSeconds: 1, audioOffsetSeconds: 0, transition: "", optional: false, title: "", sceneNumber: null, shotNumber: null, trimStartSeconds: 0, trimEndSeconds: null, volume: 1 }],
       },
       {
         kind: "subtitle",
-        clips: [{ assetId: "sub1", startSeconds: 0, durationSeconds: 10, audioOffsetSeconds: 0, transition: "", optional: false }],
+        clips: [{ assetId: "sub1", startSeconds: 0, durationSeconds: 10, audioOffsetSeconds: 0, transition: "", optional: false, title: "", sceneNumber: null, shotNumber: null, trimStartSeconds: 0, trimEndSeconds: null, volume: 1 }],
       },
     ];
     const result = service.validate(tracks, 10, knownAssets);

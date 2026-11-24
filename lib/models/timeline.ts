@@ -7,6 +7,12 @@ const TimelineClipSchema = new Schema({
   audioOffsetSeconds: { type: Number, default: 0 },
   transition: { type: String, default: "", maxlength: 60 },
   optional: { type: Boolean, default: false },
+  title: { type: String, default: "", maxlength: 200 },
+  sceneNumber: { type: Number, default: null, min: 1 },
+  shotNumber: { type: Number, default: null, min: 1 },
+  trimStartSeconds: { type: Number, default: 0, min: 0 },
+  trimEndSeconds: { type: Number, default: null, min: 0 },
+  volume: { type: Number, default: 1, min: 0, max: 2 },
 }, { _id: false });
 
 const TimelineTrackSchema = new Schema({

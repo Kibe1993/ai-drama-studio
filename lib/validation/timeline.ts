@@ -9,6 +9,12 @@ const timelineClipSchema = z.object({
   audioOffsetSeconds: z.number().default(0),
   transition: z.string().max(60).default(""),
   optional: z.boolean().default(false),
+  title: z.string().max(200).default(""),
+  sceneNumber: z.number().int().min(1).nullable().default(null),
+  shotNumber: z.number().int().min(1).nullable().default(null),
+  trimStartSeconds: z.number().min(0).default(0),
+  trimEndSeconds: z.number().min(0).nullable().default(null),
+  volume: z.number().min(0).max(2).default(1),
 });
 
 const timelineTrackSchema = z.object({
@@ -50,3 +56,12 @@ export type TimelineRecord = z.infer<typeof timelineSchema> & {
 export type TimelineClip = z.infer<typeof timelineClipSchema>;
 export type TimelineTrack = z.infer<typeof timelineTrackSchema>;
 export type ValidationResult = z.infer<typeof validationResultSchema>;
+export const timelineUpdateSchema = z.object({
+  tracks: z.array(timelineTrackSchema).optional(),
+  aspectRatio: z.string().max(10).optional(),
+  outputResolution: z.string().max(20).optional(),
+  frameRate: z.number().min(1).optional(),
+  episodeTargetDurationSeconds: z.number().min(0).nullable().optional(),
+});
+
+export type TimelineUpdate = z.infer<typeof timelineUpdateSchema>;

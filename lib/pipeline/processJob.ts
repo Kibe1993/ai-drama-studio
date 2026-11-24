@@ -721,14 +721,29 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       const videoAssets: { storageKey: string; durationSeconds: number }[] = [];
       const audioAssets: { storageKey: string; volume: number; kind: "dialogue" | "music" | "sfx" | "narration" }[] = [];
 
+      const clerkUserId = job.clerkUserId;
+      const assetCache = new Map<string, string | null>();
+      async function resolveStorageKey(assetId: string): Promise<string> {
+        if (assetCache.has(assetId)) {
+          const cached = assetCache.get(assetId);
+          if (cached) return cached;
+          throw new JobError(`Media asset ${assetId} not found.`, "asset_not_found", false);
+        }
+        const asset = await mediaAssetRepository.findOwned(clerkUserId, assetId);
+        assetCache.set(assetId, asset?.storageKey ?? null);
+        if (!asset) throw new JobError(`Media asset ${assetId} not found.`, "asset_not_found", false);
+        return asset.storageKey;
+      }
+
       for (const track of timeline.tracks) {
         for (const clip of track.clips) {
+          const storageKey = await resolveStorageKey(clip.assetId);
           if (track.kind === "video") {
-            videoAssets.push({ storageKey: clip.assetId, durationSeconds: clip.durationSeconds });
+            videoAssets.push({ storageKey, durationSeconds: clip.durationSeconds });
           } else if (track.kind === "dialogue" || track.kind === "music" || track.kind === "sfx" || track.kind === "narration") {
             audioAssets.push({
-              storageKey: clip.assetId,
-              volume: 1,
+              storageKey,
+              volume: clip.volume ?? 1,
               kind: track.kind as "dialogue" | "music" | "sfx" | "narration",
             });
           }

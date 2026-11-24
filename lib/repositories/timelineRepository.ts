@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { connectDB } from "@/lib/db/connect";
 import { timelineModel } from "@/lib/models/timeline";
-import type { TimelineRecord, ValidationResult } from "@/lib/validation/timeline";
+import type { TimelineRecord, ValidationResult, TimelineTrack } from "@/lib/validation/timeline";
 
 type TimelineDoc = TimelineRecord & {
   _id: mongoose.Types.ObjectId;
@@ -85,6 +85,53 @@ export const timelineRepository = {
     const doc = await Timeline.findOneAndUpdate(
       { clerkUserId, _id: timelineId },
       { status: "stale" },
+      { new: true }
+    ).lean<TimelineDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  async updateTracks(
+    clerkUserId: string,
+    timelineId: string,
+    tracks: TimelineTrack[]
+  ): Promise<TimelineRecord | null> {
+    const Timeline = timelineModel(await connectDB());
+    const doc = await Timeline.findOneAndUpdate(
+      { clerkUserId, _id: timelineId },
+      { tracks, status: "under_review" },
+      { new: true }
+    ).lean<TimelineDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  async updateSettings(
+    clerkUserId: string,
+    timelineId: string,
+    settings: {
+      aspectRatio?: string;
+      outputResolution?: string;
+      frameRate?: number;
+      episodeTargetDurationSeconds?: number | null;
+    }
+  ): Promise<TimelineRecord | null> {
+    const Timeline = timelineModel(await connectDB());
+    const doc = await Timeline.findOneAndUpdate(
+      { clerkUserId, _id: timelineId },
+      { $set: settings },
+      { new: true }
+    ).lean<TimelineDoc | null>();
+    return doc ? toRecord(doc) : null;
+  },
+
+  async setStatus(
+    clerkUserId: string,
+    timelineId: string,
+    status: "draft" | "under_review" | "approved" | "stale"
+  ): Promise<TimelineRecord | null> {
+    const Timeline = timelineModel(await connectDB());
+    const doc = await Timeline.findOneAndUpdate(
+      { clerkUserId, _id: timelineId },
+      { status },
       { new: true }
     ).lean<TimelineDoc | null>();
     return doc ? toRecord(doc) : null;

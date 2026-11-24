@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Story, character extraction, and scene breakdown use the configured LLM provider manager. Video and rendering remain mock-only and are explicitly unavailable as real media; neither can complete a production without validated stored media. Redis and the worker move the run.
+Status: Story, character extraction, and scene breakdown use the configured LLM provider manager. Audio TTS (Kokoro) and FFmpeg rendering are real. Video generation remains mock-only and is explicitly unavailable as real media; it cannot complete a production without validated stored media. An MCP server exposes 17 tools and 6 resources so external AI assistants can drive the creative pipeline. Redis and the worker move the run.
 
 ## Product
 
@@ -32,7 +32,7 @@ Hosting the Next.js application does not run video models. If a GPU or an API ke
 
 ## Story Contract
 
-The project-level Story Draft is validated before a Story Bible exists. `deriveStoryContract` records the draft's characters, interval rules, act events, and scene outcomes on the story document, with the source field and a hash of that revision. Approval refuses a draft that has no completed validation, a contract for a different revision, or a failed structural or agreement layer. The contract is provisional until the creator approves the draft. It is not a second canon collection. The Continuity Ledger and `CanonState` remain the authorities after approval. `narrativeGraph`, `narrativeRegistry`, and `canonicalRegistry` repositories are not on the story-draft path. Season-plan validation still uses `planValidation` and the narrative engine for plans only.
+The project-level Story Draft is validated before a Story Bible exists. `deriveStoryContract` records the draft's characters, interval rules, act events, and scene outcomes on the story document, with the source field and a hash of that revision. Approval refuses a draft that has no completed validation, a contract for a different revision, or a failed structural or agreement layer. The contract is provisional until the creator approves the draft. The Continuity Ledger and `CanonState` remain the authorities after approval. Season-plan validation still uses `planValidation` and the narrative engine for plans only.
 
 A missing semantic review is stored as `not_executed`. It is not treated as a pass. A Story Bible whose world rules change a loss-event interval in the approved contract is rejected.
 
@@ -50,6 +50,10 @@ A missing semantic review is stored as `not_executed`. It is not treated as a pa
 
 Route handlers stay thin: session, Zod, ownership, service call, HTTP response. Repositories own queries. Services own rules. Adapters own one vendor.
 
+## MCP server
+
+`lib/mcp/server.ts` exposes 17 tools and 6 resources over stdio for external AI assistants. The server authenticates as the user named by `MCP_ACTOR_USER_ID`. Tools cover project CRUD, story generation, character extraction, scene breakdown, timeline editing, and media listing. Resources expose project state, story content, character profiles, and scene plans. The app functions without a configured LLM provider when an external assistant drives creation through MCP. See [docs/MCP_INTEGRATION.md](MCP_INTEGRATION.md).
+
 ## Where code will live
 
 ```
@@ -66,6 +70,7 @@ components/characters/
 components/scenes/
 components/media/
 components/production/
+components/timeline/
 lib/db/
 lib/models/
 lib/repositories/
@@ -76,6 +81,7 @@ lib/engines/character/
 lib/engines/scene/
 lib/engines/media/
 lib/engines/rendering/
+lib/mcp/
 lib/providers/llm/
 lib/providers/image/
 lib/providers/video/
@@ -131,10 +137,12 @@ Guided mode stops after each stage until the user approves. Automatic mode enque
 
 1. Next.js. UI and short API calls. Enqueues work and returns a job id.
 2. MongoDB. Durable product state. No media bytes.
-3. Redis and workers. If Redis is flushed, jobs still marked `queued` or `processing` can be re-enqueued from MongoDB.
+3. Redis and workers. If Redis is flushed, jobs still marked `queued` or `processing` can be re-enqueued from MongoDB. Three queues: `generation` (LLM), `production` (audio TTS + FFmpeg render), `maintenance` (mock image/video + media validation).
 4. Inference. A hosted HTTP API, or a GPU machine this project calls. The worker calls it. Next.js does not.
 5. Object storage. Images may use Cloudinary. Scene video, audio, and masters use S3-compatible storage. MongoDB stores keys and metadata.
 6. Render worker. FFmpeg on a machine with a temp disk. Its queue concurrency is 1. It is not a Next.js request.
+
+An optional seventh process is the MCP server (`npm run mcp:server`), which runs on stdio and lets an external AI assistant drive the creative pipeline.
 
 ## Replaceability
 

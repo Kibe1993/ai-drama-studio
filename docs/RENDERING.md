@@ -1,6 +1,6 @@
 # Rendering
 
-Status: Phase 0 design. FFmpeg is not installed and no sample render has been run.
+Status: FFmpeg rendering is implemented. The `production` queue worker assembles approved timeline clips into a final MP4 with subtitles, audio mixing, music ducking, and transitions. Video generation remains mock-only.
 
 ## Where it runs
 
@@ -19,7 +19,7 @@ The worker loads the project, scenes ordered by `sceneNumber`, the selected vide
 5. Upload the MP4 through `StorageProvider`.
 6. Insert `MediaAsset` and `RenderedVideo`, then transition the project to `completed`.
 
-The first version uses cuts. A crossfade can be added as an FFmpeg filter after the cut path works. It is not an AI stage.
+The first version uses cuts. Transitions (crossfade, wipe, slide) are implemented via the FFmpeg `xfade` filter. The transition type and duration are set per clip in the timeline editor. It is not an AI stage.
 
 ## Failure
 

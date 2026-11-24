@@ -718,7 +718,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       const engine = new FFmpegRenderEngine(storage, ffmpegPath);
       const renderService = createRenderService();
 
-      const videoAssets: { storageKey: string; durationSeconds: number }[] = [];
+      const videoAssets: { storageKey: string; durationSeconds: number; transition?: string }[] = [];
       const audioAssets: { storageKey: string; volume: number; kind: "dialogue" | "music" | "sfx" | "narration" }[] = [];
 
       const clerkUserId = job.clerkUserId;
@@ -739,7 +739,7 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
         for (const clip of track.clips) {
           const storageKey = await resolveStorageKey(clip.assetId);
           if (track.kind === "video") {
-            videoAssets.push({ storageKey, durationSeconds: clip.durationSeconds });
+            videoAssets.push({ storageKey, durationSeconds: clip.durationSeconds, transition: clip.transition || undefined });
           } else if (track.kind === "dialogue" || track.kind === "music" || track.kind === "sfx" || track.kind === "narration") {
             audioAssets.push({
               storageKey,

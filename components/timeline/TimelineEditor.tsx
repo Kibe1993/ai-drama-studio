@@ -87,6 +87,15 @@ const TRACK_LABELS: Record<TrackKind, string> = {
   sfx: "SFX",
   subtitle: "Subtitle",
 };
+const TRANSITION_OPTIONS = ["", "fade", "wipeleft", "wiperight", "slideup", "slidedown"] as const;
+const TRANSITION_LABELS: Record<string, string> = {
+  "": "Cut",
+  fade: "Crossfade",
+  wipeleft: "Wipe Left",
+  wiperight: "Wipe Right",
+  slideup: "Slide Up",
+  slidedown: "Slide Down",
+};
 
 function makeClip(asset: Asset, startSeconds: number): Clip {
   return {
@@ -108,11 +117,13 @@ function makeClip(asset: Asset, startSeconds: number): Clip {
 function SortableClip({
   clip,
   index,
+  trackKind,
   onUpdate,
   onRemove,
 }: {
   clip: Clip;
   index: number;
+  trackKind: TrackKind;
   onUpdate: (patch: Partial<Clip>) => void;
   onRemove: () => void;
 }) {
@@ -170,6 +181,20 @@ function SortableClip({
         </div>
       )}
       {clip.optional && <span className="text-xs text-yellow-400">opt</span>}
+      {trackKind === "video" && index > 0 && (
+        <div className="flex items-center gap-1 text-xs">
+          <label className="text-[#a39b8f]">Trans</label>
+          <select
+            value={clip.transition}
+            onChange={(e) => onUpdate({ transition: e.target.value })}
+            className="rounded bg-[#0d0c0a] px-1 py-0.5 text-[#f3efe6]"
+          >
+            {TRANSITION_OPTIONS.map((t) => (
+              <option key={t} value={t}>{TRANSITION_LABELS[t]}</option>
+            ))}
+          </select>
+        </div>
+      )}
       <button onClick={onRemove} className="ml-auto text-[#a39b8f] hover:text-red-400">
         <Trash2 size={14} />
       </button>
@@ -251,6 +276,7 @@ function TrackEditor({
                   key={`${clip.assetId}-${index}`}
                   clip={clip}
                   index={index}
+                  trackKind={track.kind}
                   onUpdate={(patch) => onUpdateClip(index, patch)}
                   onRemove={() => onRemoveClip(index)}
                 />

@@ -14,7 +14,7 @@ const execFileAsync = promisify(execFile);
 
 export type RenderRequest = {
   preset: RenderPreset;
-  videoAssets: { storageKey: string; durationSeconds: number }[];
+  videoAssets: { storageKey: string; durationSeconds: number; transition?: string }[];
   audioAssets?: { storageKey: string; volume: number; kind: "dialogue" | "music" | "sfx" | "narration" }[];
   subtitleStorageKey?: string;
 };

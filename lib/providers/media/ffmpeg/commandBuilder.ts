@@ -3,17 +3,24 @@ import type { RenderPreset } from "@/lib/providers/media/ffmpeg/presets";
 
 export type RenderPlan = {
   preset: RenderPreset;
-  videoInputs: { path: string; durationSeconds: number }[];
+  videoInputs: { path: string; durationSeconds: number; transition?: string }[];
   audioInputs?: { path: string; volume: number; kind: "dialogue" | "music" | "sfx" | "narration" }[];
   subtitlePath?: string;
   outputPath: string;
   concatListPath: string;
 };
 
+const TRANSITION_DURATION = 0.5;
+const SUPPORTED_TRANSITIONS = new Set(["fade", "wipeleft", "wiperight", "slideup", "slidedown"]);
+
 function sanitizePath(path: string): string {
   if (path.includes("\0")) throw new Error("Invalid path: null byte detected");
   if (/[;|&$`<>]/.test(path)) throw new Error("Invalid path: forbidden characters");
   return path;
+}
+
+function hasTransitions(videos: { transition?: string }[]): boolean {
+  return videos.some((v, i) => i > 0 && v.transition && SUPPORTED_TRANSITIONS.has(v.transition));
 }
 
 export function buildFFmpegArgs(plan: RenderPlan): string[] {
@@ -26,10 +33,15 @@ export function buildFFmpegArgs(plan: RenderPlan): string[] {
   const { preset } = plan;
   const args: string[] = ["-y", "-hide_banner"];
 
-  if (plan.videoInputs.length === 1) {
-    args.push("-i", plan.videoInputs[0].path);
-  } else {
+  const useTransitions = hasTransitions(plan.videoInputs);
+  const videos = plan.videoInputs;
+
+  if (!useTransitions && videos.length > 1) {
     args.push("-f", "concat", "-safe", "0", "-i", plan.concatListPath);
+  } else {
+    for (const v of videos) {
+      args.push("-i", v.path);
+    }
   }
 
   const audioInputs = plan.audioInputs ?? [];
@@ -37,24 +49,49 @@ export function buildFFmpegArgs(plan: RenderPlan): string[] {
     args.push("-i", audio.path);
   }
 
-  const videoIndex = 0;
   const filterParts: string[] = [];
-
   const scaleFilter = `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease,pad=${preset.width}:${preset.height}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
   const fpsFilter = `fps=${preset.frameRate}`;
-  filterParts.push(`[${videoIndex}:v]${scaleFilter},${fpsFilter}[v_base]`);
 
-  let videoLabel = "v_base";
-  if (plan.subtitlePath && plan.videoInputs.length === 1) {
-    filterParts.push(`[v_base]subtitles='${plan.subtitlePath}'[v_sub]`);
+  let videoLabel: string;
+
+  if (useTransitions && videos.length > 1) {
+    const scaledLabels: string[] = [];
+    videos.forEach((v, i) => {
+      const label = `v${i}`;
+      filterParts.push(`[${i}:v]${scaleFilter},${fpsFilter}[${label}]`);
+      scaledLabels.push(label);
+    });
+
+    let accumulatedDuration = videos[0].durationSeconds;
+    let currentLabel = scaledLabels[0];
+
+    for (let i = 1; i < videos.length; i++) {
+      const transition = videos[i].transition ?? "fade";
+      const offset = Math.max(0, accumulatedDuration - TRANSITION_DURATION);
+      const outLabel = i === videos.length - 1 ? "v_out" : `vx${i}`;
+      filterParts.push(
+        `[${currentLabel}][${scaledLabels[i]}]xfade=transition=${transition}:duration=${TRANSITION_DURATION}:offset=${offset.toFixed(2)}[${outLabel}]`
+      );
+      currentLabel = outLabel;
+      accumulatedDuration = offset + videos[i].durationSeconds;
+    }
+    videoLabel = currentLabel;
+  } else {
+    const videoIndex = 0;
+    filterParts.push(`[${videoIndex}:v]${scaleFilter},${fpsFilter}[v_base]`);
+    videoLabel = "v_base";
+  }
+
+  if (plan.subtitlePath && videos.length === 1) {
+    filterParts.push(`[${videoLabel}]subtitles='${plan.subtitlePath}'[v_sub]`);
     videoLabel = "v_sub";
   }
 
   const audioLabels: string[] = [];
   if (audioInputs.length > 0) {
     audioInputs.forEach((audio, i) => {
-
-      const actualIndex = (plan.videoInputs.length === 1 ? 1 : 0) + i;
+      const actualIndex = (!useTransitions && videos.length > 1 ? 1 : videos.length) + i;
       const label = `a${i}`;
       filterParts.push(`[${actualIndex}:a]volume=${audio.volume}[${label}]`);
       audioLabels.push(`[${label}]`);

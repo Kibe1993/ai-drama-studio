@@ -57,9 +57,9 @@ async function main(): Promise<void> {
   const llmLockDurationMs = ollamaPrimary ? 900_000 : 30_000;
   for (const name of QUEUE_NAMES) {
     const concurrency =
-      name === "studio-render" || name === "studio-video" ? 1 :
-      name === "studio-llm" && ollamaPrimary ? 1 : 2;
-    const lockDuration = name === "studio-llm" ? llmLockDurationMs : 30_000;
+      name === "production" ? 1 :
+      name === "generation" && ollamaPrimary ? 1 : 2;
+    const lockDuration = name === "generation" ? llmLockDurationMs : 30_000;
     workers.push(new Worker(name, handler, { connection, concurrency, lockDuration }));
     log.info("worker", "listening", { queue: name, concurrency, lockDuration });
   }

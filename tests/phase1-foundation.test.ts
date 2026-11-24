@@ -146,28 +146,28 @@ describe("failure classification", () => {
 });
 
 describe("job type queue routing", () => {
-  it("routes image jobs to studio-image", () => {
-    expect(queueNameFor("image.character_reference")).toBe("studio-image");
-    expect(queueNameFor("image.shot")).toBe("studio-image");
+  it("routes image jobs to maintenance", () => {
+    expect(queueNameFor("image.character_reference")).toBe("maintenance");
+    expect(queueNameFor("image.shot")).toBe("maintenance");
   });
 
-  it("routes video.shot to studio-video", () => {
-    expect(queueNameFor("video.shot")).toBe("studio-video");
-    expect(queueNameFor("video.scene")).toBe("studio-video");
+  it("routes video jobs to maintenance", () => {
+    expect(queueNameFor("video.shot")).toBe("maintenance");
+    expect(queueNameFor("video.scene")).toBe("maintenance");
   });
 
-  it("routes audio jobs to studio-audio", () => {
-    expect(queueNameFor("audio.dialogue")).toBe("studio-audio");
-    expect(queueNameFor("audio.music")).toBe("studio-audio");
+  it("routes audio jobs to production", () => {
+    expect(queueNameFor("audio.dialogue")).toBe("production");
+    expect(queueNameFor("audio.music")).toBe("production");
   });
 
-  it("routes render.final to studio-render", () => {
-    expect(queueNameFor("render.final")).toBe("studio-render");
+  it("routes render.final to production", () => {
+    expect(queueNameFor("render.final")).toBe("production");
   });
 
-  it("routes media.validate and assembly.generate to studio-llm", () => {
-    expect(queueNameFor("media.validate")).toBe("studio-llm");
-    expect(queueNameFor("assembly.generate")).toBe("studio-llm");
+  it("routes media.validate to maintenance and assembly.generate to generation", () => {
+    expect(queueNameFor("media.validate")).toBe("maintenance");
+    expect(queueNameFor("assembly.generate")).toBe("generation");
   });
 
   it("includes all 21 job types", () => {

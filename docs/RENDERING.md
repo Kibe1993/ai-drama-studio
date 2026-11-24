@@ -4,7 +4,7 @@ Status: Phase 0 design. FFmpeg is not installed and no sample render has been ru
 
 ## Where it runs
 
-The rendering engine runs in the `studio-render` worker. A route handler enqueues `render.final` only after the pipeline confirms every mandatory scene video exists. The API request does not spawn FFmpeg.
+The rendering engine runs in the `production` queue worker. A route handler enqueues `render.final` only after the pipeline confirms every mandatory scene video exists. The API request does not spawn FFmpeg.
 
 ## Inputs
 

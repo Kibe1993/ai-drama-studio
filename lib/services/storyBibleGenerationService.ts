@@ -100,7 +100,7 @@ export function createStoryBibleGenerationService(deps = {
         await queue.enqueue(job);
         job.bullJobId = job.id;
         await deps.jobs.save(job);
-        log.info("story-bible", "job enqueued", { projectId, jobId: job.id, queue: "studio-llm" });
+        log.info("story-bible", "job enqueued", { projectId, jobId: job.id, queue: "generation" });
       } catch {
         await deps.bibles.failGeneration(actor.userId, projectId, job.id, "The job queue is unavailable. Your existing draft was preserved.");
         job.status = "failed";

@@ -1,6 +1,6 @@
 import { Queue } from 'bullmq';
 
-const queues = ['studio-llm', 'studio-render', 'studio-video', 'studio-audio', 'studio-canon', 'studio-maintenance'];
+const queues = ['generation', 'production', 'maintenance'];
 
 async function main() {
   for (const queueName of queues) {

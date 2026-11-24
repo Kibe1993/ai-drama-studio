@@ -13,17 +13,13 @@ export function createRedisConnection() {
 }
 
 export const QUEUE_NAMES = [
-  "studio-llm",
-  "studio-image",
-  "studio-video",
-  "studio-audio",
-  "studio-render",
+  "generation",
+  "production",
+  "maintenance",
 ] as const;
 
 export function queueNameFor(jobType: string): (typeof QUEUE_NAMES)[number] {
-  if (jobType === "render.final") return "studio-render";
-  if (jobType === "video.scene" || jobType === "video.shot") return "studio-video";
-  if (jobType.startsWith("audio.")) return "studio-audio";
-  if (jobType.startsWith("image.")) return "studio-image";
-  return "studio-llm";
+  if (jobType === "render.final" || jobType.startsWith("audio.")) return "production";
+  if (jobType.startsWith("image.") || jobType.startsWith("video.") || jobType === "media.validate") return "maintenance";
+  return "generation";
 }

@@ -12,13 +12,11 @@ The Next.js handler inserts the `GenerationJob`, enqueues a BullMQ job whose pay
 
 | Queue | Concurrency | Jobs |
 | --- | --- | --- |
-| `studio-llm` | Low, from config | Story, character extraction, scene breakdown |
-| `studio-image` | Provider rate cap | Character and scene images |
-| `studio-video` | 1 per GPU worker, or the hosted API cap | One scene clip each |
-| `studio-audio` | Provider cap | One dialogue line or narration segment each |
-| `studio-render` | 1 | FFmpeg assembly |
+| `generation` | Low, from config | Story, character extraction, scene breakdown, canon, assembly |
+| `production` | Provider cap / 1 for render | Audio TTS (dialogue, narration, sfx, music) and FFmpeg render |
+| `maintenance` | Provider rate cap | Image and video generation, media validation (currently mock) |
 
-Separate queues keep a render from waiting behind story calls, and keep video concurrency inside the GPU or API limit. Black Forest Labs documents a cap on active image tasks (24 in their image guide, lower for some models). The image queue must stay under the cap that is current when the adapter is written.
+Three queues keep render and audio work off the LLM path, and isolate mock image/video jobs. The `maintenance` queue holds image and video jobs which are mock-only until real providers are wired. Black Forest Labs documents a cap on active image tasks (24 in their image guide, lower for some models); when a real image provider is connected, `maintenance` concurrency must stay under that cap.
 
 ## Attempts
 

@@ -38,7 +38,7 @@ export class FFmpegRenderEngine {
     const ffprobeBin = this.ffprobePath ?? assertFfprobeConfigured();
     const inspector = new FFprobeMediaInspector(ffprobeBin);
 
-    const workDir = await mkdtemp(path.join(tmpdir(), "studio-render-"));
+    const workDir = await mkdtemp(path.join(tmpdir(), "render-"));
     const startedAt = Date.now();
 
     try {

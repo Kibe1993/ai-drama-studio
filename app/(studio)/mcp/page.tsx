@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Wrench, FileText, Plug, Copy, Check, AlertTriangle, Terminal } from "lucide-react";
+import { Wrench, FileText, Plug, Copy, Check, AlertTriangle, Terminal, Activity } from "lucide-react";
 import styles from "./mcp.module.css";
 
 interface McpStatus {
@@ -10,6 +10,17 @@ interface McpStatus {
   toolCount: number;
   resourceCount: number;
   authMode: string;
+}
+
+interface ActivityEntry {
+  id: string;
+  timestamp: string;
+  tool: string;
+  clerkUserId: string;
+  projectId: string | null;
+  detail: string;
+  result: "success" | "error";
+  assistantName: string | null;
 }
 
 const TOOLS = [
@@ -126,6 +137,8 @@ export default function McpPage() {
   const [status, setStatus] = useState<McpStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState<string | null>(null);
+  const [activities, setActivities] = useState<ActivityEntry[]>([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(true);
 
   useEffect(() => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -138,6 +151,16 @@ export default function McpPage() {
       authMode: token ? "Bearer token" : "Clerk session",
     });
     setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/mcp/activity?limit=30")
+      .then((res) => res.json())
+      .then((data) => {
+        setActivities(data.entries ?? []);
+        setActivitiesLoading(false);
+      })
+      .catch(() => setActivitiesLoading(false));
   }, []);
 
   const copy = useCallback((text: string, id: string) => {
@@ -277,6 +300,28 @@ export default function McpPage() {
             Set <code>MCP_ACTOR_USER_ID</code> to your Clerk user ID. The stdio server uses the
             same tools and service-layer routing as the HTTP server.
           </p>
+        </div>
+
+        <div className={styles.card}>
+          <div className={styles.cardTitle}>Recent Activity</div>
+          {activitiesLoading ? (
+            <p className={styles.activityLoading}>Loading activity…</p>
+          ) : activities.length === 0 ? (
+            <p className={styles.activityEmpty}>
+              No MCP activity yet. Activity is logged when external assistants call tools via the HTTP endpoint.
+            </p>
+          ) : (
+            <div className={styles.activityList}>
+              {activities.map((entry) => (
+                <div key={entry.id} className={styles.activityItem}>
+                  <span className={`${styles.activityResult} ${entry.result === "success" ? styles.activityResultSuccess : styles.activityResultError}`} />
+                  <span className={styles.activityTime}>{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                  <span className={styles.activityTool}>{entry.tool}</span>
+                  <span className={styles.activityDetail}>{entry.detail}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

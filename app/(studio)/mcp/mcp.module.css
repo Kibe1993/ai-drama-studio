@@ -213,3 +213,73 @@
   font-size: 0.85rem;
   line-height: 1.5;
 }
+.activityList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.activityItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: #12110f;
+  border: 1px solid #2e2a25;
+  border-radius: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.activityTime {
+  color: #6b6258;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.activityTool {
+  color: #c4a574;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.activityDetail {
+  color: #cfc6b8;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activityResult {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 0.3rem;
+}
+
+.activityResultSuccess {
+  background: #6bb36b;
+}
+
+.activityResultError {
+  background: #e7b2a8;
+}
+
+.activityEmpty {
+  color: #a39b8f;
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.activityLoading {
+  color: #a39b8f;
+  font-size: 0.85rem;
+}

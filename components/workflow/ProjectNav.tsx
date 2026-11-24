@@ -22,6 +22,7 @@ function buildGroups(projectId: string): NavGroup[] {
       items: [
         { href: `${base}/planning`, label: "Planning" },
         { href: `${base}/bible`, label: "Story Bible" },
+        { href: `${base}/review`, label: "Review" },
       ],
     },
     {

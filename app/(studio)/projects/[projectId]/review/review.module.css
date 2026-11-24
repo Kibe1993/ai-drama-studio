@@ -1,0 +1,40 @@
+.page { max-width: 56rem; margin: 0 auto; }
+.header { margin-top: 1.5rem; }
+.title { font-family: var(--font-display), serif; font-size: 1.5rem; color: #f3efe6; }
+.subtitle { font-size: 0.875rem; color: #a39b8f; margin-top: 0.25rem; }
+.list { display: grid; gap: 0.75rem; margin-top: 1.5rem; }
+.item { border: 1px solid #2a2620; border-radius: 0.5rem; padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; text-decoration: none; color: inherit; transition: border-color 0.15s; }
+.item:hover { border-color: #4a453d; }
+.itemLeft { display: flex; align-items: center; gap: 0.75rem; }
+.itemIcon { width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 600; flex-shrink: 0; }
+.iconStory { background: #3a3228; color: #c4a574; }
+.iconBible { background: #2d3a28; color: #7fb069; }
+.iconPlanning { background: #28323a; color: #6b9bc4; }
+.iconPlan { background: #3a2832; color: #c47fb0; }
+.iconEntity { background: #3a3228; color: #dfc18a; }
+.iconScene { background: #28323a; color: #8fb88f; }
+.iconEpisode { background: #3a2832; color: #e8a87c; }
+.iconMedia { background: #2d3a28; color: #a8c47f; }
+.itemText { display: flex; flex-direction: column; }
+.itemLabel { font-size: 0.9375rem; color: #f3efe6; font-weight: 500; }
+.itemDesc { font-size: 0.75rem; color: #a39b8f; margin-top: 0.125rem; }
+.itemStatus { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.25rem 0.5rem; border-radius: 0.25rem; }
+.statusAwaiting { background: #3a3228; color: #dfc18a; }
+.statusDraft { background: #2a2620; color: #a39b8f; }
+.statusPending { background: #3a3228; color: #e8a87c; }
+.statusNeedsReview { background: #3a2832; color: #e8a87c; }
+.statusSubmitted { background: #28323a; color: #6b9bc4; }
+.empty { text-align: center; padding: 4rem; color: #a39b8f; }
+.emptyTitle { font-size: 1.125rem; color: #f3efe6; margin-bottom: 0.5rem; }
+.error { color: #e7b2a8; margin-top: 1.5rem; }
+.loading { color: #a39b8f; margin-top: 1.5rem; }
+.activitySection { margin-top: 2.5rem; }
+.activityTitle { font-size: 0.875rem; font-weight: 600; color: #cfc6b8; margin-bottom: 0.75rem; }
+.activityList { display: grid; gap: 0.5rem; }
+.activityRow { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: #a39b8f; }
+.activityDot { width: 0.5rem; height: 0.5rem; border-radius: 50%; flex-shrink: 0; }
+.dotSuccess { background: #6b9b6b; }
+.dotError { background: #c47f6b; }
+.activityTime { color: #6b6358; }
+.activityTool { color: #c4a574; }
+.activityDetail { color: #a39b8f; }

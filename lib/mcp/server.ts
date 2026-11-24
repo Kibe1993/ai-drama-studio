@@ -89,7 +89,7 @@ export function createMcpServer(clerkUserId: string): McpServer {
   registerTimelineTools(server, clerkUserId);
   registerApprovalTools(server, actor, clerkUserId);
   registerContextTool(server, actor, clerkUserId);
-  registerActivityTools(server, clerkUserId);
+  registerActivityTools(server, actor, clerkUserId);
   registerPlanningTools(server, actor, clerkUserId);
   registerProductionDesignTools(server, actor, clerkUserId);
   registerVoiceTools(server, actor, clerkUserId);
@@ -1309,7 +1309,7 @@ function registerContextTool(server: McpServer, actor: RequestAuth, clerkUserId:
   );
 }
 
-function registerActivityTools(server: McpServer, clerkUserId: string): void {
+function registerActivityTools(server: McpServer, actor: RequestAuth, clerkUserId: string): void {
   server.tool(
     "activity.list",
     "List recent MCP activity for the current user — tool calls, approvals, and operations across all projects. Useful for tracking which assistant did what.",
@@ -1325,6 +1325,99 @@ function registerActivityTools(server: McpServer, clerkUserId: string): void {
           limit: args.limit,
           tool: args.tool,
         });
+      });
+    },
+  );
+
+  server.tool(
+    "review.listPending",
+    "List all pending items for a project — drafts awaiting approval, entities pending review, unapproved scenes, submitted planning docs, and episodes needing review. Use this to see what the creator needs to act on.",
+    {
+      projectId: z.string().describe("The project ID"),
+    },
+    async (args) => {
+      logTool("review.listPending", clerkUserId, `projectId=${args.projectId}`);
+      return run(async () => {
+        const items: Array<{
+          type: string;
+          label: string;
+          description: string;
+          status: string;
+        }> = [];
+
+        const [workflow, planning, planResult, characters, environments, objects, sceneResult, storyDraft, bible] = await Promise.allSettled([
+          workflowService.get(actor, args.projectId),
+          planningService.get(actor, args.projectId),
+          seasonPlanService.get(actor, args.projectId),
+          canonicalEntityRepository.listByProject(clerkUserId, args.projectId, "character"),
+          canonicalEntityRepository.listByProject(clerkUserId, args.projectId, "location"),
+          canonicalEntityRepository.listByProject(clerkUserId, args.projectId, "object"),
+          productionSceneService.list(actor, args.projectId),
+          storyRepository.findProjectDraft(clerkUserId, args.projectId),
+          storyBibleRepository.findOwned(clerkUserId, args.projectId),
+        ]);
+
+        if (workflow.status === "fulfilled") {
+          const wf = workflow.value;
+          if (wf.story.awaitingApproval) {
+            items.push({ type: "story", label: "Story Draft", description: "Story draft is awaiting approval", status: "awaiting_approval" });
+          }
+          if (wf.bible.draftReady && !wf.bible.approved) {
+            items.push({ type: "bible", label: "Story Bible", description: `Story Bible draft v${wf.bible.draftRevision} ready for approval`, status: "draft_ready" });
+          }
+          if (wf.plan.awaitingApproval) {
+            items.push({ type: "plan", label: "Season Plan", description: "Season plan is awaiting approval", status: "awaiting_approval" });
+          }
+          if (wf.plan.needsReview) {
+            items.push({ type: "plan", label: "Season Plan Review", description: "Story Bible changed since plan was approved", status: "needs_review" });
+          }
+          if (wf.episodes.needingReview > 0) {
+            items.push({ type: "episode", label: `${wf.episodes.needingReview} Episodes Need Review`, description: "Written from older approved version", status: "needs_review" });
+          }
+        }
+
+        if (planning.status === "fulfilled" && planning.value?.status === "submitted") {
+          items.push({ type: "planning", label: "Planning Document", description: `v${planning.value.version} submitted for review`, status: "submitted" });
+        }
+
+        if (planResult.status === "fulfilled" && planResult.value?.plan?.status === "awaiting_approval") {
+          if (!items.some((i) => i.type === "plan")) {
+            items.push({ type: "plan", label: "Season Plan", description: `v${planResult.value.plan.version} awaiting approval`, status: "awaiting_approval" });
+          }
+        }
+
+        const allEntities = [
+          ...(characters.status === "fulfilled" ? characters.value : []),
+          ...(environments.status === "fulfilled" ? environments.value : []),
+          ...(objects.status === "fulfilled" ? objects.value : []),
+        ];
+        for (const entity of allEntities) {
+          if (entity.status === "pending_review") {
+            items.push({ type: "entity", label: entity.name, description: `${entity.entityType} pending review`, status: "pending_review" });
+          }
+        }
+
+        if (sceneResult.status === "fulfilled") {
+          for (const scene of sceneResult.value.scenes) {
+            if (!scene.approvedAt) {
+              items.push({ type: "scene", label: `Scene ${scene.sceneNumber}: ${scene.title}`, description: "Not yet approved", status: "draft" });
+            }
+          }
+        }
+
+        if (storyDraft.status === "fulfilled" && storyDraft.value?.status === "awaiting_approval") {
+          if (!items.some((i) => i.type === "story")) {
+            items.push({ type: "story", label: "Story Draft", description: "Story draft is awaiting approval", status: "awaiting_approval" });
+          }
+        }
+
+        if (bible.status === "fulfilled" && bible.value && !bible.value.approvedVersion && bible.value.draftRevision > 0) {
+          if (!items.some((i) => i.type === "bible")) {
+            items.push({ type: "bible", label: "Story Bible", description: `draft v${bible.value.draftRevision} ready for approval`, status: "draft_ready" });
+          }
+        }
+
+        return { items, total: items.length };
       });
     },
   );

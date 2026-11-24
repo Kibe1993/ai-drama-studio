@@ -1,6 +1,7 @@
 "use client";
 
 import { ProjectHeader } from "@/components/workflow/ProjectHeader";
+import { AssistantHandoffPanel } from "@/components/workflow/AssistantHandoffPanel";
 import { useWorkflowGuard } from "@/hooks/useWorkflowGuard";
 import { WORKFLOW_STAGE_LABELS, type WorkflowStage } from "@/lib/domain/workflow";
 
@@ -38,6 +39,7 @@ export function StageLayout({
           <p className="mt-2 text-sm text-[#dfc18a]">{workflow.blockedReason}</p>
         ) : null}
         <div className="mt-6">{children}</div>
+        <AssistantHandoffPanel projectId={projectId} stage={stage} />
       </div>
     </div>
   );

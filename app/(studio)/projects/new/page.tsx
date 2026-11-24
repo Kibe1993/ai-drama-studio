@@ -13,8 +13,9 @@ export default function NewProjectPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <h1 className="font-display text-5xl">New drama</h1>
-      <p className="mt-3 mb-8 text-[#a39b8f]">
+      <p className="text-sm tracking-[0.16em] text-[#c4a574] uppercase">Create</p>
+      <h1 className="font-display mt-2 text-5xl">New drama</h1>
+      <p className="mt-3 mb-8 text-[#a39b8f] leading-relaxed">
         A short brief is enough. The story is not generated until a later stage.
       </p>
       <ProjectForm

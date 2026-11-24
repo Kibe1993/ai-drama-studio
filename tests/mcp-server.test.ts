@@ -2,16 +2,37 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
-vi.mock("@/lib/repositories/projectRepository", () => ({
-  projectRepository: {
+vi.mock("@/lib/services/projectService", () => ({
+  projectService: {
     list: vi.fn(),
-    findOwned: vi.fn(),
-    insert: vi.fn(),
+    get: vi.fn(),
+    create: vi.fn(),
     update: vi.fn(),
     remove: vi.fn(),
-    counts: vi.fn(),
-    findByIdempotency: vi.fn(),
+    summary: vi.fn(),
+    duplicate: vi.fn(),
+    archive: vi.fn(),
   },
+}));
+
+vi.mock("@/lib/services/storyBibleService", () => ({
+  storyBibleService: {
+    save: vi.fn(),
+    get: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/services/pipelineService", () => ({
+  createPipelineService: vi.fn(),
+}));
+
+vi.mock("@/lib/pipeline/live", () => ({
+  livePipelineDeps: vi.fn(),
+}));
+
+const mockTriggerRender = vi.fn();
+vi.mock("@/lib/services/renderService", () => ({
+  createRenderService: vi.fn(() => ({ triggerRender: mockTriggerRender })),
 }));
 
 vi.mock("@/lib/repositories/storyRepository", () => ({
@@ -37,6 +58,7 @@ vi.mock("@/lib/repositories/episodeRepository", () => ({
     listOwned: vi.fn(),
     findOwned: vi.fn(),
     updateStatus: vi.fn(),
+    update: vi.fn(),
   },
 }));
 
@@ -96,17 +118,23 @@ vi.mock("@/lib/canon/store", () => ({
   canonStore: {
     getLatestSequence: vi.fn(),
     append: vi.fn(),
+    latestState: vi.fn(),
   },
 }));
 
-import { projectRepository } from "@/lib/repositories/projectRepository";
+vi.mock("@/lib/canon/bridge", () => ({
+  derivedToCanonState: vi.fn(),
+}));
+
+import { projectService } from "@/lib/services/projectService";
+import { storyBibleService } from "@/lib/services/storyBibleService";
+import { createRenderService } from "@/lib/services/renderService";
 import { storyBibleRepository } from "@/lib/repositories/storyBibleRepository";
 import { storyRepository } from "@/lib/repositories/storyRepository";
 import { narrativeCanonRepository } from "@/lib/repositories/narrativeCanonRepository";
 import { canonicalEntityRepository } from "@/lib/repositories/canonicalEntityRepository";
 import { mediaAssetRepository } from "@/lib/repositories/mediaAssetRepository";
 import { renderJobRepository } from "@/lib/repositories/renderJobRepository";
-import { timelineRepository } from "@/lib/repositories/timelineRepository";
 import { createMcpServer } from "@/lib/mcp/server";
 
 const ACTOR = "user_mcp_test_001";
@@ -133,17 +161,17 @@ function parseResult(result: { content: Array<{ type: string; text: string }> })
 describe("MCP server: project tools", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("project.list returns projects from the repository", async () => {
+  it("project.list returns projects from the service", async () => {
     const mockProjects = [
-      { id: "p1", title: "Project A", status: "planning" },
+      { id: "p1", title: "Project A", status: "draft" },
       { id: "p2", title: "Project B", status: "completed" },
     ];
-    vi.mocked(projectRepository.list).mockResolvedValue(mockProjects as never);
+    vi.mocked(projectService.list).mockResolvedValue({ projects: mockProjects, nextCursor: null } as never);
 
     const { client, server } = await connectClient();
     try {
       const result = await client.callTool({ name: "project.list", arguments: { limit: 10 } });
-      expect(projectRepository.list).toHaveBeenCalledWith(ACTOR, null, 10, undefined);
+      expect(projectService.list).toHaveBeenCalled();
       expect(parseResult(result as never)).toEqual(mockProjects);
     } finally {
       await server.close();
@@ -151,13 +179,13 @@ describe("MCP server: project tools", () => {
   });
 
   it("project.get returns a single project", async () => {
-    const mockProject = { id: "p1", title: "Test", status: "planning" };
-    vi.mocked(projectRepository.findOwned).mockResolvedValue(mockProject as never);
+    const mockProject = { id: "p1", title: "Test", status: "draft" };
+    vi.mocked(projectService.get).mockResolvedValue(mockProject as never);
 
     const { client, server } = await connectClient();
     try {
       const result = await client.callTool({ name: "project.get", arguments: { projectId: "p1" } });
-      expect(projectRepository.findOwned).toHaveBeenCalledWith(ACTOR, "p1");
+      expect(projectService.get).toHaveBeenCalledWith(expect.objectContaining({ userId: ACTOR }), "p1");
       expect(parseResult(result as never)).toEqual(mockProject);
     } finally {
       await server.close();
@@ -165,7 +193,7 @@ describe("MCP server: project tools", () => {
   });
 
   it("project.get returns error for missing project", async () => {
-    vi.mocked(projectRepository.findOwned).mockResolvedValue(null);
+    vi.mocked(projectService.get).mockRejectedValue(new Error("Project not found"));
 
     const { client, server } = await connectClient();
     try {
@@ -177,9 +205,9 @@ describe("MCP server: project tools", () => {
     }
   });
 
-  it("project.create creates a project with the actor user", async () => {
-    const mockProject = { id: "p1", title: "New", status: "planning" };
-    vi.mocked(projectRepository.insert).mockResolvedValue(mockProject as never);
+  it("project.create creates a project via the service", async () => {
+    const mockProject = { id: "p1", title: "New", status: "draft" };
+    vi.mocked(projectService.create).mockResolvedValue(mockProject as never);
 
     const { client, server } = await connectClient();
     try {
@@ -187,8 +215,10 @@ describe("MCP server: project tools", () => {
         name: "project.create",
         arguments: { title: "New", originalStoryIdea: "A test story" },
       });
-      expect(projectRepository.insert).toHaveBeenCalledWith(
-        expect.objectContaining({ clerkUserId: ACTOR, title: "New", originalStoryIdea: "A test story" }),
+      expect(projectService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: ACTOR }),
+        expect.objectContaining({ title: "New", originalStoryIdea: "A test story" }),
+        null,
       );
       expect(parseResult(result as never)).toEqual(mockProject);
     } finally {
@@ -196,14 +226,36 @@ describe("MCP server: project tools", () => {
     }
   });
 
-  it("project.delete removes a project", async () => {
-    vi.mocked(projectRepository.remove).mockResolvedValue(true);
+  it("project.delete removes a project with confirmation", async () => {
+    vi.mocked(projectService.get).mockResolvedValue({ id: "p1", title: "My Project", status: "draft" } as never);
+    vi.mocked(projectService.remove).mockResolvedValue(true as never);
 
     const { client, server } = await connectClient();
     try {
-      const result = await client.callTool({ name: "project.delete", arguments: { projectId: "p1" } });
-      expect(projectRepository.remove).toHaveBeenCalledWith(ACTOR, "p1");
-      expect(parseResult(result as never)).toEqual({ deleted: true });
+      const result = await client.callTool({
+        name: "project.delete",
+        arguments: { projectId: "p1", confirmProjectName: "My Project" },
+      });
+      expect(projectService.remove).toHaveBeenCalledWith(expect.objectContaining({ userId: ACTOR }), "p1");
+      const parsed = parseResult(result as never);
+      expect(parsed).toEqual(true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("project.delete fails without matching confirmation", async () => {
+    vi.mocked(projectService.get).mockResolvedValue({ id: "p1", title: "My Project", status: "draft" } as never);
+
+    const { client, server } = await connectClient();
+    try {
+      const result = await client.callTool({
+        name: "project.delete",
+        arguments: { projectId: "p1", confirmProjectName: "Wrong Name" },
+      });
+      const parsed = parseResult(result as never) as { error: string };
+      expect(parsed.error).toContain("Confirmation failed");
+      expect(projectService.remove).not.toHaveBeenCalled();
     } finally {
       await server.close();
     }
@@ -302,7 +354,7 @@ describe("MCP server: canon tools", () => {
     }
   });
 
-  it("canon.validate returns entity counts", async () => {
+  it("canon.summary returns entity counts", async () => {
     vi.mocked(narrativeCanonRepository.latest).mockResolvedValue({ version: 1, knowledge: [] } as never);
     vi.mocked(canonicalEntityRepository.listByProject).mockResolvedValue([
       { id: "c1", entityType: "character", name: "Ada" },
@@ -313,11 +365,11 @@ describe("MCP server: canon tools", () => {
     const { client, server } = await connectClient();
     try {
       const result = await client.callTool({
-        name: "canon.validate",
+        name: "canon.summary",
         arguments: { projectId: "p1" },
       });
-      const parsed = parseResult(result as never) as { valid: boolean; entityCount: { characters: number; locations: number } };
-      expect(parsed.valid).toBe(true);
+      const parsed = parseResult(result as never) as { canonVersion: number; entityCount: { characters: number; locations: number } };
+      expect(parsed.canonVersion).toBe(1);
       expect(parsed.entityCount.characters).toBe(2);
       expect(parsed.entityCount.locations).toBe(1);
     } finally {
@@ -377,9 +429,9 @@ describe("MCP server: render tools", () => {
     }
   });
 
-  it("render.start creates a render job", async () => {
-    vi.mocked(timelineRepository.findOwned).mockResolvedValue({ id: "t1", projectId: "p1" } as never);
-    vi.mocked(renderJobRepository.create).mockResolvedValue({ id: "r1", status: "queued" } as never);
+  it("render.start creates a render job via the service", async () => {
+    vi.mocked(createRenderService).mockReturnValue({ triggerRender: mockTriggerRender } as never);
+    mockTriggerRender.mockResolvedValue({ id: "r1", status: "queued" } as never);
 
     const { client, server } = await connectClient();
     try {
@@ -387,8 +439,12 @@ describe("MCP server: render tools", () => {
         name: "render.start",
         arguments: { episodeId: "e1", timelineId: "t1", presetId: "standard" },
       });
-      expect(timelineRepository.findOwned).toHaveBeenCalledWith(ACTOR, "t1");
-      expect(renderJobRepository.create).toHaveBeenCalled();
+      expect(createRenderService).toHaveBeenCalled();
+      expect(mockTriggerRender).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: ACTOR }),
+        "t1",
+        "standard",
+      );
       const parsed = parseResult(result as never) as { id: string };
       expect(parsed.id).toBe("r1");
     } finally {
@@ -414,7 +470,7 @@ describe("MCP server: tool listing", () => {
       expect(names).toContain("document.export");
       expect(names).toContain("canon.query");
       expect(names).toContain("canon.add");
-      expect(names).toContain("canon.validate");
+      expect(names).toContain("canon.summary");
       expect(names).toContain("media.list");
       expect(names).toContain("media.upload");
       expect(names).toContain("media.generate_audio");

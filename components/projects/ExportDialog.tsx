@@ -10,11 +10,15 @@ export function ExportDialog({
   onClose,
   data,
   title = "Export Content",
+  filename,
+  markdownContent,
 }: {
   open: boolean;
   onClose: () => void;
   data: unknown;
   title?: string;
+  filename?: string;
+  markdownContent?: string;
 }) {
   const [format, setFormat] = useState<"json" | "markdown">("json");
 
@@ -28,7 +32,7 @@ export function ExportDialog({
       mimeType = "application/json";
       ext = "json";
     } else {
-      content = toMarkdown(data);
+      content = markdownContent ?? toMarkdown(data);
       mimeType = "text/markdown";
       ext = "md";
     }
@@ -37,10 +41,10 @@ export function ExportDialog({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `export.${ext}`;
+    a.download = filename ?? `export.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [data, format]);
+  }, [data, format, filename, markdownContent]);
 
   if (!open) return null;
 
@@ -71,7 +75,7 @@ export function ExportDialog({
         </div>
 
         <pre className="studio-field mt-4 max-h-64 overflow-auto whitespace-pre-wrap text-xs text-[#cfc6b8]">
-          {format === "json" ? JSON.stringify(data, null, 2) : toMarkdown(data)}
+          {format === "json" ? JSON.stringify(data, null, 2) : (markdownContent ?? toMarkdown(data))}
         </pre>
 
         <div className="mt-4 flex justify-end gap-2">

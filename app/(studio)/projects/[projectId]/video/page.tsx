@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import { ProjectHeader } from "@/components/workflow/ProjectHeader";
+import { StageLayout } from "@/components/workflow/StageLayout";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/hooks/api";
 import { useApproveStory, useProduction, useProductionAction } from "@/hooks/useProduction";
@@ -94,10 +94,8 @@ export default function VideoPage() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <ProjectHeader projectId={projectId} />
-      <div className="mt-8 grid gap-6">
-        <h1 className="font-display text-3xl">Video Production</h1>
+    <StageLayout projectId={projectId} stage="video">
+      <div className="grid gap-6">
         {error ? <p className="text-red-400">{error}</p> : null}
         {production.isLoading ? <p className="text-[#a39b8f]">Loading production state...</p> : null}
 
@@ -283,6 +281,6 @@ export default function VideoPage() {
           <p className="text-sm text-[#e7b2a8]">{storyJobFailed(jobs)}</p>
         ) : null}
       </div>
-    </div>
+    </StageLayout>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ProjectHeader } from "@/components/workflow/ProjectHeader";
+import { StageLayout } from "@/components/workflow/StageLayout";
 import { Button } from "@/components/ui/button";
 import { api } from "@/hooks/api";
 import styles from "./canon.module.css";
@@ -27,6 +27,7 @@ export default function CanonPage() {
   const [error, setError] = useState<string | null>(null);
   const [category, setCategory] = useState<Category>("all");
   const [search, setSearch] = useState("");
+  const [rebuilding, setRebuilding] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,13 +44,24 @@ export default function CanonPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  async function rebuild() {
+    setRebuilding(true);
+    setError(null);
+    try {
+      await api(`/api/projects/${projectId}/continuity/rebuild`, { method: "POST", body: JSON.stringify({ force: true }) });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Rebuild failed");
+    } finally {
+      setRebuilding(false);
+    }
+  }
+
   const facts = data?.canon?.facts ?? [];
   const filtered = facts.filter((f) => (category === "all" || f.type === category) && f.statement.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className={styles.page}>
-      <ProjectHeader projectId={projectId} />
-      <h2 className="font-display text-3xl mt-8">Canon & Continuity</h2>
+    <StageLayout projectId={projectId} stage="canon">
       {data?.canon ? <p className="text-sm text-[#a39b8f] mt-2">Canon version {data.canon.version}</p> : null}
 
       {error ? <p className={styles.error}>{error}</p> : null}
@@ -86,7 +98,12 @@ export default function CanonPage() {
 
       {data && data.contradictions.length > 0 ? (
         <div className={styles.contradictions}>
-          <h3 className="font-display text-lg text-[#dfc18a]">Contradictions ({data.contradictions.length})</h3>
+          <div className={styles.contradictionsHeader}>
+            <h3 className="font-display text-lg text-[#dfc18a]">Contradictions ({data.contradictions.length})</h3>
+            <Button variant="quiet" size="sm" disabled={rebuilding} onClick={rebuild}>
+              {rebuilding ? "Rebuilding…" : "Rebuild from Approved Episodes"}
+            </Button>
+          </div>
           {data.contradictions.map((c) => (
             <div key={c.id} className={styles.contradiction}>
               <p className="text-sm text-[#f0c2b8]">⚠ {c.factA}</p>
@@ -96,6 +113,6 @@ export default function CanonPage() {
           ))}
         </div>
       ) : null}
-    </div>
+    </StageLayout>
   );
 }

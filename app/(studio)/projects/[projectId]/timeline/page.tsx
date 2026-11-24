@@ -1,15 +1,14 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { ProjectHeader } from "@/components/workflow/ProjectHeader";
+import { StageLayout } from "@/components/workflow/StageLayout";
 import { TimelineEditor } from "@/components/timeline/TimelineEditor";
 
 export default function TimelinePage() {
   const params = useParams<{ projectId: string }>();
   return (
-    <div>
-      <ProjectHeader projectId={params.projectId} />
+    <StageLayout projectId={params.projectId} stage="timeline">
       <TimelineEditor projectId={params.projectId} />
-    </div>
+    </StageLayout>
   );
 }

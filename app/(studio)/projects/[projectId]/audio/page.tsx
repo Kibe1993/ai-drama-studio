@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { ProjectHeader } from "@/components/workflow/ProjectHeader";
+import { StageLayout } from "@/components/workflow/StageLayout";
 import { Button } from "@/components/ui/button";
 import { api } from "@/hooks/api";
 import { useProduction } from "@/hooks/useProduction";
@@ -214,10 +214,8 @@ export default function AudioPage() {
   const currentStep = !canGenerate ? 1 : segments.length === 0 ? 1 : hasOpenJobs ? 2 : allCompleted ? 3 : 2;
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <ProjectHeader projectId={projectId} />
-      <div className="mt-8 grid gap-6">
-        <h1 className="font-display text-3xl">Audio Production</h1>
+    <StageLayout projectId={projectId} stage="audio">
+      <div className="grid gap-6">
         {error ? <p className="text-red-400">{error}</p> : null}
 
         <div className="flex flex-wrap items-center gap-6 rounded border border-[#39342d] px-6 py-4">
@@ -363,6 +361,6 @@ export default function AudioPage() {
           )}
         </section>
       </div>
-    </div>
+    </StageLayout>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ProjectHeader } from "@/components/workflow/ProjectHeader";
+import { StageLayout } from "@/components/workflow/StageLayout";
 import { Button } from "@/components/ui/button";
 import { api } from "@/hooks/api";
 import styles from "./scenes.module.css";
@@ -42,9 +42,7 @@ export default function ScenesPage() {
   useEffect(() => { void load(); }, [load]);
 
   return (
-    <div className={styles.page}>
-      <ProjectHeader projectId={projectId} />
-      <h2 className="font-display text-3xl mt-8">Scene Breakdown</h2>
+    <StageLayout projectId={projectId} stage="scenes">
 
       {error ? <p className={styles.error}>{error}</p> : null}
       {loading ? <p className={styles.loading}>Loading…</p> : null}
@@ -94,6 +92,6 @@ export default function ScenesPage() {
           </div>
         </div>
       ) : null}
-    </div>
+    </StageLayout>
   );
 }

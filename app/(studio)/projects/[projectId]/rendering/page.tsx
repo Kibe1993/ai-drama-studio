@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useParams } from "next/navigation";
-import { ProjectHeader } from "@/components/workflow/ProjectHeader";
+import { StageLayout } from "@/components/workflow/StageLayout";
 import { Button } from "@/components/ui/button";
 import { api } from "@/hooks/api";
 
@@ -85,10 +85,8 @@ export default function RenderingPage() {
   }, [projectId, loadStatus]);
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <ProjectHeader projectId={projectId} />
-      <div className="mt-8 grid gap-6">
-        <h1 className="font-display text-3xl">Rendering</h1>
+    <StageLayout projectId={projectId} stage="rendering">
+      <div className="grid gap-6">
         {error ? <p className="text-red-400">{error}</p> : null}
 
         <div className="grid gap-3">
@@ -181,6 +179,6 @@ export default function RenderingPage() {
           </div>
         ) : null}
       </div>
-    </div>
+    </StageLayout>
   );
 }

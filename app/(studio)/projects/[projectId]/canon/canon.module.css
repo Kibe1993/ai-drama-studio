@@ -8,6 +8,7 @@
 .factMeta { font-size: 0.75rem; color: #a39b8f; margin-top: 0.25rem; }
 .factSource { color: #c4a574; }
 .contradictions { border: 1px solid #6b3a32; border-radius: 0.5rem; padding: 1rem; margin-top: 1.5rem; }
+.contradictionsHeader { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .contradiction { border-top: 1px solid #3a342c; padding-top: 0.75rem; margin-top: 0.75rem; }
 .empty { text-align: center; padding: 3rem; color: #a39b8f; }
 .error { color: #e7b2a8; margin-top: 1rem; }

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { WorkflowStepper } from "@/components/workflow/WorkflowStepper";
+import { ProjectNav } from "@/components/workflow/ProjectNav";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/hooks/api";
 import {
@@ -82,6 +83,8 @@ export function ProjectHeader({ projectId }: { projectId: string }) {
           activeStage={workflow.data.stage}
         />
       ) : null}
+
+      <ProjectNav projectId={project.id} />
 
       {confirmDelete ? (
         <div className="mt-6 flex flex-wrap items-center gap-3 border border-[#6b3a32] px-4 py-3">

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ProjectHeader } from "@/components/workflow/ProjectHeader";
+import { StageLayout } from "@/components/workflow/StageLayout";
 import { Button } from "@/components/ui/button";
 import { api } from "@/hooks/api";
 import styles from "./planning.module.css";
@@ -28,6 +28,8 @@ export default function PlanningPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [newTheme, setNewTheme] = useState("");
+  const [versions, setVersions] = useState<NonNullable<Planning>[]>([]);
+  const [showVersions, setShowVersions] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,6 +45,17 @@ export default function PlanningPage() {
   }, [projectId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const loadVersions = useCallback(async () => {
+    try {
+      const data = await api<{ versions: NonNullable<Planning>[] }>(`/api/projects/${projectId}/planning/versions`);
+      setVersions(data.versions);
+    } catch {
+      // ignore
+    }
+  }, [projectId]);
+
+  useEffect(() => { void loadVersions(); }, [loadVersions]);
 
   function update(field: string, value: unknown) {
     setPlanning((prev) => prev ? { ...prev, [field]: value } : prev);
@@ -97,12 +110,10 @@ export default function PlanningPage() {
     }
   }
 
-  if (loading) return <div className={styles.page}><ProjectHeader projectId={projectId} /><p className={styles.loading}>Loading…</p></div>;
+  if (loading) return <StageLayout projectId={projectId} stage="planning"><p className={styles.loading}>Loading…</p></StageLayout>;
 
   return (
-    <div className={styles.page}>
-      <ProjectHeader projectId={projectId} />
-      <h2 className="font-display text-3xl mt-8">Creative Planning</h2>
+    <StageLayout projectId={projectId} stage="planning">
       {planning ? (
         <p className={styles.version}>Version {planning.version} · <span className={`${styles.status} ${planning.status === "approved" ? styles.statusApproved : planning.status === "submitted" ? styles.statusSubmitted : planning.status === "rejected" ? styles.statusRejected : styles.statusDraft}`}>{planning.status}</span></p>
       ) : null}
@@ -204,6 +215,25 @@ export default function PlanningPage() {
       {!planning ? (
         <Button variant="primary" onClick={save}>Create Planning Document</Button>
       ) : null}
-    </div>
+
+      {versions.length > 1 ? (
+        <div className={styles.versionsSection}>
+          <button type="button" className={styles.versionsToggle} onClick={() => setShowVersions(!showVersions)}>
+            {showVersions ? "Hide" : "Show"} Version History ({versions.length})
+          </button>
+          {showVersions ? (
+            <div className={styles.versionList}>
+              {versions.map((v) => (
+                <div key={v.id} className={styles.versionItem}>
+                  <span className={styles.versionNum}>v{v.version}</span>
+                  <span className={`${styles.status} ${v.status === "approved" ? styles.statusApproved : v.status === "submitted" ? styles.statusSubmitted : v.status === "rejected" ? styles.statusRejected : styles.statusDraft}`}>{v.status}</span>
+                  {v.id === planning?.id ? <span className={styles.currentTag}>current</span> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </StageLayout>
   );
 }

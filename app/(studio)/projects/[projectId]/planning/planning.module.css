@@ -17,4 +17,10 @@
 .empty { text-align: center; padding: 3rem; color: #a39b8f; }
 .error { color: #e7b2a8; margin-top: 1rem; }
 .loading { color: #a39b8f; margin-top: 1rem; }
-.version { font-size: 0.75rem; color: #a39b8f; margin-top: 0.5rem; }
+.version { font-size: 0.75rem; color: #a39b8f; margin-top: 0.5rem; }.versionsSection { margin-top: 1.5rem; }
+.versionsToggle { background: none; border: 1px solid #3a342c; border-radius: 0.25rem; padding: 0.4rem 0.8rem; font-size: 0.8rem; color: #cfc6b8; cursor: pointer; }
+.versionsToggle:hover { background: #1a1815; }
+.versionList { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.versionItem { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.75rem; border: 1px solid #2a2620; border-radius: 0.25rem; }
+.versionNum { font-weight: 600; color: #f3efe6; }
+.currentTag { font-size: 0.7rem; color: #c4a574; text-transform: uppercase; letter-spacing: 0.05em; }

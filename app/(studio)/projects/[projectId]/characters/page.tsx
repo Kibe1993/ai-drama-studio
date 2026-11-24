@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ProjectHeader } from "@/components/workflow/ProjectHeader";
+import { StageLayout } from "@/components/workflow/StageLayout";
 import { Button } from "@/components/ui/button";
 import { api } from "@/hooks/api";
 import styles from "./characters.module.css";
@@ -58,9 +58,7 @@ export default function CharactersPage() {
   }
 
   return (
-    <div className={styles.page}>
-      <ProjectHeader projectId={projectId} />
-      <h2 className="font-display text-3xl mt-8">Characters & Locations</h2>
+    <StageLayout projectId={projectId} stage="characters">
 
       <div className={styles.tabs}>
         {(["characters", "locations", "objects"] as Tab[]).map((t) => (
@@ -123,6 +121,6 @@ export default function CharactersPage() {
           </div>
         </div>
       ) : null}
-    </div>
+    </StageLayout>
   );
 }

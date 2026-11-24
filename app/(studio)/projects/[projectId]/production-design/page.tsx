@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ProjectHeader } from "@/components/workflow/ProjectHeader";
+import { StageLayout } from "@/components/workflow/StageLayout";
 import { Button } from "@/components/ui/button";
 import { api } from "@/hooks/api";
 import styles from "./productionDesign.module.css";
@@ -114,9 +114,7 @@ export default function ProductionDesignPage() {
   }
 
   return (
-    <div className={styles.page}>
-      <ProjectHeader projectId={projectId} />
-      <h2 className="font-display text-3xl mt-8">Production Design</h2>
+    <StageLayout projectId={projectId} stage="production_design">
 
       <div className={styles.sceneSelect}>
         <select className={styles.select} value={selectedScene} onChange={(e) => setSelectedScene(e.target.value)}>
@@ -182,6 +180,6 @@ export default function ProductionDesignPage() {
           <Button variant="primary" size="sm" onClick={() => setDesign({ id: "", version: 1, status: "draft", shotList: [], locationDesign: { dressing: "", props: "", atmosphere: "" } })}>Create Production Design</Button>
         </div>
       ) : null}
-    </div>
+    </StageLayout>
   );
 }

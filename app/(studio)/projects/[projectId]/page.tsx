@@ -54,6 +54,15 @@ export default function ProjectPage() {
   return (
     <div className={styles.page}>
       <ProjectHeader projectId={projectId} />
+      {query.isLoading || workflow.isLoading ? (
+        <p className={styles.loading}>Loading…</p>
+      ) : null}
+      {query.isError ? (
+        <p className={styles.error}>Failed to load project.</p>
+      ) : null}
+      {workflow.isError ? (
+        <p className={styles.error}>Failed to load workflow state.</p>
+      ) : null}
       {project && stage ? (
         <div className={styles.progressCard}>
           <p className={styles.currentStage}>You are at</p>
@@ -85,6 +94,14 @@ export default function ProjectPage() {
               <p className={styles.statLabel}>Episodes</p>
               <p className={styles.statValue}>{workflow.data?.episodes.total ?? 0}</p>
               <p className={styles.statDetail}>{workflow.data?.episodes.open ?? 0} open · {workflow.data?.episodes.needingReview ?? 0} review</p>
+            </div>
+            <div className={styles.statCard}>
+              <p className={styles.statLabel}>Characters</p>
+              <p className={styles.statValue}>{stage === "characters" || stepState("characters") === "completed" ? "Ready" : "—"}</p>
+            </div>
+            <div className={styles.statCard}>
+              <p className={styles.statLabel}>Scenes</p>
+              <p className={styles.statValue}>{stepState("scenes") === "completed" ? "Approved" : stepState("scenes") === "current" ? "In progress" : "—"}</p>
             </div>
             <div className={styles.statCard}>
               <p className={styles.statLabel}>Production</p>

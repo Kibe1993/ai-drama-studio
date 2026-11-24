@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { StageLayout } from "@/components/workflow/StageLayout";
 import { EpisodeManager } from "@/components/projects/EpisodeManager";
 import { ContinuityLedgerView } from "@/components/workflow/ContinuityLedgerView";
@@ -11,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useProject } from "@/hooks/useProjects";
 import { useWorkflow } from "@/hooks/useWorkflow";
 import { useEpisodes } from "@/hooks/useEpisodes";
+import { api } from "@/hooks/api";
 
 export default function EpisodesPage() {
   const params = useParams<{ projectId: string }>();
@@ -19,8 +21,11 @@ export default function EpisodesPage() {
   const project = query.data?.project;
   const workflow = useWorkflow(projectId);
   const episodesQuery = useEpisodes(projectId);
+  const queryClient = useQueryClient();
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
 
   const episodesNeedingReview = workflow.data?.episodes.needingReview ?? 0;
   const planNeedsReview = workflow.data?.plan.needsReview ?? false;
@@ -44,21 +49,31 @@ export default function EpisodesPage() {
           };
         });
     }
-    for (const ep of episodes) {
-      const res = await fetch(`/api/projects/${projectId}/episodes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(ep),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message ?? `Failed to create episode "${ep.title}" (${res.status})`);
+    setImporting(true);
+    setImportError(null);
+    try {
+      for (const ep of episodes) {
+        await api(`/api/projects/${projectId}/episodes`, {
+          method: "POST",
+          body: JSON.stringify(ep),
+        });
       }
+      await queryClient.invalidateQueries({ queryKey: ["episodes", projectId] });
+      await queryClient.invalidateQueries({ queryKey: ["workflow", projectId] });
+      setShowImport(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Import failed";
+      setImportError(msg);
+      throw new Error(msg);
+    } finally {
+      setImporting(false);
     }
   }
 
   return (
     <StageLayout projectId={projectId} stage="episodes">
+      {query.isLoading ? <p className="text-[#a39b8f]">Loading…</p> : null}
+      {query.isError ? <p className="text-[#e7b2a8]">Failed to load project.</p> : null}
       {project ? (
         <>
           {workflow.data && !planApproved ? (
@@ -101,10 +116,12 @@ export default function EpisodesPage() {
           <ContinuityLedgerView projectId={project.id} />
           <ImportDialog
             open={showImport}
-            onClose={() => setShowImport(false)}
+            onClose={() => { setShowImport(false); setImportError(null); }}
             onImport={handleImport}
             title="Import Episodes"
           />
+          {importError ? <p className="mt-2 text-[#e7b2a8]">{importError}</p> : null}
+          {importing ? <p className="mt-2 text-[#a39b8f]">Importing…</p> : null}
           <ExportDialog
             open={showExport}
             onClose={() => setShowExport(false)}

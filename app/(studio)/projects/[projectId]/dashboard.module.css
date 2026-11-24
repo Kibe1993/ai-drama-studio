@@ -137,3 +137,12 @@
   font-size: 0.8rem;
   color: #dfc18a;
 }
+.loading {
+  margin-top: 2rem;
+  color: #a39b8f;
+}
+
+.error {
+  margin-top: 2rem;
+  color: #e7b2a8;
+}

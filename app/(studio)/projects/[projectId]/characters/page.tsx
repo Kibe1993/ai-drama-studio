@@ -27,6 +27,9 @@ export default function CharactersPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({ name: "", description: "" });
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -57,6 +60,29 @@ export default function CharactersPage() {
     }
   }
 
+  async function createObject() {
+    if (!createForm.name.trim()) return;
+    setCreating(true);
+    setError(null);
+    try {
+      await api(`/api/projects/${projectId}/visual-assets/objects`, {
+        method: "POST",
+        body: JSON.stringify({ name: createForm.name.trim(), description: createForm.description.trim() || undefined }),
+      });
+      setShowCreate(false);
+      setCreateForm({ name: "", description: "" });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create object");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  const emptyMessage = tab === "objects"
+    ? "No objects yet. Create one manually or use an AI assistant via MCP."
+    : `No ${tab} yet. Use an AI assistant via MCP to extract ${tab} from the Story Bible.`;
+
   return (
     <StageLayout projectId={projectId} stage="characters">
 
@@ -79,13 +105,16 @@ export default function CharactersPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        {tab === "objects" ? (
+          <Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>+ Create Object</Button>
+        ) : null}
       </div>
 
       {error ? <p className={styles.error}>{error}</p> : null}
       {loading ? <p className={styles.loading}>Loading…</p> : null}
 
       {!loading && filtered.length === 0 ? (
-        <p className={styles.empty}>No {tab} yet. Generate characters from the Story Bible or create one manually.</p>
+        <p className={styles.empty}>{emptyMessage}</p>
       ) : null}
 
       <div className={styles.grid}>
@@ -118,6 +147,38 @@ export default function CharactersPage() {
               <Button variant="primary" size="sm" onClick={() => approveEntity(selected.id)}>Approve</Button>
             ) : null}
             <Button variant="quiet" size="sm" onClick={() => setSelected(null)}>Close</Button>
+          </div>
+        </div>
+      ) : null}
+
+      {showCreate ? (
+        <div className={styles.detail}>
+          <h3 className="font-display text-xl">Create Object</h3>
+          <div className={styles.field}>
+            <label className={styles.label}>Name</label>
+            <input
+              className={styles.input}
+              value={createForm.name}
+              onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Object name"
+              maxLength={160}
+            />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.label}>Description</label>
+            <textarea
+              className={styles.textarea}
+              value={createForm.description}
+              onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
+              placeholder="Optional description"
+              maxLength={1200}
+            />
+          </div>
+          <div className={styles.actions}>
+            <Button variant="primary" size="sm" onClick={createObject} disabled={creating || !createForm.name.trim()}>
+              {creating ? "Creating…" : "Create"}
+            </Button>
+            <Button variant="quiet" size="sm" onClick={() => setShowCreate(false)} disabled={creating}>Cancel</Button>
           </div>
         </div>
       ) : null}

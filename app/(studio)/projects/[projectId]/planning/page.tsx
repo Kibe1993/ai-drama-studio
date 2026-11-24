@@ -80,6 +80,29 @@ export default function PlanningPage() {
     }
   }
 
+  async function createPlanning() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await api<{ planning: Planning }>(`/api/projects/${projectId}/planning`, {
+        method: "POST",
+        body: JSON.stringify({
+          concept: { logline: "", synopsis: "", elevatorPitch: "" },
+          themes: [],
+          centralQuestion: "",
+          mainConflict: "",
+          audience: { demographic: "", tone: "", contentRating: "" },
+          narrativeDirection: { structure: "", pov: "", pacing: "" },
+        }),
+      });
+      setPlanning(res.planning);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Create failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function submit() {
     setSaving(true);
     setError(null);
@@ -213,7 +236,7 @@ export default function PlanningPage() {
       )}
 
       {!planning ? (
-        <Button variant="primary" onClick={save}>Create Planning Document</Button>
+        <Button variant="primary" disabled={saving} onClick={createPlanning}>{saving ? "Creating…" : "Create Planning Document"}</Button>
       ) : null}
 
       {versions.length > 1 ? (

@@ -96,6 +96,20 @@ export default function CanonPage() {
         ))}
       </div>
 
+      {data && data.proposals.length > 0 ? (
+        <div className={styles.contradictions}>
+          <h3 className="font-display text-lg text-[#c4a574]">Proposed Canon Facts ({data.proposals.length})</h3>
+          {data.proposals.map((p) => (
+            <div key={p.id} className={styles.fact}>
+              <p className={styles.factText}>{p.statement}</p>
+              <p className={styles.factMeta}>
+                <span className={styles.factSource}>{p.source}</span> · {p.type} · pending approval
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       {data && data.contradictions.length > 0 ? (
         <div className={styles.contradictions}>
           <div className={styles.contradictionsHeader}>

@@ -20,7 +20,12 @@ export async function getRequestAuth(): Promise<RequestAuth | null> {
   const session = await auth();
   if (!session.userId) return null;
 
-  const user = await currentUser();
+  let user: Awaited<ReturnType<typeof currentUser>> = null;
+  try {
+    user = await currentUser();
+  } catch {
+    return null;
+  }
   const role = user?.publicMetadata?.role;
   const isAdmin = role === "admin" || adminIds().includes(session.userId);
 

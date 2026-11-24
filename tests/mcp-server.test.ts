@@ -19,20 +19,53 @@ vi.mock("@/lib/services/storyBibleService", () => ({
   storyBibleService: {
     save: vi.fn(),
     get: vi.fn(),
+    approve: vi.fn(),
   },
 }));
 
+const mockPipelineService = {
+  get: vi.fn(),
+  start: vi.fn(),
+  generateStory: vi.fn(),
+  approveStory: vi.fn(),
+  updateStory: vi.fn(),
+  approve: vi.fn(),
+  generateScenes: vi.fn(),
+  retry: vi.fn(),
+  retryScene: vi.fn(),
+  cancel: vi.fn(),
+};
 vi.mock("@/lib/services/pipelineService", () => ({
-  createPipelineService: vi.fn(),
+  createPipelineService: vi.fn(() => mockPipelineService),
 }));
 
 vi.mock("@/lib/pipeline/live", () => ({
-  livePipelineDeps: vi.fn(),
+  livePipelineDeps: vi.fn(() => ({})),
 }));
 
 const mockTriggerRender = vi.fn();
 vi.mock("@/lib/services/renderService", () => ({
   createRenderService: vi.fn(() => ({ triggerRender: mockTriggerRender })),
+}));
+
+vi.mock("@/lib/services/workflowService", () => ({
+  workflowService: { get: vi.fn() },
+}));
+
+vi.mock("@/lib/services/episodeService", () => ({
+  episodeService: { list: vi.fn(), create: vi.fn(), requestGenerate: vi.fn() },
+}));
+
+vi.mock("@/lib/services/productionSceneService", () => ({
+  productionSceneService: { list: vi.fn(), update: vi.fn() },
+}));
+
+vi.mock("@/lib/services/seasonPlanService", () => ({
+  seasonPlanService: { get: vi.fn(), start: vi.fn(), update: vi.fn(), approve: vi.fn() },
+}));
+
+vi.mock("@/lib/services/storyDraftService", () => ({
+  storyDraftService: { get: vi.fn(), approve: vi.fn(), cancel: vi.fn(), start: vi.fn() },
 }));
 
 vi.mock("@/lib/repositories/storyRepository", () => ({
@@ -73,6 +106,10 @@ vi.mock("@/lib/repositories/narrativeCanonRepository", () => ({
 vi.mock("@/lib/repositories/canonicalEntityRepository", () => ({
   canonicalEntityRepository: {
     listByProject: vi.fn(),
+    findOwned: vi.fn(),
+    create: vi.fn(),
+    approve: vi.fn(),
+    updateVisualProfile: vi.fn(),
   },
 }));
 
@@ -111,6 +148,9 @@ vi.mock("@/lib/repositories/seasonPlanRepository", () => ({
 vi.mock("@/lib/repositories/productionRunRepository", () => ({
   productionRunRepository: {
     findLatest: vi.fn(),
+    findOwned: vi.fn(),
+    insert: vi.fn(),
+    save: vi.fn(),
   },
 }));
 
@@ -476,6 +516,37 @@ describe("MCP server: tool listing", () => {
       expect(names).toContain("media.generate_audio");
       expect(names).toContain("render.start");
       expect(names).toContain("render.status");
+      expect(names).toContain("pipeline.get");
+      expect(names).toContain("pipeline.start");
+      expect(names).toContain("pipeline.approveStory");
+      expect(names).toContain("pipeline.approve");
+      expect(names).toContain("pipeline.generateStory");
+      expect(names).toContain("pipeline.generateScenes");
+      expect(names).toContain("pipeline.cancel");
+      expect(names).toContain("entity.list");
+      expect(names).toContain("entity.get");
+      expect(names).toContain("entity.create");
+      expect(names).toContain("entity.approve");
+      expect(names).toContain("entity.updateVisualProfile");
+      expect(names).toContain("episode.list");
+      expect(names).toContain("episode.get");
+      expect(names).toContain("episode.create");
+      expect(names).toContain("scene.list");
+      expect(names).toContain("scene.get");
+      expect(names).toContain("scene.update");
+      expect(names).toContain("scene.approveShotPlan");
+      expect(names).toContain("seasonPlan.get");
+      expect(names).toContain("seasonPlan.listVersions");
+      expect(names).toContain("seasonPlan.start");
+      expect(names).toContain("seasonPlan.update");
+      expect(names).toContain("seasonPlan.approve");
+      expect(names).toContain("timeline.get");
+      expect(names).toContain("timeline.findByEpisode");
+      expect(names).toContain("timeline.approve");
+      expect(names).toContain("bible.approve");
+      expect(names).toContain("story.approve");
+      expect(names).toContain("project.context");
+      expect(names).toContain("activity.list");
     } finally {
       await server.close();
     }

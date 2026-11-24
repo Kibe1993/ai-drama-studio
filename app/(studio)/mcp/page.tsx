@@ -14,15 +14,32 @@ interface McpStatus {
 
 const TOOLS = [
   "project.list", "project.get", "project.create", "project.update", "project.delete",
-  "document.read", "document.update", "document.import",
-  "canon.add", "canon.summary",
-  "media.upload", "media.generate_audio",
-  "render.start",
+  "project.context",
+  "document.get", "document.update", "document.import", "document.export",
+  "canon.query", "canon.add", "canon.summary",
+  "media.list", "media.upload", "media.generate_audio",
+  "render.start", "render.status",
+  "pipeline.get", "pipeline.start", "pipeline.generateStory", "pipeline.approveStory",
+  "pipeline.approve", "pipeline.generateScenes", "pipeline.cancel",
+  "entity.list", "entity.get", "entity.create", "entity.approve", "entity.updateVisualProfile",
+  "episode.list", "episode.get", "episode.create",
+  "scene.list", "scene.get", "scene.update", "scene.approveShotPlan",
+  "seasonPlan.get", "seasonPlan.listVersions", "seasonPlan.start", "seasonPlan.update", "seasonPlan.approve",
+  "timeline.get", "timeline.findByEpisode", "timeline.approve",
+  "bible.approve", "story.approve",
+  "activity.list",
 ] as const;
 
 const RESOURCES = [
-  "project://list", "project://{id}", "story://{projectId}/draft",
-  "bible://{projectId}", "canon://{projectId}", "timeline://{projectId}",
+  "project://{projectId}/bible",
+  "project://{projectId}/story",
+  "project://{projectId}/episodes/{n}",
+  "project://{projectId}/canon",
+  "project://{projectId}/assets",
+  "project://{projectId}/timeline",
+  "project://{projectId}/characters",
+  "project://{projectId}/scenes",
+  "project://{projectId}/season-plan",
 ] as const;
 
 const ASSISTANT_CONFIGS = [

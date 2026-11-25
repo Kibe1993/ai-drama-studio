@@ -187,11 +187,16 @@ const server = http.createServer(async (req, res) => {
       redirect: "manual",
     });
 
-    // Diagnostic response log. Do not log authorization values or tokens.
     console.log("[MCP Gateway Response]", {
       status: response.status,
       sessionId: response.headers.get("mcp-session-id"),
       protocolVersion: response.headers.get("mcp-protocol-version"),
+      contentType: response.headers.get("content-type"),
+    });
+
+    // Additional response diagnostics.
+    console.log("[MCP Gateway Response Details]", {
+      status: response.status,
       contentType: response.headers.get("content-type"),
     });
 

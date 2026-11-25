@@ -34,6 +34,7 @@ import { LLM_GENERATION_ENABLED } from "@/lib/config";
 import { toolConfigService } from "@/lib/services/toolConfigService";
 import { TOOL_TYPES, TOOL_CATEGORIES } from "@/lib/validation/toolConfig";
 import { comfyUIService } from "@/lib/services/comfyUIService";
+import { veoService } from "@/lib/services/veoService";
 import { initializeExternalProviders } from "@/lib/providers/external";
 
 const genreIds = GENRES.map((g) => g.id) as [(typeof GENRES)[number]["id"], ...(typeof GENRES)[number]["id"][]];
@@ -359,6 +360,61 @@ function registerToolIntegrationTools(server: McpServer, actor: RequestAuth, cle
     async (args) => {
       return run(async () => {
         return await comfyUIService.poll(clerkUserId, args.promptId);
+      });
+    },
+  );
+
+  server.tool(
+    "veo.generate",
+    "Generate a video clip from a text prompt using Google Veo. Returns operation ID for polling. Paid API (~$0.25-$0.50/second).",
+    {
+      subject: z.string().describe("Subject of the video"),
+      environment: z.string().describe("Setting/environment"),
+      style: z.string().default("").describe("Visual style (e.g. cinematic, anime)"),
+      lighting: z.string().default("").describe("Lighting description"),
+      camera: z.string().default("").describe("Camera shot type (e.g. medium shot)"),
+      composition: z.string().default("").describe("Composition notes"),
+      continuityNotes: z.string().default("").describe("Continuity with previous scenes"),
+      motion: z.string().default("").describe("Subject motion description"),
+      cameraMovement: z.string().default("").describe("Camera movement (e.g. dolly in)"),
+      segmentNote: z.string().default("").describe("Segment context note"),
+      aspectRatio: z.enum(["16:9", "9:16", "1:1"]).default("16:9").describe("Output aspect ratio"),
+      durationSeconds: z.number().min(1).max(8).default(5).describe("Video duration in seconds (max 8)"),
+      model: z.enum(["veo-3.0-generate-preview", "veo-2.0-generate-001"]).default("veo-3.0-generate-preview").describe("Veo model version"),
+    },
+    async (args) => {
+      return run(async () => {
+        return await veoService.generate(clerkUserId, {
+          prompt: {
+            subject: args.subject,
+            environment: args.environment,
+            style: args.style,
+            lighting: args.lighting,
+            camera: args.camera,
+            composition: args.composition,
+            continuityNotes: args.continuityNotes,
+            motion: args.motion,
+            cameraMovement: args.cameraMovement,
+            durationSeconds: args.durationSeconds,
+            segmentNote: args.segmentNote,
+          },
+          aspectRatio: args.aspectRatio,
+          durationSeconds: args.durationSeconds,
+          model: args.model,
+        });
+      });
+    },
+  );
+
+  server.tool(
+    "veo.poll",
+    "Poll the status of a Veo video generation operation. Returns status and estimated cost when complete.",
+    {
+      operationId: z.string().describe("The Veo operation ID to poll"),
+    },
+    async (args) => {
+      return run(async () => {
+        return await veoService.poll(clerkUserId, args.operationId);
       });
     },
   );

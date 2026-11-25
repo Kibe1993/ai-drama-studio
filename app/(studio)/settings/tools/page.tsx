@@ -203,6 +203,7 @@ export default function ToolsSettingsPage() {
         <a className={styles.navLink} href="/settings/tools/ffmpeg">FFmpeg Ops</a>
         <a className={styles.navLink} href="/settings/tools/remotion">Remotion</a>
         <a className={styles.navLink} href="/settings/tools/lottie">Lottie &amp; SVG</a>
+        <a className={styles.navLink} href="/settings/tools/veo">Google Veo</a>
       </div>
 
       {sortedCategories.map((category) => (

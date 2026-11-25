@@ -8,6 +8,7 @@ import { MockImageProvider } from "@/lib/providers/media/image/mock";
 import { MockVideoProvider } from "@/lib/providers/media/video/mock";
 import { MockAudioProvider } from "@/lib/providers/media/audio/mock";
 import { KokoroAudioProvider } from "@/lib/providers/media/audio/kokoro";
+import { VeoVideoProvider } from "@/lib/providers/media/video/veo";
 
 export type ProviderRegistryDeps = {
   imageProviders?: ImageProvider[];
@@ -23,6 +24,13 @@ function autoAudioProviders(): AudioProvider[] {
   return [];
 }
 
+function autoVideoProviders(): VideoProvider[] {
+  if (process.env.VEO_API_KEY?.trim()) {
+    return [new VeoVideoProvider()];
+  }
+  return [];
+}
+
 export class ProviderRegistry {
   private readonly image: ImageProvider[];
   private readonly video: VideoProvider[];
@@ -33,7 +41,7 @@ export class ProviderRegistry {
     const mockVideo = new MockVideoProvider();
     const mockAudio = new MockAudioProvider();
     this.image = [...(deps.imageProviders ?? []), mockImage];
-    this.video = [...(deps.videoProviders ?? []), mockVideo];
+    this.video = [...(deps.videoProviders ?? []), ...autoVideoProviders(), mockVideo];
     this.audio = [...(deps.audioProviders ?? []), ...autoAudioProviders(), mockAudio];
   }
 

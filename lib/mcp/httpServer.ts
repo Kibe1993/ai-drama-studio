@@ -1,8 +1,6 @@
 import "server-only";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  WebStandardStreamableHTTPServerTransport,
-} from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createMcpServer } from "./server";
 import { connectDB } from "@/lib/db/connect";
 
@@ -35,7 +33,7 @@ async function getOrCreateServer(clerkUserId: string): Promise<ServerEntry> {
   const server = createMcpServer(clerkUserId);
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: createSessionId,
-    enableJsonResponse: false,
+    enableJsonResponse: true,
   });
 
   entry = { server, transport, connected: false };

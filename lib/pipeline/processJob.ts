@@ -867,6 +867,54 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       throw new JobError(failure.message, failure.code, false);
     }
   }
+  if (job.jobType === "video.veo") {
+    const started = Date.now();
+    const prompt = job.input?.prompt as Record<string, unknown> | undefined;
+    const aspectRatio = (job.input?.aspectRatio as string) ?? "16:9";
+    const durationSeconds = (job.input?.durationSeconds as number) ?? 5;
+    const model = (job.input?.model as string) ?? "veo-3.0-generate-preview";
+    if (!prompt) throw new JobError("video.veo requires prompt.", "invalid_input", false);
+
+    job.status = "processing";
+    job.attempts += 1;
+    job.startedAt = job.startedAt ?? new Date().toISOString();
+    job.progress = { stage: job.jobType, message: "Generating video with Google Veo" };
+    await deps.jobs.save(job);
+    log.info("worker", "veo job started", { jobId: job.id, model, attempt: job.attempts });
+
+    try {
+      const { veoService } = await import("@/lib/services/veoService");
+      const result = await veoService.generate(job.clerkUserId, {
+        prompt: prompt as {
+          subject: string; environment: string; style: string; lighting: string;
+          camera: string; composition: string; continuityNotes: string;
+          motion: string; cameraMovement: string; durationSeconds: number; segmentNote: string;
+        },
+        aspectRatio,
+        durationSeconds,
+        model,
+      });
+
+      job.status = "completed";
+      job.output = { operationId: result.operationId, status: result.status };
+      job.provider = "veo";
+      job.model = model;
+      job.error = null;
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: `Veo operation submitted: ${result.operationId}` };
+      await deps.jobs.save(job);
+      log.info("worker", "veo job submitted", { jobId: job.id, operationId: result.operationId, ms: Date.now() - started });
+      return;
+    } catch (error) {
+      const failure = error instanceof JobError ? error : new JobError("Veo generation failed.", "render_failed", false);
+      job.status = "failed";
+      job.error = { code: failure.code, message: failure.message, retryable: false, findings: extractFindings(failure) };
+      job.completedAt = new Date().toISOString();
+      await deps.jobs.save(job).catch(() => { });
+      log.error("worker", "veo job failed", { jobId: job.id, code: failure.code, ms: Date.now() - started });
+      throw new JobError(failure.message, failure.code, false);
+    }
+  }
   if (job.jobType === "audio.dialogue" || job.jobType === "audio.narration") {
     const started = Date.now();
     const segmentId = job.input.segmentId as string | undefined;

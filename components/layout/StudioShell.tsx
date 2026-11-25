@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
-import { Clapperboard, Film, FolderOpen, Settings, Users, Plug } from "lucide-react";
+import { Clapperboard, Film, FolderOpen, Settings, Users, Plug, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const links = [
@@ -12,6 +12,7 @@ const links = [
   { href: "/characters", label: "Characters", icon: Users },
   { href: "/media", label: "Media Library", icon: Film },
   { href: "/mcp", label: "MCP Server", icon: Plug },
+  { href: "/assistant", label: "AI Assistant", icon: Bot },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

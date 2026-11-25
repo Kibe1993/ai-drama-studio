@@ -204,6 +204,7 @@ export default function ToolsSettingsPage() {
         <a className={styles.navLink} href="/settings/tools/remotion">Remotion</a>
         <a className={styles.navLink} href="/settings/tools/lottie">Lottie &amp; SVG</a>
         <a className={styles.navLink} href="/settings/tools/veo">Google Veo</a>
+        <a className={styles.navLink} href="/settings/tools/chat">Chat Agents</a>
       </div>
 
       {sortedCategories.map((category) => (

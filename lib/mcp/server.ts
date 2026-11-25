@@ -35,6 +35,7 @@ import { toolConfigService } from "@/lib/services/toolConfigService";
 import { TOOL_TYPES, TOOL_CATEGORIES } from "@/lib/validation/toolConfig";
 import { comfyUIService } from "@/lib/services/comfyUIService";
 import { veoService } from "@/lib/services/veoService";
+import { chatService } from "@/lib/services/chatService";
 import { initializeExternalProviders } from "@/lib/providers/external";
 
 const genreIds = GENRES.map((g) => g.id) as [(typeof GENRES)[number]["id"], ...(typeof GENRES)[number]["id"][]];
@@ -100,6 +101,7 @@ export function createMcpServer(clerkUserId: string): McpServer {
   registerProductionDesignTools(server, actor, clerkUserId);
   registerVoiceTools(server, actor, clerkUserId);
   registerToolIntegrationTools(server, actor, clerkUserId);
+  registerChatTools(server);
   registerResources(server, clerkUserId);
 
   return server;
@@ -415,6 +417,58 @@ function registerToolIntegrationTools(server: McpServer, actor: RequestAuth, cle
     async (args) => {
       return run(async () => {
         return await veoService.poll(clerkUserId, args.operationId);
+      });
+    },
+  );
+}
+
+function registerChatTools(server: McpServer): void {
+  server.tool(
+    "chat.providers",
+    "List all available chat providers (free-tier LLM providers). Returns provider id, displayName, defaultModel, models, configured status, and free-tier info.",
+    {},
+    async () => {
+      return run(async () => {
+        return chatService.listProviders();
+      });
+    },
+  );
+
+  server.tool(
+    "chat.models",
+    "List available models for a specific chat provider. Returns the provider info and its supported models.",
+    {
+      provider: z.string().describe("Provider ID (e.g. cerebras, sambanova, together, fireworks, siliconflow, glm, novita, huggingface, copilot, cloudflare)"),
+    },
+    async (args) => {
+      return run(async () => {
+        return chatService.getProvider(args.provider);
+      });
+    },
+  );
+
+  server.tool(
+    "chat.complete",
+    "Send a chat completion request to a free-tier LLM provider. Returns the assistant response with usage stats. Supports system/user/assistant message roles.",
+    {
+      provider: z.string().describe("Provider ID (e.g. cerebras, sambanova, together, fireworks, siliconflow, glm, novita, huggingface, copilot, cloudflare)"),
+      model: z.string().optional().describe("Model ID (defaults to provider's default model)"),
+      messages: z.array(z.object({
+        role: z.enum(["system", "user", "assistant"]).describe("Message role"),
+        content: z.string().min(1).describe("Message content"),
+      })).min(1).max(100).describe("Array of chat messages"),
+      temperature: z.number().min(0).max(2).optional().describe("Sampling temperature (0-2, default 0.7)"),
+      maxTokens: z.number().int().min(1).max(32768).optional().describe("Maximum tokens in response (default 4096)"),
+    },
+    async (args) => {
+      return run(async () => {
+        return await chatService.complete({
+          provider: args.provider,
+          model: args.model,
+          messages: args.messages,
+          temperature: args.temperature,
+          maxTokens: args.maxTokens,
+        });
       });
     },
   );

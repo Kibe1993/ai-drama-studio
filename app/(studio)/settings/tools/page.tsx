@@ -195,6 +195,13 @@ export default function ToolsSettingsPage() {
         {error ? <span className={styles.error}>{error}</span> : null}
       </div>
 
+      <div className={styles.navLinks}>
+        <a className={styles.navLink} href="/settings/tools/comfyui">ComfyUI (Image Gen)</a>
+        <a className={styles.navLink} href="/settings/tools/animation">2D Animation</a>
+        <a className={styles.navLink} href="/settings/tools/animation3d">3D Animation</a>
+        <a className={styles.navLink} href="/settings/tools/audio-lipsync">Audio &amp; Lip Sync</a>
+      </div>
+
       {sortedCategories.map((category) => (
         <div key={category}>
           <p className={styles.groupLabel}>{CATEGORY_LABELS[category] ?? category}</p>

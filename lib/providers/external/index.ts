@@ -2,6 +2,7 @@ import "server-only";
 import { ComfyUIProvider } from "./comfyui";
 import { synfigProvider, openToonzProvider, pencil2DProvider, blenderGreasePencilProvider } from "./animation2d";
 import { makeHumanProvider, mixamoProvider } from "./animation3d";
+import { audacityProvider, wav2LipProvider, sadTalkerProvider } from "./audioLipsync";
 import { registerToolProvider } from "./registry";
 
 let initialized = false;
@@ -16,4 +17,7 @@ export function initializeExternalProviders(): void {
   registerToolProvider(blenderGreasePencilProvider);
   registerToolProvider(makeHumanProvider);
   registerToolProvider(mixamoProvider);
+  registerToolProvider(audacityProvider);
+  registerToolProvider(wav2LipProvider);
+  registerToolProvider(sadTalkerProvider);
 }

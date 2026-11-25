@@ -477,13 +477,13 @@ describe("MCP server: render tools", () => {
     try {
       const result = await client.callTool({
         name: "render.start",
-        arguments: { episodeId: "e1", timelineId: "t1", presetId: "standard" },
+        arguments: { episodeId: "e1", timelineId: "t1", presetId: "landscape_16_9" },
       });
       expect(createRenderService).toHaveBeenCalled();
       expect(mockTriggerRender).toHaveBeenCalledWith(
         expect.objectContaining({ userId: ACTOR }),
         "t1",
-        "standard",
+        "landscape_16_9",
       );
       const parsed = parseResult(result as never) as { id: string };
       expect(parsed.id).toBe("r1");

@@ -94,7 +94,12 @@ const server = http.createServer(async (req, res) => {
     method: req.method,
     url: req.url,
     origin: req.headers.origin,
+    hasAuthorization: Boolean(req.headers.authorization),
+    accept: req.headers.accept,
+    contentType: req.headers["content-type"],
+    sessionId: req.headers["mcp-session-id"] ?? null,
   });
+
   if (req.url !== MCP_PATH) {
     sendError(req, res, 404, "Not Found");
     return;
@@ -180,6 +185,14 @@ const server = http.createServer(async (req, res) => {
       duplex: req.method === "POST" ? "half" : undefined,
       signal: controller.signal,
       redirect: "manual",
+    });
+
+    // Diagnostic response log. Do not log authorization values or tokens.
+    console.log("[MCP Gateway Response]", {
+      status: response.status,
+      sessionId: response.headers.get("mcp-session-id"),
+      protocolVersion: response.headers.get("mcp-protocol-version"),
+      contentType: response.headers.get("content-type"),
     });
 
     const responseHeaders = {

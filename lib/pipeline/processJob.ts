@@ -806,6 +806,67 @@ export async function processGenerationJob(deps: PipelineDeps, jobId: string): P
       throw new JobError(failure.message, failure.code, false);
     }
   }
+  if (job.jobType === "render.remotion") {
+    const started = Date.now();
+    const entryPoint = job.input?.entryPoint as string | undefined;
+    const compositionId = job.input?.compositionId as string | undefined;
+    const outputPath = job.input?.outputPath as string | undefined;
+    if (!entryPoint || !compositionId || !outputPath) {
+      throw new JobError("render.remotion requires entryPoint, compositionId, and outputPath.", "invalid_input", false);
+    }
+    job.status = "processing";
+    job.attempts += 1;
+    job.startedAt = job.startedAt ?? new Date().toISOString();
+    job.progress = { stage: job.jobType, message: "Rendering with Remotion" };
+    await deps.jobs.save(job);
+    log.info("worker", "remotion render job started", { jobId: job.id, compositionId, attempt: job.attempts });
+
+    try {
+      const { remotionProvider } = await import("@/lib/providers/external/remotion");
+      const { toolConfigRepository } = await import("@/lib/repositories/toolConfigRepository");
+      const { buildConnectionConfig } = await import("@/lib/providers/external/registry");
+
+      const config = await toolConfigRepository.findByToolType(job.clerkUserId, "remotion");
+      if (!config || !config.enabled) throw new JobError("Remotion is not configured or enabled.", "configuration", false);
+
+      const connectionConfig = buildConnectionConfig(config);
+      const handle = await remotionProvider.execute(connectionConfig, {
+        inputs: {
+          entryPoint,
+          compositionId,
+          outputPath,
+          codec: (job.input?.codec as string) ?? "h264",
+          imageFormat: (job.input?.imageFormat as string) ?? "jpeg",
+          crf: job.input?.crf as number | undefined,
+          quality: job.input?.quality as number | undefined,
+          props: job.input?.props as Record<string, unknown> | undefined,
+        },
+        outputPath,
+      });
+
+      job.status = "completed";
+      job.output = {
+        operationId: handle.operationId,
+        outputPath,
+        status: handle.status,
+      };
+      job.provider = "remotion";
+      job.error = null;
+      job.completedAt = new Date().toISOString();
+      job.progress = { stage: job.jobType, message: `Remotion render submitted: ${handle.operationId}` };
+      await deps.jobs.save(job);
+      log.info("worker", "remotion render job submitted", { jobId: job.id, operationId: handle.operationId, ms: Date.now() - started });
+      return;
+    } catch (error) {
+      const failure = error instanceof JobError ? error : new JobError("Remotion render failed.", "render_failed", false);
+      job.status = "failed";
+      job.error = { code: failure.code, message: failure.message, retryable: false, findings: extractFindings(failure) };
+      job.completedAt = new Date().toISOString();
+      await deps.jobs.save(job).catch(() => { });
+      log.error("worker", "remotion render job failed", { jobId: job.id, code: failure.code, ms: Date.now() - started });
+      throw new JobError(failure.message, failure.code, false);
+    }
+  }
   if (job.jobType === "audio.dialogue" || job.jobType === "audio.narration") {
     const started = Date.now();
     const segmentId = job.input.segmentId as string | undefined;

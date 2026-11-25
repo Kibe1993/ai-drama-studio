@@ -200,6 +200,9 @@ export default function ToolsSettingsPage() {
         <a className={styles.navLink} href="/settings/tools/animation">2D Animation</a>
         <a className={styles.navLink} href="/settings/tools/animation3d">3D Animation</a>
         <a className={styles.navLink} href="/settings/tools/audio-lipsync">Audio &amp; Lip Sync</a>
+        <a className={styles.navLink} href="/settings/tools/ffmpeg">FFmpeg Ops</a>
+        <a className={styles.navLink} href="/settings/tools/remotion">Remotion</a>
+        <a className={styles.navLink} href="/settings/tools/lottie">Lottie &amp; SVG</a>
       </div>
 
       {sortedCategories.map((category) => (

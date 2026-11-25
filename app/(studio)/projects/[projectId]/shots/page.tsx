@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { ProjectHeader } from "@/components/workflow/ProjectHeader";
 import { Button } from "@/components/ui/button";
@@ -15,13 +15,37 @@ type ShotRecord = {
   segments: { segmentNumber: number; durationSeconds: number; assetId?: string | null }[];
 };
 
+type Scene = {
+  id: string;
+  sceneNumber: number;
+  heading: string;
+  productionStatus: string;
+};
+
 export default function ShotProductionPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
+  const [scenes, setScenes] = useState<Scene[]>([]);
   const [sceneId, setSceneId] = useState("");
   const [shots, setShots] = useState<ShotRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scenesLoading, setScenesLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    api<{ scenes: Scene[] }>(`/api/projects/${projectId}/scenes`)
+      .then((data) => {
+        if (active) setScenes(data.scenes);
+      })
+      .catch(() => {
+        if (active) setError("Failed to load scenes.");
+      })
+      .finally(() => {
+        if (active) setScenesLoading(false);
+      });
+    return () => { active = false; };
+  }, [projectId]);
 
   const loadShots = useCallback(async () => {
     if (!sceneId) return;
@@ -69,13 +93,20 @@ export default function ShotProductionPage() {
         {error ? <p className="text-red-400">{error}</p> : null}
         {loading ? <p className="text-[#a39b8f]">Loading…</p> : null}
 
-        <div className="flex gap-3">
-          <input
+        <div className="flex gap-3 items-center">
+          <select
             className="studio-field flex-1"
-            placeholder="Scene ID"
             value={sceneId}
-            onChange={(e) => setSceneId(e.target.value)}
-          />
+            onChange={(e) => { setSceneId(e.target.value); setShots([]); }}
+            disabled={scenesLoading}
+          >
+            <option value="">{scenesLoading ? "Loading scenes…" : "Select a scene…"}</option>
+            {scenes.map((scene) => (
+              <option key={scene.id} value={scene.id}>
+                Scene {scene.sceneNumber}: {scene.heading || "Untitled"}
+              </option>
+            ))}
+          </select>
           <Button onClick={loadShots} disabled={!sceneId || loading}>
             Load shots
           </Button>
@@ -86,6 +117,10 @@ export default function ShotProductionPage() {
             Retry failed
           </Button>
         </div>
+
+        {!scenesLoading && scenes.length === 0 ? (
+          <p className="text-[#a39b8f]">No scenes found. Run scene breakdown first.</p>
+        ) : null}
 
         {!loading && shots.length === 0 && sceneId ? (
           <p className="text-[#a39b8f]">No shots found for this scene.</p>

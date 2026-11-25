@@ -291,12 +291,25 @@ function TrackEditor({
 
 export function TimelineEditor({ projectId }: { projectId: string }) {
   const [episodeId, setEpisodeId] = useState("");
+  const [episodes, setEpisodes] = useState<{ id: string; episodeNumber: number; title: string }[]>([]);
+  const [episodesLoading, setEpisodesLoading] = useState(true);
   const [data, setData] = useState<EditableTimeline | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    api<{ episodes: { id: string; episodeNumber: number; title: string }[] }>(
+      `/api/projects/${projectId}/episodes`
+    )
+      .then((d) => { if (active) setEpisodes(d.episodes); })
+      .catch(() => { if (active) setError("Failed to load episodes."); })
+      .finally(() => { if (active) setEpisodesLoading(false); });
+    return () => { active = false; };
+  }, [projectId]);
 
   const load = useCallback(async () => {
     if (!episodeId) return;
@@ -437,13 +450,20 @@ export function TimelineEditor({ projectId }: { projectId: string }) {
         <h1 className="font-display text-3xl">Timeline Editor</h1>
         {error ? <p className="text-red-400">{error}</p> : null}
 
-        <div className="flex gap-3">
-          <input
+        <div className="flex gap-3 items-center">
+          <select
             className="studio-field flex-1"
-            placeholder="Episode ID"
             value={episodeId}
-            onChange={(e) => setEpisodeId(e.target.value)}
-          />
+            onChange={(e) => { setEpisodeId(e.target.value); setData(null); }}
+            disabled={episodesLoading}
+          >
+            <option value="">{episodesLoading ? "Loading episodes…" : "Select an episode…"}</option>
+            {episodes.map((ep) => (
+              <option key={ep.id} value={ep.id}>
+                Episode {ep.episodeNumber}: {ep.title || "Untitled"}
+              </option>
+            ))}
+          </select>
           <Button onClick={load} disabled={!episodeId || loading}>
             {loading ? "Loading..." : "Load timeline"}
           </Button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { ProjectHeader } from "@/components/workflow/ProjectHeader";
 import { Button } from "@/components/ui/button";
@@ -39,14 +39,37 @@ type Timeline = {
   validation: ValidationResult;
 } | null;
 
+type Episode = {
+  id: string;
+  episodeNumber: number;
+  title: string;
+};
+
 export default function AssemblyPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
+  const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [episodeId, setEpisodeId] = useState("");
   const [timeline, setTimeline] = useState<Timeline>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
+  const [episodesLoading, setEpisodesLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    api<{ episodes: Episode[] }>(`/api/projects/${projectId}/episodes`)
+      .then((data) => {
+        if (active) setEpisodes(data.episodes);
+      })
+      .catch(() => {
+        if (active) setError("Failed to load episodes.");
+      })
+      .finally(() => {
+        if (active) setEpisodesLoading(false);
+      });
+    return () => { active = false; };
+  }, [projectId]);
 
   const loadPreview = useCallback(async () => {
     if (!episodeId) return;
@@ -97,17 +120,28 @@ export default function AssemblyPage() {
         {error ? <p className="text-red-400">{error}</p> : null}
         {loading ? <p className="text-[#a39b8f]">Loading…</p> : null}
 
-        <div className="flex gap-3">
-          <input
+        <div className="flex gap-3 items-center">
+          <select
             className="studio-field flex-1"
-            placeholder="Episode ID"
             value={episodeId}
-            onChange={(e) => setEpisodeId(e.target.value)}
-          />
+            onChange={(e) => { setEpisodeId(e.target.value); setTimeline(null); }}
+            disabled={episodesLoading}
+          >
+            <option value="">{episodesLoading ? "Loading episodes…" : "Select an episode…"}</option>
+            {episodes.map((ep) => (
+              <option key={ep.id} value={ep.id}>
+                Episode {ep.episodeNumber}: {ep.title || "Untitled"}
+              </option>
+            ))}
+          </select>
           <Button onClick={loadPreview} disabled={!episodeId || loading}>
             Preview timeline
           </Button>
         </div>
+
+        {!episodesLoading && episodes.length === 0 ? (
+          <p className="text-[#a39b8f]">No episodes found. Generate episodes first.</p>
+        ) : null}
 
         {!loading && !timeline && episodeId ? (
           <p className="text-[#a39b8f]">No assembly found for this episode.</p>

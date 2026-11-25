@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { StageLayout } from "@/components/workflow/StageLayout";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,17 @@ type RenderJob = {
   completedAt: string | null;
 };
 
+type Episode = {
+  id: string;
+  episodeNumber: number;
+  title: string;
+};
+
+type Timeline = {
+  id: string;
+  status: string;
+};
+
 const PRESETS = [
   { id: "vertical_9_16", label: "Vertical 9:16 (1080×1920)" },
   { id: "landscape_16_9", label: "Landscape 16:9 (1920×1080)" },
@@ -27,13 +38,34 @@ const PRESETS = [
 export default function RenderingPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
+  const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [episodeId, setEpisodeId] = useState("");
+  const [timelines, setTimelines] = useState<Timeline[]>([]);
   const [timelineId, setTimelineId] = useState("");
   const [presetId, setPresetId] = useState("landscape_16_9");
   const [renderJobs, setRenderJobs] = useState<RenderJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [triggering, setTriggering] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [episodesLoading, setEpisodesLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    api<{ episodes: Episode[] }>(`/api/projects/${projectId}/episodes`)
+      .then((data) => { if (active) setEpisodes(data.episodes); })
+      .catch(() => { if (active) setError("Failed to load episodes."); })
+      .finally(() => { if (active) setEpisodesLoading(false); });
+    return () => { active = false; };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!episodeId) { setTimelines([]); setTimelineId(""); return; }
+    let active = true;
+    api<{ timelines: Timeline[] }>(`/api/projects/${projectId}/episodes/${episodeId}/timelines`)
+      .then((data) => { if (active) setTimelines(data.timelines); })
+      .catch(() => { if (active) setTimelines([]); });
+    return () => { active = false; };
+  }, [projectId, episodeId]);
 
   const loadStatus = useCallback(async () => {
     if (!episodeId) return;
@@ -58,10 +90,7 @@ export default function RenderingPage() {
     try {
       await api(
         `/api/projects/${projectId}/episodes/${episodeId}/render`,
-        {
-          method: "POST",
-          body: JSON.stringify({ timelineId, presetId }),
-        }
+        { method: "POST", body: JSON.stringify({ timelineId, presetId }) }
       );
       await loadStatus();
     } catch (e) {
@@ -74,10 +103,7 @@ export default function RenderingPage() {
   const cancelRender = useCallback(async (renderJobId: string) => {
     setError(null);
     try {
-      await api(
-        `/api/projects/${projectId}/render/${renderJobId}/cancel`,
-        { method: "POST" }
-      );
+      await api(`/api/projects/${projectId}/render/${renderJobId}/cancel`, { method: "POST" });
       await loadStatus();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Cancel failed");
@@ -91,23 +117,35 @@ export default function RenderingPage() {
         {loading ? <p className="text-[#a39b8f]">Loading…</p> : null}
 
         <div className="grid gap-3">
-          <input
-            className="studio-field"
-            placeholder="Episode ID"
-            value={episodeId}
-            onChange={(e) => setEpisodeId(e.target.value)}
-          />
-          <input
-            className="studio-field"
-            placeholder="Timeline ID (from approved assembly)"
-            value={timelineId}
-            onChange={(e) => setTimelineId(e.target.value)}
-          />
           <select
             className="studio-field"
-            value={presetId}
-            onChange={(e) => setPresetId(e.target.value)}
+            value={episodeId}
+            onChange={(e) => { setEpisodeId(e.target.value); setRenderJobs([]); setTimelineId(""); }}
+            disabled={episodesLoading}
           >
+            <option value="">{episodesLoading ? "Loading episodes…" : "Select an episode…"}</option>
+            {episodes.map((ep) => (
+              <option key={ep.id} value={ep.id}>
+                Episode {ep.episodeNumber}: {ep.title || "Untitled"}
+              </option>
+            ))}
+          </select>
+          <select
+            className="studio-field"
+            value={timelineId}
+            onChange={(e) => setTimelineId(e.target.value)}
+            disabled={!episodeId || timelines.length === 0}
+          >
+            <option value="">
+              {!episodeId ? "Select an episode first…" : timelines.length === 0 ? "No timelines found…" : "Select a timeline…"}
+            </option>
+            {timelines.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.id.slice(0, 12)}… ({t.status})
+              </option>
+            ))}
+          </select>
+          <select className="studio-field" value={presetId} onChange={(e) => setPresetId(e.target.value)}>
             {PRESETS.map((p) => (
               <option key={p.id} value={p.id}>{p.label}</option>
             ))}
@@ -115,17 +153,15 @@ export default function RenderingPage() {
         </div>
 
         <div className="flex gap-3">
-          <Button onClick={loadStatus} disabled={!episodeId || loading}>
-            Refresh status
-          </Button>
-          <Button
-            onClick={triggerRender}
-            disabled={!timelineId || !episodeId || triggering}
-            variant="quiet"
-          >
+          <Button onClick={loadStatus} disabled={!episodeId || loading}>Refresh status</Button>
+          <Button onClick={triggerRender} disabled={!timelineId || !episodeId || triggering} variant="quiet">
             {triggering ? "Starting..." : "Trigger render"}
           </Button>
         </div>
+
+        {!episodesLoading && episodes.length === 0 ? (
+          <p className="text-[#a39b8f]">No episodes found. Generate episodes first.</p>
+        ) : null}
 
         {!loading && renderJobs.length === 0 && episodeId ? (
           <p className="text-[#a39b8f]">No render jobs yet for this episode.</p>
@@ -146,14 +182,10 @@ export default function RenderingPage() {
                         job.status === "cancelled" ? "text-yellow-400" :
                         job.status === "processing" ? "text-blue-400" :
                         "text-[#a39b8f]"
-                      }>
-                        {job.status}
-                      </span>
+                      }>{job.status}</span>
                     </p>
                     {job.renderDurationSeconds ? (
-                      <p className="text-sm text-[#a39b8f]">
-                        Rendered in {job.renderDurationSeconds.toFixed(1)}s
-                      </p>
+                      <p className="text-sm text-[#a39b8f]">Rendered in {job.renderDurationSeconds.toFixed(1)}s</p>
                     ) : null}
                     {job.ffmpegVersion ? (
                       <p className="text-xs text-[#a39b8f]">{job.ffmpegVersion}</p>
@@ -161,9 +193,7 @@ export default function RenderingPage() {
                   </div>
                   <div className="flex gap-2">
                     {job.status === "queued" || job.status === "processing" ? (
-                      <Button onClick={() => cancelRender(job.id)} variant="danger">
-                        Cancel
-                      </Button>
+                      <Button onClick={() => cancelRender(job.id)} variant="danger">Cancel</Button>
                     ) : null}
                     {job.status === "completed" && job.outputAssetId ? (
                       <a

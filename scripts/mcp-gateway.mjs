@@ -8,14 +8,21 @@ const MCP_PATH = "/api/mcp";
 
 const ALLOWED_METHODS = new Set(["POST", "GET", "DELETE"]);
 
-const FORWARDED_REQUEST_HEADERS = [
+const ALLOWED_ORIGINS = new Set([
+  "http://localhost:6274",
+  "http://127.0.0.1:6274",
+]);
+
+const ALLOWED_HEADERS = new Set([
   "authorization",
   "content-type",
   "accept",
   "mcp-session-id",
   "mcp-protocol-version",
   "last-event-id",
-];
+]);
+
+const FORWARDED_REQUEST_HEADERS = [...ALLOWED_HEADERS];
 
 const FORWARDED_RESPONSE_HEADERS = [
   "content-type",
@@ -25,10 +32,27 @@ const FORWARDED_RESPONSE_HEADERS = [
   "last-event-id",
 ];
 
-function sendError(res, status, message) {
+function getCorsHeaders(req) {
+  const origin = req.headers.origin;
+  const headers = {
+    Vary: "Origin",
+  };
+
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers["Access-Control-Allow-Methods"] = "POST, GET, DELETE, OPTIONS";
+    headers["Access-Control-Expose-Headers"] =
+      "MCP-Session-Id, MCP-Protocol-Version, Last-Event-ID";
+  }
+
+  return headers;
+}
+
+function sendError(req, res, status, message) {
   const body = JSON.stringify({ error: message });
 
   res.writeHead(status, {
+    ...getCorsHeaders(req),
     "Content-Type": "application/json",
     "Content-Length": Buffer.byteLength(body),
     "Cache-Control": "no-store",
@@ -66,33 +90,75 @@ function getResponseHeaders(response) {
 }
 
 const server = http.createServer(async (req, res) => {
-  // Only accept the exact MCP endpoint.
   if (req.url !== MCP_PATH) {
-    sendError(res, 404, "Not Found");
+    sendError(req, res, 404, "Not Found");
     return;
   }
 
-  // Only allow MCP-supported HTTP methods.
+  const origin = req.headers.origin;
+
+  if (origin && !ALLOWED_ORIGINS.has(origin)) {
+    sendError(req, res, 403, "Origin Not Allowed");
+    return;
+  }
+
+  // Handle browser CORS preflight.
+  if (req.method === "OPTIONS") {
+    const requestedMethod = req.headers["access-control-request-method"];
+
+    const requestedHeaders = (
+      req.headers["access-control-request-headers"] ?? ""
+    )
+      .split(",")
+      .map((header) => header.trim().toLowerCase())
+      .filter(Boolean);
+
+    if (
+      !origin ||
+      !ALLOWED_ORIGINS.has(origin) ||
+      !ALLOWED_METHODS.has(requestedMethod)
+    ) {
+      sendError(req, res, 403, "Invalid CORS preflight");
+      return;
+    }
+
+    const invalidHeaders = requestedHeaders.filter(
+      (header) => !ALLOWED_HEADERS.has(header),
+    );
+
+    if (invalidHeaders.length > 0) {
+      sendError(req, res, 403, "Requested headers not allowed");
+      return;
+    }
+
+    res.writeHead(204, {
+      ...getCorsHeaders(req),
+      "Access-Control-Allow-Headers": requestedHeaders.join(", "),
+      "Access-Control-Max-Age": "600",
+    });
+
+    res.end();
+    return;
+  }
+
   if (!ALLOWED_METHODS.has(req.method)) {
-    res.setHeader("Allow", "POST, GET, DELETE");
-    sendError(res, 405, "Method Not Allowed");
+    res.setHeader("Allow", "POST, GET, DELETE, OPTIONS");
+    sendError(req, res, 405, "Method Not Allowed");
     return;
   }
 
-  // Require the MCP protocol's expected Accept header.
   const accept = req.headers.accept ?? "";
 
   if (
     !accept.includes("application/json") ||
     !accept.includes("text/event-stream")
   ) {
-    sendError(res, 406, "MCP clients must accept JSON and event streams");
+    sendError(req, res, 406, "MCP clients must accept JSON and event streams");
     return;
   }
 
   const controller = new AbortController();
 
-  // Cancel upstream work if the client disconnects.
   res.on("close", () => {
     if (!res.writableEnded) {
       controller.abort();
@@ -111,7 +177,10 @@ const server = http.createServer(async (req, res) => {
       redirect: "manual",
     });
 
-    const responseHeaders = getResponseHeaders(response);
+    const responseHeaders = {
+      ...getCorsHeaders(req),
+      ...getResponseHeaders(response),
+    };
 
     res.writeHead(response.status, responseHeaders);
 
@@ -120,7 +189,6 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Stream the response without buffering it.
     const reader = response.body.getReader();
 
     try {
@@ -151,7 +219,7 @@ const server = http.createServer(async (req, res) => {
     console.error("[MCP Gateway]", error);
 
     if (!res.headersSent) {
-      sendError(res, 502, "MCP upstream unavailable");
+      sendError(req, res, 502, "MCP upstream unavailable");
     } else {
       res.destroy();
     }
@@ -168,7 +236,7 @@ server.listen(GATEWAY_PORT, GATEWAY_HOST, () => {
   console.log("-------------------------------------");
   console.log(`Listening: http://${GATEWAY_HOST}:${GATEWAY_PORT}`);
   console.log(`Allowed path: ${MCP_PATH}`);
-  console.log("Allowed methods: POST, GET, DELETE");
+  console.log("Allowed methods: POST, GET, DELETE, OPTIONS");
   console.log(`Upstream: ${MCP_ORIGIN}${MCP_PATH}`);
   console.log("-------------------------------------");
 });

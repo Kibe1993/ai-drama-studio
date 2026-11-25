@@ -90,6 +90,11 @@ function getResponseHeaders(response) {
 }
 
 const server = http.createServer(async (req, res) => {
+  console.log("[MCP Gateway Request]", {
+    method: req.method,
+    url: req.url,
+    origin: req.headers.origin,
+  });
   if (req.url !== MCP_PATH) {
     sendError(req, res, 404, "Not Found");
     return;

@@ -37,10 +37,24 @@ const ObjectVisualProfileSchema = new Schema({
   continuityNotes: { type: String, default: "", maxlength: 600 },
 }, { _id: false });
 
+const AnimationLibraryEntrySchema = new Schema({
+  animationId: { type: String, required: true, maxlength: 120 },
+  name: { type: String, required: true, maxlength: 160 },
+  assetId: { type: Schema.Types.ObjectId, default: null },
+  category: { type: String, default: "", maxlength: 80 },
+}, { _id: false });
+
+const Character3DProfileSchema = new Schema({
+  modelAssetId: { type: Schema.Types.ObjectId, default: null },
+  rigAssetId: { type: Schema.Types.ObjectId, default: null },
+  animationLibrary: { type: [AnimationLibraryEntrySchema], default: [] },
+}, { _id: false });
+
 const VisualProfileSchema = new Schema({
   character: { type: CharacterVisualProfileSchema, default: {} },
   location: { type: LocationVisualProfileSchema, default: {} },
   object: { type: ObjectVisualProfileSchema, default: {} },
+  character3d: { type: Character3DProfileSchema, default: {} },
 }, { _id: false });
 
 const CanonicalEntitySchema = new Schema({

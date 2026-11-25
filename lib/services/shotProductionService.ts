@@ -113,15 +113,15 @@ export function createShotProductionService() {
       return record;
     },
 
-    async evaluateSceneCompletion(actor: { userId: string }, sceneId: string): Promise<"pending" | "in_progress" | "complete"> {
+    async evaluateSceneCompletion(actor: { userId: string }, sceneId: string): Promise<"pending" | "in_progress" | "completed"> {
       assertObjectId(sceneId);
       const records = await shotProductionRepository.findByScene(actor.userId, sceneId);
       if (records.length === 0) return "pending";
       const allCompleted = records.every((r) => r.productionStatus === "completed");
       if (allCompleted) {
         const Scene = productionSceneModel(await connectDB());
-        await Scene.updateOne({ clerkUserId: actor.userId, _id: sceneId }, { productionStatus: "complete" });
-        return "complete";
+        await Scene.updateOne({ clerkUserId: actor.userId, _id: sceneId }, { productionStatus: "completed" });
+        return "completed";
       }
       const anyStarted = records.some((r) => r.productionStatus === "in_progress" || r.productionStatus === "completed");
       const status = anyStarted ? "in_progress" : "pending";

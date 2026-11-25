@@ -22,6 +22,16 @@ const LABELS: Record<JobType, string> = {
   "media.validate": "Validating media",
   "assembly.generate": "Assembling timeline",
   "canon.extract": "Extracting canon facts",
+  "image.comfyui": "Generating image via ComfyUI",
+  "animation.2d": "Rendering 2D animation",
+  "animation.3d": "Rendering 3D animation",
+  "character.model": "Generating 3D character model",
+  "character.rig": "Generating character rig",
+  "audio.lipsync": "Generating lip sync",
+  "audio.edit": "Processing audio",
+  "render.remotion": "Rendering via Remotion",
+  "video.veo": "Generating video via Google Veo",
+  "tool.healthcheck": "Running tool health check",
 };
 
 export function stageMessage(job: Pick<JobRecord, "jobType" | "sceneNumber">, suffix = ""): string {

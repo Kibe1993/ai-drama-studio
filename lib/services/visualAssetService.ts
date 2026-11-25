@@ -72,7 +72,11 @@ export function createVisualAssetService(storage: StorageProvider) {
       if (!entity || entity.projectId !== projectId) {
         throw new StudioError("Entity not found", 404, "not_found");
       }
-      const assetType = entity.entityType === "character" ? "character_reference" : "character_reference";
+      const assetType = entity.entityType === "character"
+        ? "character_reference"
+        : entity.entityType === "location"
+          ? "environment_reference"
+          : "object_reference";
       const enrichedInput = typeof rawInput === "object" && rawInput !== null
         ? { ...(rawInput as Record<string, unknown>), canonicalEntityId, type: assetType }
         : rawInput;

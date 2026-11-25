@@ -4,6 +4,9 @@ import { z } from "zod";
 export const MEDIA_ASSET_TYPES = [
   "character_reference", "scene_image", "scene_video", "dialogue_audio", "narration_audio",
   "music", "sound_effect", "subtitle", "final_render",
+  "environment_reference", "object_reference",
+  "character_model_3d", "character_rig", "animation_2d", "animation_3d",
+  "lip_sync_video", "project_file", "lottie_animation", "remotion_composition", "frame_sequence",
 ] as const;
 export const MEDIA_VALIDATION_STATUSES = ["signature_verified", "metadata_verified", "playable"] as const;
 export const MEDIA_REVIEW_STATUSES = ["pending", "approved", "rejected", "archived"] as const;
@@ -68,6 +71,17 @@ const MAX_BYTES: Record<CreateMediaAssetInput["type"], number> = {
   sound_effect: 100 * 1024 * 1024,
   subtitle: 1024 * 1024,
   final_render: 1024 * 1024 * 1024,
+  environment_reference: 25 * 1024 * 1024,
+  object_reference: 25 * 1024 * 1024,
+  character_model_3d: 200 * 1024 * 1024,
+  character_rig: 100 * 1024 * 1024,
+  animation_2d: 512 * 1024 * 1024,
+  animation_3d: 512 * 1024 * 1024,
+  lip_sync_video: 512 * 1024 * 1024,
+  project_file: 100 * 1024 * 1024,
+  lottie_animation: 10 * 1024 * 1024,
+  remotion_composition: 10 * 1024 * 1024,
+  frame_sequence: 25 * 1024 * 1024,
 };
 
 export function validateMediaBytes(bytes: Uint8Array, declaredMimeType: string, type: CreateMediaAssetInput["type"]): ValidatedMediaBytes {
@@ -112,6 +126,17 @@ export function validateMediaBytes(bytes: Uint8Array, declaredMimeType: string, 
     sound_effect: ["audio/wav", "audio/mpeg"],
     subtitle: ["text/vtt", "application/x-subrip"],
     final_render: ["video/mp4", "video/webm"],
+    environment_reference: ["image/png", "image/jpeg", "image/webp"],
+    object_reference: ["image/png", "image/jpeg", "image/webp"],
+    character_model_3d: ["application/octet-stream", "model/gltf-binary", "model/fbx"],
+    character_rig: ["application/octet-stream", "model/gltf-binary", "model/fbx"],
+    animation_2d: ["video/mp4", "video/webm", "image/png", "image/gif"],
+    animation_3d: ["video/mp4", "video/webm", "image/png"],
+    lip_sync_video: ["video/mp4", "video/webm"],
+    project_file: ["application/octet-stream", "application/json", "application/xml"],
+    lottie_animation: ["application/json"],
+    remotion_composition: ["application/json", "application/javascript", "text/typescript"],
+    frame_sequence: ["image/png", "image/jpeg", "image/webp"],
   };
   if (!allowed[type].includes(detected)) throw new Error("media_type_mismatch");
   if (width === 0 || height === 0) throw new Error("invalid_media_dimensions");

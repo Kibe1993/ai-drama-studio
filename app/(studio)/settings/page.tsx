@@ -5,7 +5,7 @@ import { LANGUAGES } from "@/lib/domain/projectCatalog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { api, ApiError } from "@/hooks/api";
-import { Check } from "lucide-react";
+import { Check, Wrench } from "lucide-react";
 
 type Account = {
   email: string;
@@ -43,6 +43,13 @@ export default function SettingsPage() {
       <p className="mt-4 text-[#cfc6b8] leading-relaxed">
         Provider keys stay on the server. This page stores your language preference.
       </p>
+      <a
+        href="/settings/tools"
+        className="mt-6 inline-flex items-center gap-2 rounded-lg border border-[#2e2a25] px-4 py-2.5 text-sm text-[#cfc6b8] transition hover:border-[#4a453d]"
+      >
+        <Wrench size={16} strokeWidth={2} />
+        External Tools Integration
+      </a>
       {account ? (
         <form
           className="mt-8 rounded-xl border border-[#2e2a25] bg-[#181612] p-6 grid gap-5"

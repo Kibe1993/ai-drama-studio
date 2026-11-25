@@ -170,7 +170,7 @@ describe("job type queue routing", () => {
     expect(queueNameFor("assembly.generate")).toBe("generation");
   });
 
-  it("includes all 21 job types", () => {
-    expect(JOB_TYPES).toHaveLength(21);
+  it("includes all 31 job types", () => {
+    expect(JOB_TYPES).toHaveLength(31);
   });
 });

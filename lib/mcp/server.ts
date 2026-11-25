@@ -31,6 +31,8 @@ import type { RequestAuth } from "@/lib/auth/session";
 import { GENRES, LANGUAGES, VISUAL_STYLES, ASPECT_RATIOS, PRODUCTION_TYPES } from "@/lib/domain/projectCatalog";
 import { storyStructureSchema, screenplaySceneSchema } from "@/lib/validation/story";
 import { LLM_GENERATION_ENABLED } from "@/lib/config";
+import { toolConfigService } from "@/lib/services/toolConfigService";
+import { TOOL_TYPES, TOOL_CATEGORIES } from "@/lib/validation/toolConfig";
 
 const genreIds = GENRES.map((g) => g.id) as [(typeof GENRES)[number]["id"], ...(typeof GENRES)[number]["id"][]];
 const languageIds = LANGUAGES.map((l) => l.id) as [(typeof LANGUAGES)[number]["id"], ...(typeof LANGUAGES)[number]["id"][]];
@@ -93,6 +95,7 @@ export function createMcpServer(clerkUserId: string): McpServer {
   registerPlanningTools(server, actor, clerkUserId);
   registerProductionDesignTools(server, actor, clerkUserId);
   registerVoiceTools(server, actor, clerkUserId);
+  registerToolIntegrationTools(server, actor, clerkUserId);
   registerResources(server, clerkUserId);
 
   return server;
@@ -212,6 +215,105 @@ function registerProjectTools(server: McpServer, actor: RequestAuth, clerkUserId
         }
         logTool("project.delete", clerkUserId, `projectId=${args.projectId} title="${project.title}"`);
         return await projectService.remove(actor, args.projectId);
+      });
+    },
+  );
+}
+
+function registerToolIntegrationTools(server: McpServer, actor: RequestAuth, clerkUserId: string): void {
+  server.tool(
+    "tools.list",
+    "List all configured external tools and their connection status. Status is evidence-based: not_installed → installed → configured → connected → available.",
+    {},
+    async () => {
+      return run(async () => {
+        return await toolConfigService.list(clerkUserId);
+      });
+    },
+  );
+
+  server.tool(
+    "tools.get",
+    "Get details of a specific external tool configuration by tool ID.",
+    {
+      toolId: z.string().describe("The tool configuration ID"),
+    },
+    async (args) => {
+      return run(async () => {
+        return await toolConfigService.findById(clerkUserId, args.toolId);
+      });
+    },
+  );
+
+  server.tool(
+    "tools.configure",
+    "Update configuration for an external tool. Fields: displayName, enabled, endpoint, executablePath, workingDirectory, apiKey, config.",
+    {
+      toolId: z.string().describe("The tool configuration ID"),
+      displayName: z.string().min(1).max(80).optional(),
+      enabled: z.boolean().optional(),
+      endpoint: z.string().optional(),
+      executablePath: z.string().optional(),
+      workingDirectory: z.string().optional(),
+      apiKey: z.string().optional(),
+      config: z.record(z.unknown()).optional(),
+    },
+    async (args) => {
+      return run(async () => {
+        const { toolId, ...update } = args;
+        return await toolConfigService.update(clerkUserId, toolId, update);
+      });
+    },
+  );
+
+  server.tool(
+    "tools.healthCheck",
+    "Run a health check on a specific tool. Returns updated status and health check result. Status transitions require evidence.",
+    {
+      toolId: z.string().describe("The tool configuration ID"),
+    },
+    async (args) => {
+      return run(async () => {
+        return await toolConfigService.runHealthCheck(clerkUserId, args.toolId);
+      });
+    },
+  );
+
+  server.tool(
+    "tools.healthCheckAll",
+    "Run health checks on all enabled tools. Returns array of results.",
+    {},
+    async () => {
+      return run(async () => {
+        return await toolConfigService.runHealthCheckAll(clerkUserId);
+      });
+    },
+  );
+
+  server.tool(
+    "tools.listByCategory",
+    "List tools filtered by category. Categories: image_generation, video_generation, animation_2d, animation_3d, character_creation, audio_tts, audio_editing, lip_sync, rendering, animation_codec, cloud_generation.",
+    {
+      category: z.enum(TOOL_CATEGORIES).describe("Tool category to filter by"),
+    },
+    async (args) => {
+      return run(async () => {
+        return await toolConfigService.listByCategory(clerkUserId, args.category);
+      });
+    },
+  );
+
+  server.tool(
+    "tools.enable",
+    "Enable a tool by its tool type (e.g. comfyui, blender, synfig). Returns updated configuration.",
+    {
+      toolType: z.enum(TOOL_TYPES).describe("The tool type identifier"),
+    },
+    async (args) => {
+      return run(async () => {
+        const config = await toolConfigService.findByToolType(clerkUserId, args.toolType);
+        if (!config) throw new Error(`No configuration found for ${args.toolType}`);
+        return await toolConfigService.update(clerkUserId, config.id, { enabled: true });
       });
     },
   );

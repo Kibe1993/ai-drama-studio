@@ -1,0 +1,58 @@
+.page { max-width: 64rem; margin: 0 auto; }
+.header { margin-top: 1.5rem; }
+.eyebrow { font-size: 0.75rem; letter-spacing: 0.16em; text-transform: uppercase; color: #c4a574; }
+.title { font-family: var(--font-display), serif; font-size: 3rem; color: #f3efe6; margin-top: 0.5rem; }
+.subtitle { font-size: 0.875rem; color: #a39b8f; margin-top: 1rem; line-height: 1.6; }
+.toolbar { display: flex; align-items: center; gap: 0.75rem; margin-top: 1.5rem; flex-wrap: wrap; }
+.groupLabel { font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; color: #a39b8f; margin-top: 2rem; margin-bottom: 0.75rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: 1rem; }
+.card { border: 1px solid #2a2620; border-radius: 0.75rem; padding: 1.25rem; background: #181612; display: flex; flex-direction: column; gap: 0.75rem; transition: border-color 0.15s; }
+.card:hover { border-color: #3a3530; }
+.cardHeader { display: flex; align-items: center; justify-content: space-between; }
+.cardTitle { display: flex; align-items: center; gap: 0.625rem; }
+.toolIcon { width: 2.25rem; height: 2.25rem; border-radius: 0.5rem; display: flex; align-items: center; justify-content: center; font-size: 0.875rem; font-weight: 600; flex-shrink: 0; background: #2a2620; color: #c4a574; }
+.toolName { font-size: 1rem; color: #f3efe6; font-weight: 500; }
+.toolCategory { font-size: 0.7rem; color: #a39b8f; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.125rem; }
+.statusBadge { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-weight: 600; white-space: nowrap; }
+.statusNotInstalled { background: #2a2620; color: #a39b8f; }
+.statusInstalled { background: #28323a; color: #6b9bc4; }
+.statusConfigured { background: #2d3a28; color: #a8c47f; }
+.statusConnected { background: #2d3a28; color: #7fb069; }
+.statusAvailable { background: #1d3a1d; color: #6bb36b; }
+.statusProcessing { background: #3a3228; color: #dfc18a; }
+.statusFailed { background: #3a1d1d; color: #e7b2a8; }
+.statusUnavailable { background: #2a2620; color: #6b6258; }
+.cardBody { font-size: 0.8125rem; color: #a39b8f; line-height: 1.5; }
+.healthRow { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: #a39b8f; }
+.healthOk { color: #6bb36b; }
+.healthDegraded { color: #dfc18a; }
+.healthFail { color: #e7b2a8; }
+.healthUnknown { color: #a39b8f; }
+.cardActions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap; }
+.toggle { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.8125rem; color: #cfc6b8; }
+.toggleInput { width: 1rem; height: 1rem; accent-color: #c4a574; }
+.btn { font-size: 0.75rem; padding: 0.375rem 0.625rem; border-radius: 0.375rem; border: 1px solid #3a3530; background: transparent; color: #cfc6b8; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.btn:hover { background: #2a2620; border-color: #4a453d; }
+.btnPrimary { border-color: #c4a574; color: #c4a574; }
+.btnPrimary:hover { background: rgba(196, 165, 116, 0.1); }
+.btnCheck { border-color: #6b9bc4; color: #6b9bc4; }
+.btnCheck:hover { background: rgba(107, 155, 196, 0.1); }
+.btnCheckAll { font-size: 0.8125rem; padding: 0.5rem 0.875rem; border-radius: 0.375rem; border: 1px solid #6b9bc4; background: transparent; color: #6b9bc4; cursor: pointer; transition: background 0.15s; }
+.btnCheckAll:hover { background: rgba(107, 155, 196, 0.1); }
+.btnCheckAll:disabled { opacity: 0.5; cursor: not-allowed; }
+.editForm { display: grid; gap: 0.75rem; margin-top: 0.5rem; }
+.field { display: grid; gap: 0.25rem; }
+.fieldLabel { font-size: 0.75rem; color: #a39b8f; }
+.fieldInput { background: #1a1814; border: 1px solid #2e2a25; border-radius: 0.375rem; padding: 0.5rem 0.625rem; color: #f3efe6; font-size: 0.8125rem; }
+.fieldInput:focus { outline: none; border-color: #c4a574; }
+.fieldInput::placeholder { color: #6b6258; }
+.configKey { font-size: 0.7rem; color: #6b6258; }
+.empty { text-align: center; padding: 4rem; color: #a39b8f; }
+.loading { color: #a39b8f; margin-top: 2rem; }
+.error { color: #e7b2a8; margin-top: 1.5rem; }
+.success { color: #6bb36b; font-size: 0.8125rem; }
+.modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 1rem; }
+.modalCard { background: #181612; border: 1px solid #2e2a25; border-radius: 0.75rem; padding: 1.5rem; max-width: 32rem; width: 100%; max-height: 85vh; overflow-y: auto; }
+.modalTitle { font-family: var(--font-display), serif; font-size: 1.25rem; color: #f3efe6; }
+.modalClose { float: right; cursor: pointer; color: #a39b8f; font-size: 1.25rem; background: none; border: none; }
+.modalClose:hover { color: #f3efe6; }

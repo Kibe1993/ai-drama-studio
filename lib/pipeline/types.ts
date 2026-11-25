@@ -23,6 +23,16 @@ export const JOB_TYPES = [
   "media.validate",
   "assembly.generate",
   "canon.extract",
+  "image.comfyui",
+  "animation.2d",
+  "animation.3d",
+  "character.model",
+  "character.rig",
+  "audio.lipsync",
+  "audio.edit",
+  "render.remotion",
+  "video.veo",
+  "tool.healthcheck",
 ] as const;
 
 export type JobType = (typeof JOB_TYPES)[number];

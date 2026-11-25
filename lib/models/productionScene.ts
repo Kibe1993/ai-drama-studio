@@ -35,7 +35,7 @@ const ProductionSceneSchema = new Schema({
   videoStatus: { type: String, enum: ["pending", "processing", "mock", "completed", "failed", "unavailable"], default: "pending" },
   videoAssetId: { type: Schema.Types.ObjectId, default: null },
   failed: { type: Boolean, default: false },
-  productionStatus: { type: String, enum: ["pending", "in_progress", "complete"], default: "pending" },
+  productionStatus: { type: String, enum: ["pending", "in_progress", "completed"], default: "pending" },
   approvedAt: { type: Date, default: null },
   sourceCanonVersion: { type: Number, default: null },
   canonStale: { type: Boolean, default: false },

@@ -691,7 +691,7 @@ function registerRenderTools(server: McpServer, actor: RequestAuth, clerkUserId:
     {
       episodeId: z.string().describe("The episode ID to render"),
       timelineId: z.string().describe("The timeline ID to render"),
-      presetId: z.enum(["standard", "high", "social"]).default("standard").describe("Render preset"),
+      presetId: z.enum(["vertical_9_16", "landscape_16_9", "square_1_1"]).default("vertical_9_16").describe("Render preset: vertical_9_16 (9:16 portrait), landscape_16_9 (16:9 landscape), square_1_1 (1:1 square)"),
     },
     async (args) => {
       return run(async () => {

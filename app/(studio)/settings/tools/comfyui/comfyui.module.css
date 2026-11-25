@@ -1,0 +1,41 @@
+.page { max-width: 56rem; margin: 0 auto; }
+.header { margin-top: 1.5rem; }
+.eyebrow { font-size: 0.75rem; letter-spacing: 0.16em; text-transform: uppercase; color: #c4a574; }
+.title { font-family: var(--font-display), serif; font-size: 2.5rem; color: #f3efe6; margin-top: 0.5rem; }
+.subtitle { font-size: 0.875rem; color: #a39b8f; margin-top: 0.75rem; line-height: 1.6; }
+.section { margin-top: 2rem; }
+.sectionTitle { font-size: 1rem; color: #f3efe6; font-weight: 500; margin-bottom: 0.75rem; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.field { display: grid; gap: 0.375rem; }
+.fieldLabel { font-size: 0.75rem; color: #a39b8f; }
+.fieldInput { background: #1a1814; border: 1px solid #2e2a25; border-radius: 0.375rem; padding: 0.5rem 0.625rem; color: #f3efe6; font-size: 0.8125rem; }
+.fieldInput:focus { outline: none; border-color: #c4a574; }
+.fieldInput::placeholder { color: #6b6258; }
+textarea.fieldInput { resize: vertical; min-height: 6rem; font-family: monospace; }
+.btn { font-size: 0.8125rem; padding: 0.5rem 0.875rem; border-radius: 0.375rem; border: 1px solid #3a3530; background: transparent; color: #cfc6b8; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.btn:hover { background: #2a2620; border-color: #4a453d; }
+.btnPrimary { border-color: #c4a574; color: #c4a574; }
+.btnPrimary:hover { background: rgba(196, 165, 116, 0.1); }
+.btnPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btnDanger { border-color: #e7b2a8; color: #e7b2a8; }
+.toolbar { display: flex; gap: 0.75rem; align-items: center; margin-top: 1rem; flex-wrap: wrap; }
+.statusRow { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; }
+.statusOk { color: #6bb36b; }
+.statusProcessing { color: #dfc18a; }
+.statusFail { color: #e7b2a8; }
+.statusUnknown { color: #a39b8f; }
+.results { margin-top: 1.5rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: 1rem; }
+.resultCard { border: 1px solid #2a2620; border-radius: 0.5rem; padding: 0.75rem; }
+.resultImg { width: 100%; border-radius: 0.375rem; }
+.resultMeta { font-size: 0.7rem; color: #a39b8f; margin-top: 0.5rem; }
+.workflows { margin-top: 1rem; display: grid; gap: 0.5rem; }
+.workflowItem { border: 1px solid #2a2620; border-radius: 0.375rem; padding: 0.625rem 0.875rem; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: border-color 0.15s; }
+.workflowItem:hover { border-color: #4a453d; }
+.workflowItemSelected { border-color: #c4a574; }
+.workflowName { font-size: 0.875rem; color: #f3efe6; }
+.workflowCat { font-size: 0.7rem; color: #a39b8f; }
+.empty { text-align: center; padding: 3rem; color: #a39b8f; }
+.error { color: #e7b2a8; margin-top: 0.75rem; }
+.loading { color: #a39b8f; }
+.modelInfo { font-size: 0.75rem; color: #a39b8f; margin-top: 0.5rem; }
+.modelBadge { display: inline-block; background: #2a2620; color: #cfc6b8; padding: 0.125rem 0.375rem; border-radius: 0.25rem; margin: 0.125rem; font-size: 0.7rem; }

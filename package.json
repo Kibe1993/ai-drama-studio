@@ -12,7 +12,8 @@
     "test:ollama": "tsx scripts/test-ollama-live.ts",
     "worker": "tsx --conditions react-server workers/studio.ts",
     "media:orphan-audit": "tsx --conditions react-server scripts/audit-media-orphans.ts",
-    "mcp:server": "tsx --conditions react-server scripts/mcp-server.ts"
+    "mcp:server": "tsx --conditions react-server scripts/mcp-server.ts",
+    "mcp:gateway": "node scripts/mcp-gateway.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",

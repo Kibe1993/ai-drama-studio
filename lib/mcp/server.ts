@@ -33,6 +33,8 @@ import { storyStructureSchema, screenplaySceneSchema } from "@/lib/validation/st
 import { LLM_GENERATION_ENABLED } from "@/lib/config";
 import { toolConfigService } from "@/lib/services/toolConfigService";
 import { TOOL_TYPES, TOOL_CATEGORIES } from "@/lib/validation/toolConfig";
+import { comfyUIService } from "@/lib/services/comfyUIService";
+import { initializeExternalProviders } from "@/lib/providers/external";
 
 const genreIds = GENRES.map((g) => g.id) as [(typeof GENRES)[number]["id"], ...(typeof GENRES)[number]["id"][]];
 const languageIds = LANGUAGES.map((l) => l.id) as [(typeof LANGUAGES)[number]["id"], ...(typeof LANGUAGES)[number]["id"][]];
@@ -72,6 +74,7 @@ function logTool(tool: string, clerkUserId: string, detail: string): void {
 }
 
 export function createMcpServer(clerkUserId: string): McpServer {
+  initializeExternalProviders();
   const actor = makeActor(clerkUserId);
   const server = new McpServer({
     name: "ai-drama-studio",
@@ -314,6 +317,48 @@ function registerToolIntegrationTools(server: McpServer, actor: RequestAuth, cle
         const config = await toolConfigService.findByToolType(clerkUserId, args.toolType);
         if (!config) throw new Error(`No configuration found for ${args.toolType}`);
         return await toolConfigService.update(clerkUserId, config.id, { enabled: true });
+      });
+    },
+  );
+
+  server.tool(
+    "comfyui.workflows",
+    "List saved ComfyUI workflows and available models (checkpoints, LoRAs).",
+    {},
+    async () => {
+      return run(async () => {
+        const [workflows, models] = await Promise.all([
+          comfyUIService.getWorkflows(clerkUserId).catch(() => []),
+          comfyUIService.listModels(clerkUserId).catch(() => ({ checkpoints: [], loras: [] })),
+        ]);
+        return { workflows, models };
+      });
+    },
+  );
+
+  server.tool(
+    "comfyui.execute",
+    "Execute a ComfyUI workflow by ID with provided inputs. Returns prompt ID for polling.",
+    {
+      workflowId: z.string().describe("The workflow ID to execute"),
+      inputs: z.record(z.unknown()).default({}).describe("Workflow input parameters as JSON"),
+    },
+    async (args) => {
+      return run(async () => {
+        return await comfyUIService.execute(clerkUserId, args.workflowId, args.inputs);
+      });
+    },
+  );
+
+  server.tool(
+    "comfyui.poll",
+    "Poll the status of a ComfyUI execution by prompt ID. Returns status and image URLs when complete.",
+    {
+      promptId: z.string().describe("The ComfyUI prompt ID to poll"),
+    },
+    async (args) => {
+      return run(async () => {
+        return await comfyUIService.poll(clerkUserId, args.promptId);
       });
     },
   );

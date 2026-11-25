@@ -1695,26 +1695,45 @@ function registerPlanningTools(server: McpServer, actor: RequestAuth, clerkUserI
 
   server.tool(
     "planning.update",
-    "Create or update the creative planning document. Submits for creator approval.",
+    "Create or update the creative planning document. Accepts all 12 creative planning fields; omitted fields preserve their existing values. Does not submit or approve — use planning.submit and planning.approve for that.",
     {
       projectId: z.string().describe("The project ID"),
-      logline: z.string().max(500).optional().describe("One-sentence logline"),
-      synopsis: z.string().max(10000).optional().describe("Story synopsis"),
+      logline: z.string().max(500).optional().describe("One-sentence logline (concept.logline)"),
+      synopsis: z.string().max(10000).optional().describe("Story synopsis (concept.synopsis)"),
+      elevatorPitch: z.string().max(1000).optional().describe("Elevator pitch (concept.elevatorPitch)"),
       themes: z.array(z.string()).max(20).optional().describe("Story themes"),
       centralQuestion: z.string().max(1000).optional().describe("Central dramatic question"),
       mainConflict: z.string().max(2000).optional().describe("Main conflict description"),
+      demographic: z.string().max(500).optional().describe("Target audience demographic (audience.demographic)"),
+      audienceTone: z.string().max(200).optional().describe("Audience tone (audience.tone)"),
+      contentRating: z.string().max(50).optional().describe("Content rating (audience.contentRating)"),
+      structure: z.string().max(200).optional().describe("Narrative structure (narrativeDirection.structure)"),
+      pov: z.string().max(200).optional().describe("Point of view (narrativeDirection.pov)"),
+      pacing: z.string().max(200).optional().describe("Pacing (narrativeDirection.pacing)"),
     },
     async (args) => {
       logTool("planning.update", clerkUserId, `projectId=${args.projectId}`);
       return run(async () => {
         const existing = await planningService.get(actor, args.projectId);
         const data = {
-          concept: { logline: args.logline ?? existing?.concept.logline ?? "", synopsis: args.synopsis ?? existing?.concept.synopsis ?? "", elevatorPitch: existing?.concept.elevatorPitch ?? "" },
+          concept: {
+            logline: args.logline ?? existing?.concept.logline ?? "",
+            synopsis: args.synopsis ?? existing?.concept.synopsis ?? "",
+            elevatorPitch: args.elevatorPitch ?? existing?.concept.elevatorPitch ?? "",
+          },
           themes: args.themes ?? existing?.themes ?? [],
           centralQuestion: args.centralQuestion ?? existing?.centralQuestion ?? "",
           mainConflict: args.mainConflict ?? existing?.mainConflict ?? "",
-          audience: existing?.audience ?? { demographic: "", tone: "", contentRating: "" },
-          narrativeDirection: existing?.narrativeDirection ?? { structure: "", pov: "", pacing: "" },
+          audience: {
+            demographic: args.demographic ?? existing?.audience.demographic ?? "",
+            tone: args.audienceTone ?? existing?.audience.tone ?? "",
+            contentRating: args.contentRating ?? existing?.audience.contentRating ?? "",
+          },
+          narrativeDirection: {
+            structure: args.structure ?? existing?.narrativeDirection.structure ?? "",
+            pov: args.pov ?? existing?.narrativeDirection.pov ?? "",
+            pacing: args.pacing ?? existing?.narrativeDirection.pacing ?? "",
+          },
           alternativeDirections: existing?.alternativeDirections ?? [],
           references: existing?.references ?? [],
         };

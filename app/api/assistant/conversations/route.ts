@@ -24,7 +24,7 @@ export function POST(request: Request) {
   return logged(request, async () => {
     const actor = await readActor();
     const parsed = z.object({
-      provider: z.enum(["openai", "gemini", "deepseek"]),
+      provider: z.enum(["openai", "gemini", "deepseek", "groq"]),
       model: z.string().min(1),
       title: z.string().max(200).optional(),
       projectId: z.string().nullable().optional(),

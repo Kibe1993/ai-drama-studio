@@ -28,7 +28,7 @@ export default function AssistantPage() {
     fetch("/api/assistant/providers")
       .then((res) => res.json())
       .then((data) => {
-        const list = data.data as ChatAgentProviderInfo[];
+        const list = (data.data?.providers ?? []) as ChatAgentProviderInfo[];
         setProviders(list);
         const configured = list.find((p) => p.configured);
         const target = configured ?? list[0];

@@ -1,7 +1,8 @@
 import "server-only";
 import { getChatAgentProvider } from "@/lib/providers/chat/registry";
 import { getToolExecutor } from "@/lib/assistant/mcpToolExecutor";
-import { requiresApproval } from "@/lib/assistant/toolRegistry";
+import { requiresApproval, isDestructive } from "@/lib/assistant/toolRegistry";
+import { createPendingApproval, cancelApproval } from "@/lib/assistant/approvalManager";
 import { conversationRepository } from "@/lib/repositories/conversationRepository";
 import { chatMessageRepository } from "@/lib/repositories/chatMessageRepository";
 import { logActivity } from "@/lib/mcp/activityLog";
@@ -163,6 +164,23 @@ export async function* chat(params: ChatParams): AsyncGenerator<ChatStreamOutput
 
       if (requiresApproval(tc.name)) {
         yield { type: "approval_required", id: tc.id, name: tc.name, args: tc.args };
+        const approved = await createPendingApproval(tc.id);
+        if (!approved) {
+          toolCall.result = isDestructive(tc.name) ? "Operation rejected by user." : "Action cancelled by user.";
+          toolCall.status = "rejected";
+          yield { type: "tool_result", id: tc.id, result: toolCall.result, status: "rejected" };
+          allMessages.push({
+            role: "assistant",
+            content: assistantContent,
+            toolCalls: [toolCall],
+          });
+          allMessages.push({
+            role: "tool",
+            content: toolCall.result,
+            toolCalls: [toolCall],
+          });
+          continue;
+        }
       }
 
       const result = await executor.callTool(tc.name, tc.args);

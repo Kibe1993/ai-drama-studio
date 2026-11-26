@@ -13,7 +13,7 @@ export type ToolCall = {
   name: string;
   args: Record<string, unknown>;
   result?: string;
-  status: "pending" | "success" | "error" | "awaiting_approval";
+  status: "pending" | "success" | "error" | "awaiting_approval" | "rejected";
 };
 
 export type ChatMessage = {
@@ -26,7 +26,7 @@ export type ChatMessage = {
 export type ChatStreamEvent =
   | { type: "text"; delta: string }
   | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
-  | { type: "tool_result"; id: string; result: string; status: "success" | "error" }
+  | { type: "tool_result"; id: string; result: string; status: "success" | "error" | "rejected" }
   | { type: "approval_required"; id: string; name: string; args: Record<string, unknown> }
   | { type: "usage"; usage: TokenUsage }
   | { type: "done"; finishReason: string }

@@ -32,7 +32,7 @@ export default function ConversationPage() {
   useEffect(() => {
     fetch("/api/assistant/providers")
       .then((res) => res.json())
-      .then((data) => setProviders(data.data as ChatAgentProviderInfo[]))
+      .then((data) => setProviders((data.data?.providers ?? []) as ChatAgentProviderInfo[]))
       .catch(() => setError("Failed to load providers."));
   }, []);
 

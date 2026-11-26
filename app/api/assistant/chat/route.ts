@@ -17,10 +17,11 @@ export function POST(request: Request) {
 
     const body = await request.json().catch(() => null);
     const parsed = z.object({
-      provider: z.enum(["openai", "gemini", "deepseek"]),
+      provider: z.enum(["openai", "gemini", "deepseek", "groq"]),
       model: z.string().min(1),
       message: z.string().min(1).max(50000),
       conversationId: z.string().nullable().optional(),
+      projectId: z.string().nullable().optional(),
       temperature: z.number().min(0).max(2).optional(),
       maxTokens: z.number().int().min(1).max(32768).optional(),
     }).safeParse(body);
@@ -29,7 +30,7 @@ export function POST(request: Request) {
       return errorResponse(400, "invalid_input", parsed.error.issues[0]?.message ?? "Check the form");
     }
 
-    const { provider, model, message, conversationId, temperature, maxTokens } = parsed.data;
+    const { provider, model, message, conversationId, projectId, temperature, maxTokens } = parsed.data;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -41,6 +42,7 @@ export function POST(request: Request) {
             model,
             message,
             conversationId: conversationId ?? null,
+            projectId: projectId ?? null,
             temperature,
             maxTokens,
             signal: request.signal,

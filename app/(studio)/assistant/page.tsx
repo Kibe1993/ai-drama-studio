@@ -9,16 +9,19 @@ import { ChatInput } from "@/components/assistant/ChatInput";
 import type { ChatAgentId, ChatAgentProviderInfo, ChatMessage, ToolCall, TokenUsage } from "@/lib/assistant/types";
 
 type DisplayMessage = ChatMessage & { id: string };
+type ProjectOption = { id: string; title: string };
 
 export default function AssistantPage() {
   const [providers, setProviders] = useState<ChatAgentProviderInfo[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<ChatAgentId>("gemini");
+  const [selectedProvider, setSelectedProvider] = useState<ChatAgentId>("groq");
   const [selectedModel, setSelectedModel] = useState("");
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
   const [providerFilter, setProviderFilter] = useState<ChatAgentId | null>(null);
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -35,6 +38,16 @@ export default function AssistantPage() {
         }
       })
       .catch(() => setError("Failed to load providers."));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/projects")
+      .then((res) => res.json())
+      .then((data) => {
+        const list = (data.data ?? []) as ProjectOption[];
+        setProjects(list);
+      })
+      .catch(() => { /* projects optional */ });
   }, []);
 
   useEffect(() => {
@@ -63,6 +76,7 @@ export default function AssistantPage() {
           model: selectedModel,
           message,
           conversationId: null,
+          projectId: selectedProjectId,
         }),
         signal: controller.signal,
       });
@@ -122,7 +136,7 @@ export default function AssistantPage() {
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [selectedProvider, selectedModel]);
+  }, [selectedProvider, selectedModel, selectedProjectId]);
 
   function handleCancel() {
     abortRef.current?.abort();
@@ -158,6 +172,19 @@ export default function AssistantPage() {
             onProviderChange={setSelectedProvider}
             onModelChange={setSelectedModel}
           />
+          <div className={styles.projectSelector}>
+            <span className={styles.agentLabel}>Project:</span>
+            <select
+              className={styles.modelSelect}
+              value={selectedProjectId ?? ""}
+              onChange={(e) => setSelectedProjectId(e.target.value || null)}
+            >
+              <option value="">All projects</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.title}</option>
+              ))}
+            </select>
+          </div>
         </div>
         {error ? <div className={styles.error} style={{ padding: "0 1.5rem" }}>{error}</div> : null}
         <ChatMessages messages={messages} pendingToolCalls={pendingToolCalls} onApprove={handleApprove} />

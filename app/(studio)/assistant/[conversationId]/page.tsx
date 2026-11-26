@@ -87,6 +87,7 @@ export default function ConversationPage() {
           model: selectedModel,
           message,
           conversationId,
+          projectId: conversation?.projectId ?? null,
         }),
         signal: controller.signal,
       });
@@ -144,7 +145,7 @@ export default function ConversationPage() {
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [selectedProvider, selectedModel, conversationId]);
+  }, [selectedProvider, selectedModel, conversationId, conversation]);
 
   function handleCancel() {
     abortRef.current?.abort();

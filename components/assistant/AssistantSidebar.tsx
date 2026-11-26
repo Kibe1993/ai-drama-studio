@@ -53,6 +53,7 @@ export function AssistantSidebar({ currentConversationId, providerFilter, onFilt
 
   const filters: { label: string; value: ChatAgentId | null }[] = [
     { label: "All", value: null },
+    { label: "Groq", value: "groq" },
     { label: "Gemini", value: "gemini" },
     { label: "ChatGPT", value: "openai" },
     { label: "DeepSeek", value: "deepseek" },

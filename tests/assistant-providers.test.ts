@@ -20,10 +20,10 @@ import { listChatAgentProviders, getChatAgentProvider } from "@/lib/providers/ch
 import { isExposed, requiresApproval } from "@/lib/assistant/toolRegistry";
 
 describe("Chat Agent Provider Registry", () => {
-  it("lists all three providers", () => {
+  it("lists all four providers", () => {
     const providers = listChatAgentProviders();
-    expect(providers).toHaveLength(3);
-    expect(providers.map((p) => p.id)).toEqual(["gemini", "openai", "deepseek"]);
+    expect(providers).toHaveLength(4);
+    expect(providers.map((p) => p.id)).toEqual(["groq", "gemini", "openai", "deepseek"]);
   });
 
   it("each provider has correct metadata", () => {
@@ -149,7 +149,7 @@ describe("Tool Registry", () => {
   it("exposes read tools", () => {
     expect(isExposed("project.list")).toBe(true);
     expect(isExposed("document.get")).toBe(true);
-    expect(isExposed("canon.facts")).toBe(true);
+    expect(isExposed("canon.summary")).toBe(true);
   });
 
   it("exposes write tools", () => {
@@ -167,8 +167,8 @@ describe("Tool Registry", () => {
   it("requires approval for write tools", () => {
     expect(requiresApproval("document.update")).toBe(true);
     expect(requiresApproval("entity.create")).toBe(true);
-    expect(requiresApproval("entity.update")).toBe(true);
-    expect(requiresApproval("story.propose")).toBe(true);
+    expect(requiresApproval("scene.update")).toBe(true);
+    expect(requiresApproval("pipeline.start")).toBe(true);
   });
 
   it("does not require approval for read tools", () => {

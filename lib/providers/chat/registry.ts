@@ -3,14 +3,16 @@ import type { ChatAgentProvider, ChatAgentId, ChatAgentProviderInfo } from "@/li
 import { GeminiChatProvider } from "./geminiChatProvider";
 import { OpenAIChatProvider } from "./openaiChatProvider";
 import { DeepSeekChatProvider } from "./deepSeekChatProvider";
+import { GroqChatProvider } from "./groqChatProvider";
 
 const providers: Record<ChatAgentId, ChatAgentProvider> = {
   gemini: new GeminiChatProvider(),
+  groq: new GroqChatProvider(),
   openai: new OpenAIChatProvider(),
   deepseek: new DeepSeekChatProvider(),
 };
 
-const PROVIDER_ORDER: ChatAgentId[] = ["gemini", "openai", "deepseek"];
+const PROVIDER_ORDER: ChatAgentId[] = ["groq", "gemini", "openai", "deepseek"];
 
 export function getChatAgentProvider(id: string): ChatAgentProvider | undefined {
   return providers[id as ChatAgentId];

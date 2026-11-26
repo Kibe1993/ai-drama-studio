@@ -12,6 +12,7 @@ type Props = {
 };
 
 const DISPLAY_NAMES: Record<ChatAgentId, string> = {
+  groq: "Groq",
   gemini: "Google Gemini",
   openai: "ChatGPT (OpenAI)",
   deepseek: "DeepSeek",

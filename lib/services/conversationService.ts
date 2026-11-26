@@ -34,6 +34,7 @@ export type ChatParams = {
   model: string;
   message: string;
   conversationId: string | null;
+  projectId?: string | null;
   temperature?: number;
   maxTokens?: number;
   signal?: AbortSignal;
@@ -72,6 +73,7 @@ export async function* chat(params: ChatParams): AsyncGenerator<ChatStreamOutput
     conversation = await conversationRepository.create(params.clerkUserId, {
       provider: params.provider,
       model: params.model,
+      projectId: params.projectId ?? null,
     });
     yield { type: "conversation", conversationId: conversation.id };
   }

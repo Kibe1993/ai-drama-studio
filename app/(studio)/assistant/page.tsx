@@ -44,7 +44,7 @@ export default function AssistantPage() {
     fetch("/api/projects")
       .then((res) => res.json())
       .then((data) => {
-        const list = (data.data ?? []) as ProjectOption[];
+        const list = Array.isArray(data.data?.projects) ? data.data.projects : [];
         setProjects(list);
       })
       .catch(() => { /* projects optional */ });

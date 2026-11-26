@@ -17,3 +17,6 @@ storage/media
 tmp
 .arts/
 .vscode/
+.agents/
+.gemini/
+.qwen/

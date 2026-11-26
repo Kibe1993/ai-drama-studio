@@ -11,11 +11,12 @@ type Props = {
   messages: DisplayMessage[];
   pendingToolCalls: PendingToolCall[];
   onApprove: (id: string, approved: boolean) => void;
+  streaming: boolean;
 };
 
 export type PendingToolCall = ToolCall & { conversationId: string };
 
-export function ChatMessages({ messages, pendingToolCalls, onApprove }: Props) {
+export function ChatMessages({ messages, pendingToolCalls, onApprove, streaming }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -72,6 +73,13 @@ export function ChatMessages({ messages, pendingToolCalls, onApprove }: Props) {
           </div>
         </div>
       ))}
+      {streaming ? (
+        <div className={styles.typingIndicator}>
+          <span className={styles.typingDot} />
+          <span className={styles.typingDot} />
+          <span className={styles.typingDot} />
+        </div>
+      ) : null}
       <div ref={endRef} />
     </div>
   );

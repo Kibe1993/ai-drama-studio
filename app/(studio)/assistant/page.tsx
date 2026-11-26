@@ -187,7 +187,7 @@ export default function AssistantPage() {
           </div>
         </div>
         {error ? <div className={styles.error} style={{ padding: "0 1.5rem" }}>{error}</div> : null}
-        <ChatMessages messages={messages} pendingToolCalls={pendingToolCalls} onApprove={handleApprove} />
+        <ChatMessages messages={messages} pendingToolCalls={pendingToolCalls} onApprove={handleApprove} streaming={streaming} />
         <ChatInput onSend={handleSend} onCancel={handleCancel} disabled={streaming || !currentProvider?.configured} streaming={streaming} />
       </div>
     </div>

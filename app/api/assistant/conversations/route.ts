@@ -8,7 +8,7 @@ export function GET(request: Request) {
   return logged(request, async () => {
     const actor = await readActor();
     const url = new URL(request.url);
-    const provider = url.searchParams.get("provider") as "openai" | "gemini" | "deepseek" | null;
+    const provider = url.searchParams.get("provider") as "openai" | "gemini" | "deepseek" | "groq" | "ollama" | null;
     const projectId = url.searchParams.get("projectId") ?? undefined;
     const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
     const conversations = await conversationService.list(actor.userId, {
@@ -24,7 +24,7 @@ export function POST(request: Request) {
   return logged(request, async () => {
     const actor = await readActor();
     const parsed = z.object({
-      provider: z.enum(["openai", "gemini", "deepseek", "groq"]),
+      provider: z.enum(["openai", "gemini", "deepseek", "groq", "ollama"]),
       model: z.string().min(1),
       title: z.string().max(200).optional(),
       projectId: z.string().nullable().optional(),

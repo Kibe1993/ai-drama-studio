@@ -1,4 +1,4 @@
-export type ChatAgentId = "openai" | "gemini" | "deepseek" | "groq";
+export type ChatAgentId = "openai" | "gemini" | "deepseek" | "groq" | "ollama";
 
 export type ChatRole = "user" | "assistant" | "tool" | "system";
 

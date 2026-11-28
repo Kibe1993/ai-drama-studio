@@ -16,6 +16,7 @@ const DISPLAY_NAMES: Record<ChatAgentId, string> = {
   gemini: "Google Gemini",
   openai: "ChatGPT (OpenAI)",
   deepseek: "DeepSeek",
+  ollama: "Ollama (Local)",
 };
 
 export function AgentSelector({ providers, selectedProvider, selectedModel, onProviderChange, onModelChange }: Props) {
@@ -38,7 +39,7 @@ export function AgentSelector({ providers, selectedProvider, selectedModel, onPr
       </select>
       {provider ? (
         <span className={`${styles.providerStatus} ${provider.configured ? styles.providerOk : styles.providerFail}`}>
-          {provider.configured ? "Ready" : "Needs API key"}
+          {provider.configured ? "Ready" : provider.id === "ollama" ? "Offline" : "Needs API key"}
         </span>
       ) : null}
       {provider?.freeTier ? <span className={`${styles.providerStatus} ${styles.providerFree}`}>Free</span> : null}

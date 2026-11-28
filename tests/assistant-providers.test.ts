@@ -20,10 +20,10 @@ import { listChatAgentProviders, getChatAgentProvider } from "@/lib/providers/ch
 import { isExposed, requiresApproval } from "@/lib/assistant/toolRegistry";
 
 describe("Chat Agent Provider Registry", () => {
-  it("lists all four providers", () => {
+  it("lists all five providers", () => {
     const providers = listChatAgentProviders();
-    expect(providers).toHaveLength(4);
-    expect(providers.map((p) => p.id)).toEqual(["groq", "gemini", "openai", "deepseek"]);
+    expect(providers).toHaveLength(5);
+    expect(providers.map((p) => p.id)).toEqual(["groq", "gemini", "openai", "deepseek", "ollama"]);
   });
 
   it("each provider has correct metadata", () => {

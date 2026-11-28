@@ -17,7 +17,7 @@ export function POST(request: Request) {
 
     const body = await request.json().catch(() => null);
     const parsed = z.object({
-      provider: z.enum(["openai", "gemini", "deepseek", "groq"]),
+      provider: z.enum(["openai", "gemini", "deepseek", "groq", "ollama"]),
       model: z.string().min(1),
       message: z.string().min(1).max(50000),
       conversationId: z.string().nullable().optional(),

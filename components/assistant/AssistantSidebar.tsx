@@ -60,8 +60,7 @@ export function AssistantSidebar({ currentConversationId, providerFilter, onFilt
     { label: "All", value: null },
     { label: "Groq", value: "groq" },
     { label: "Gemini", value: "gemini" },
-    { label: "ChatGPT", value: "openai" },
-    { label: "DeepSeek", value: "deepseek" },
+
     { label: "Ollama", value: "ollama" },
   ];
 

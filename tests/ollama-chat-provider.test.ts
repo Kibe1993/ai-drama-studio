@@ -444,16 +444,12 @@ describe("Ollama provider switching", () => {
     expect(ollamaInfo?.defaultModel).toBe("qwen3:8b");
   });
 
-  it("cloud providers remain unchanged after adding Ollama", () => {
+  it("free providers remain available alongside Ollama", () => {
     const providers = listChatAgentProviders();
     const groq = providers.find((p) => p.id === "groq");
     const gemini = providers.find((p) => p.id === "gemini");
-    const openai = providers.find((p) => p.id === "openai");
-    const deepseek = providers.find((p) => p.id === "deepseek");
 
     expect(groq?.models).toContain("openai/gpt-oss-120b");
     expect(gemini?.models).toContain("gemini-3.8-flash");
-    expect(openai?.models).toContain("gpt-4o");
-    expect(deepseek?.models).toContain("deepseek-chat");
   });
 });

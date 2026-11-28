@@ -20,28 +20,27 @@ import { listChatAgentProviders, getChatAgentProvider } from "@/lib/providers/ch
 import { isExposed, requiresApproval } from "@/lib/assistant/toolRegistry";
 
 describe("Chat Agent Provider Registry", () => {
-  it("lists all five providers", () => {
+  it("lists free providers only", () => {
     const providers = listChatAgentProviders();
-    expect(providers).toHaveLength(5);
-    expect(providers.map((p) => p.id)).toEqual(["groq", "gemini", "openai", "deepseek", "ollama"]);
+    expect(providers).toHaveLength(3);
+    expect(providers.map((p) => p.id)).toEqual(["groq", "gemini", "ollama"]);
   });
 
   it("each provider has correct metadata", () => {
     const providers = listChatAgentProviders();
+    const groq = providers.find((p) => p.id === "groq")!;
+    expect(groq.displayName).toBe("Groq");
+    expect(groq.freeTier).toBe(true);
+
     const gemini = providers.find((p) => p.id === "gemini")!;
     expect(gemini.displayName).toBe("Google Gemini");
     expect(gemini.freeTier).toBe(true);
     expect(gemini.defaultModel).toBe("gemini-3.8-flash");
 
-    const openai = providers.find((p) => p.id === "openai")!;
-    expect(openai.displayName).toBe("ChatGPT (OpenAI)");
-    expect(openai.freeTier).toBe(false);
-    expect(openai.defaultModel).toBe("gpt-4o");
-
-    const deepseek = providers.find((p) => p.id === "deepseek")!;
-    expect(deepseek.displayName).toBe("DeepSeek");
-    expect(deepseek.freeTier).toBe(false);
-    expect(deepseek.defaultModel).toBe("deepseek-chat");
+    const ollama = providers.find((p) => p.id === "ollama")!;
+    expect(ollama.displayName).toBe("Ollama");
+    expect(ollama.freeTier).toBe(true);
+    expect(ollama.defaultModel).toBe("qwen3:8b");
   });
 
   it("getChatAgentProvider returns provider by id", () => {

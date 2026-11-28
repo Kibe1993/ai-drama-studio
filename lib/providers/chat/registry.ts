@@ -14,7 +14,7 @@ const providers: Record<ChatAgentId, ChatAgentProvider> = {
   ollama: new OllamaChatProvider(),
 };
 
-const PROVIDER_ORDER: ChatAgentId[] = ["groq", "gemini", "openai", "deepseek", "ollama"];
+const PROVIDER_ORDER: ChatAgentId[] = ["groq", "gemini", "ollama"];
 
 export function getChatAgentProvider(id: string): ChatAgentProvider | undefined {
   return providers[id as ChatAgentId];

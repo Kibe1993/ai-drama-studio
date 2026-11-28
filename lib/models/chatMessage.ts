@@ -27,7 +27,7 @@ const ChatMessageSchema = new Schema(
     conversationId: { type: Schema.Types.ObjectId, required: true },
     role: { type: String, enum: ["user", "assistant", "tool", "system"], required: true },
     content: { type: String, default: "" },
-    provider: { type: String, enum: ["openai", "gemini", "deepseek", "groq"], required: true },
+    provider: { type: String, enum: ["openai", "gemini", "deepseek", "groq", "ollama"], required: true },
     model: { type: String, default: "" },
     toolCalls: [
       {

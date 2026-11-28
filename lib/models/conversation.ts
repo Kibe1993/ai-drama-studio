@@ -20,7 +20,7 @@ const ConversationSchema = new Schema(
   {
     clerkUserId: { type: String, required: true },
     title: { type: String, required: true, default: "New Conversation", maxlength: 200 },
-    provider: { type: String, enum: ["openai", "gemini", "deepseek", "groq"], required: true },
+    provider: { type: String, enum: ["openai", "gemini", "deepseek", "groq", "ollama"], required: true },
     model: { type: String, required: true },
     projectId: { type: Schema.Types.ObjectId, default: null },
     lastMessageAt: { type: Date, default: Date.now },

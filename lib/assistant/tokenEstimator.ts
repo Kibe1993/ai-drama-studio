@@ -56,16 +56,16 @@ export function getHistoryBudget(model: string): number {
   return Math.floor((contextWindow - responseReserve) * 0.65);
 }
 
-export function shouldSummarize(messages: ChatMessage[], model: string): boolean {
-  const budget = getHistoryBudget(model);
-  return estimateConversationTokens(messages) > budget * 0.6;
+export function shouldSummarize(messages: ChatMessage[], model: string, reservedTokens = 0): boolean {
+  const budget = getHistoryBudget(model) - reservedTokens;
+  return estimateConversationTokens(messages) > budget * 0.7;
 }
 
-export function selectRecentWindow(messages: ChatMessage[], model: string): {
+export function selectRecentWindow(messages: ChatMessage[], model: string, reservedTokens = 0): {
   recent: ChatMessage[];
   toSummarize: ChatMessage[];
 } {
-  const budget = getHistoryBudget(model);
+  const budget = Math.max(1000, getHistoryBudget(model) - reservedTokens);
   const toSummarize: ChatMessage[] = [];
   const recent: ChatMessage[] = [];
   let recentTokens = 0;
@@ -78,9 +78,6 @@ export function selectRecentWindow(messages: ChatMessage[], model: string): {
     }
     recentTokens += msgTokens;
     recent.unshift(messages[i]);
-    if (i === 0) {
-      break;
-    }
   }
 
   return { recent, toSummarize };

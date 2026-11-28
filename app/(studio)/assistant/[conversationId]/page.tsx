@@ -8,6 +8,7 @@ import { AssistantSidebar } from "@/components/assistant/AssistantSidebar";
 import { AgentSelector } from "@/components/assistant/AgentSelector";
 import { ChatMessages, type PendingToolCall } from "@/components/assistant/ChatMessages";
 import { ChatInput } from "@/components/assistant/ChatInput";
+import { ProjectContextPanel } from "@/components/assistant/ProjectContextPanel";
 import type { ChatAgentId, ChatAgentProviderInfo, ChatMessage, ToolCall, ConversationRecord, MessageRecord } from "@/lib/assistant/types";
 
 type DisplayMessage = ChatMessage & { id: string };
@@ -186,6 +187,7 @@ export default function ConversationPage() {
           />
         </div>
         {error ? <div className={styles.error} style={{ padding: "0 1.5rem" }}>{error}</div> : null}
+        <ProjectContextPanel projectId={conversation?.projectId ?? null} />
         <ChatMessages messages={messages} pendingToolCalls={pendingToolCalls} onApprove={handleApprove} streaming={streaming} />
         <ChatInput onSend={handleSend} onCancel={handleCancel} disabled={streaming || !currentProvider?.configured} streaming={streaming} />
       </div>

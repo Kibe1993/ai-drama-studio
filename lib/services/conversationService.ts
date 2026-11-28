@@ -5,11 +5,15 @@ import { requiresApproval, isDestructive } from "@/lib/assistant/toolRegistry";
 import { createPendingApproval, cancelApproval } from "@/lib/assistant/approvalManager";
 import { conversationRepository } from "@/lib/repositories/conversationRepository";
 import { chatMessageRepository } from "@/lib/repositories/chatMessageRepository";
+import { projectMemoryRepository } from "@/lib/repositories/projectMemoryRepository";
+import { memoryRetrievalService } from "@/lib/services/memoryRetrievalService";
+import { assembleContext } from "@/lib/services/contextAssemblyService";
+import { classifyTask } from "@/lib/assistant/taskClassifier";
+import { retrieveArtifacts, shouldRetrieveArtifacts } from "@/lib/assistant/artifactRetriever";
+import { processMemoryUpdates } from "@/lib/services/memoryUpdateProcessor";
 import { logActivity } from "@/lib/mcp/activityLog";
 import {
   estimateConversationTokens,
-  estimateMessageTokens,
-  getHistoryBudget,
   shouldSummarize,
   selectRecentWindow,
 } from "@/lib/assistant/tokenEstimator";
@@ -25,16 +29,6 @@ import type {
 } from "@/lib/assistant/types";
 
 const MAX_TOOL_ITERATIONS = 10;
-const SYSTEM_PROMPT = `You are an AI assistant integrated into AI Drama Studio, a short drama screenplay production system.
-You have access to MCP tools that let you read and modify project data.
-
-When the user asks about their projects, story bibles, characters, scenes, or episodes, use the available tools to retrieve the information and respond conversationally.
-
-Always explain what you are doing when calling a tool. For example: "Let me look up your projects…" then call the tool.
-
-For write operations (updating documents, creating entities), the user will be asked to approve the action before it executes.
-
-Be conversational, helpful, and concise. Use markdown formatting for structured responses.`;
 
 const SUMMARIZATION_PROMPT = `Summarize this conversation, preserving:
 - The project being discussed and its current state
@@ -61,37 +55,6 @@ export type ChatParams = {
 
 export type ChatStreamOutput = ChatStreamEvent | { type: "conversation"; conversationId: string };
 
-function buildContextMessages(history: ChatMessage[], model: string, summary: string | null): ChatMessage[] {
-  const systemMessages: ChatMessage[] = [
-    { role: "system", content: SYSTEM_PROMPT },
-  ];
-
-  if (summary) {
-    systemMessages.push({
-      role: "system",
-      content: `Previous conversation summary:\n${summary}`,
-    });
-  }
-
-  const budget = getHistoryBudget(model);
-  const historyTokens = estimateConversationTokens(history);
-
-  if (historyTokens <= budget) {
-    return [...systemMessages, ...history];
-  }
-
-  if (summary) {
-    const { recent } = selectRecentWindow(history, model);
-    return [...systemMessages, ...recent];
-  }
-
-  const { recent, toSummarize } = selectRecentWindow(history, model);
-  const summarizeNote: ChatMessage = {
-    role: "system",
-    content: `[Note: ${toSummarize.length} earlier messages were omitted to fit the context window. Summarization will be generated after this response.]`,
-  };
-  return [...systemMessages, summarizeNote, ...recent];
-}
 
 async function generateSummary(
   provider: ReturnType<typeof getChatAgentProvider>,
@@ -181,7 +144,55 @@ export async function* chat(params: ChatParams): AsyncGenerator<ChatStreamOutput
   const executor = await getToolExecutor(params.clerkUserId);
   const toolSchemas = await executor.listExposedTools();
 
-  const allMessages: ChatMessage[] = buildContextMessages(history, params.model, conversation.summary?.text ?? null);
+  const projectId = params.projectId ?? conversation.projectId;
+  let projectMemory: Array<{ category: string; key: string; value: string; status: string }> = [];
+  let retrievedContext: Array<{ source: string; content: string }> = [];
+
+  if (projectId) {
+    try {
+      const confirmed = await projectMemoryRepository.listConfirmed(params.clerkUserId, projectId);
+      projectMemory = confirmed.map((m) => ({
+        category: m.category,
+        key: m.key,
+        value: m.value,
+        status: m.status,
+      }));
+    } catch { /* memory fetch is best-effort */ }
+
+    try {
+      const retrieved = await memoryRetrievalService.retrieve(params.clerkUserId, {
+        conversationId: conversation.id,
+        projectId,
+        query: params.message,
+        limit: 5,
+      });
+      retrievedContext = retrieved.map((r) => ({
+        source: r.source,
+        content: r.content,
+      }));
+    } catch { /* retrieval is best-effort */ }
+
+    try {
+      const recentTexts = history.slice(-5).map((m) => m.content);
+      const classification = classifyTask(params.message, recentTexts, []);
+      if (shouldRetrieveArtifacts(classification.type)) {
+        const artifacts = await retrieveArtifacts(params.clerkUserId, projectId, classification);
+        for (const a of artifacts) {
+          retrievedContext.push({ source: a.source, content: a.content });
+        }
+      }
+    } catch { /* artifact retrieval is best-effort */ }
+  }
+
+  const assembled = assembleContext({
+    history,
+    model: params.model,
+    summary: conversation.summary?.text ?? null,
+    projectMemory: projectMemory.length > 0 ? projectMemory : undefined,
+    retrievedContext: retrievedContext.length > 0 ? retrievedContext : undefined,
+  });
+
+  const allMessages: ChatMessage[] = assembled.messages;
 
   let iteration = 0;
   let assistantContent = "";
@@ -263,23 +274,6 @@ export async function* chat(params: ChatParams): AsyncGenerator<ChatStreamOutput
             toolCall.result = isDestructive(tc.name) ? "Operation rejected by user." : "Action cancelled by user.";
             toolCall.status = "rejected";
             yield { type: "tool_result", id: tc.id, result: toolCall.result, status: "rejected" };
-            allMessages.push({
-              role: "assistant",
-              content: assistantContent,
-              toolCalls: [toolCall],
-            });
-            allMessages.push({
-              role: "tool",
-              content: toolCall.result,
-              toolCalls: [toolCall],
-            });
-            await chatMessageRepository.create(params.clerkUserId, conversation.id, {
-              role: "tool",
-              content: toolCall.result,
-              provider: params.provider,
-              model: params.model,
-              toolCalls: [toolCall],
-            });
             continue;
           }
         }
@@ -291,35 +285,41 @@ export async function* chat(params: ChatParams): AsyncGenerator<ChatStreamOutput
         yield { type: "tool_result", id: tc.id, result: result.result, status: result.status };
 
         logActivity(tc.name, params.clerkUserId, null, JSON.stringify({ args: tc.args, result: result.result.slice(0, 500), conversationId: conversation.id }), result.status, "assistant");
-
-        allMessages.push({
-          role: "assistant",
-          content: assistantContent,
-          toolCalls: [toolCall],
-        });
-        allMessages.push({
-          role: "tool",
-          content: result.result,
-          toolCalls: [toolCall],
-        });
-
-        await chatMessageRepository.create(params.clerkUserId, conversation.id, {
-          role: "assistant",
-          content: assistantContent,
-          provider: params.provider,
-          model: params.model,
-          toolCalls: [toolCall],
-          usage: undefined,
-        });
-        await chatMessageRepository.create(params.clerkUserId, conversation.id, {
-          role: "tool",
-          content: result.result,
-          provider: params.provider,
-          model: params.model,
-          toolCalls: [toolCall],
-        });
-        await conversationRepository.touch(params.clerkUserId, conversation.id);
       }
+
+      allMessages.push({
+        role: "assistant",
+        content: assistantContent,
+        toolCalls: assistantToolCalls.length > 0 ? assistantToolCalls : undefined,
+      });
+
+      for (const tc of assistantToolCalls) {
+        allMessages.push({
+          role: "tool",
+          content: tc.result ?? "",
+          toolCalls: [tc],
+        });
+      }
+
+      await chatMessageRepository.create(params.clerkUserId, conversation.id, {
+        role: "assistant",
+        content: assistantContent,
+        provider: params.provider,
+        model: params.model,
+        toolCalls: assistantToolCalls.length > 0 ? assistantToolCalls : undefined,
+        usage: undefined,
+      });
+
+      for (const tc of assistantToolCalls) {
+        await chatMessageRepository.create(params.clerkUserId, conversation.id, {
+          role: "tool",
+          content: tc.result ?? "",
+          provider: params.provider,
+          model: params.model,
+          toolCalls: [tc],
+        });
+      }
+      await conversationRepository.touch(params.clerkUserId, conversation.id);
 
       assistantContent = "";
       assistantToolCalls = [];
@@ -346,6 +346,18 @@ export async function* chat(params: ChatParams): AsyncGenerator<ChatStreamOutput
     }
     return;
   }
+
+  try {
+    if (projectId && assistantContent) {
+      await processMemoryUpdates(
+        params.clerkUserId,
+        projectId,
+        conversation.id,
+        params.message,
+        assistantContent,
+      );
+    }
+  } catch { /* memory update is best-effort */ }
 
   try {
     const updatedConversation = await conversationRepository.findOwned(params.clerkUserId, conversation.id);

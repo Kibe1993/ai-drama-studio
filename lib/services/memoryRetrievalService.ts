@@ -19,6 +19,7 @@ type LeanChatMessage = {
   conversationId: mongoose.Types.ObjectId;
   content: string;
   createdAt?: Date;
+  score?: number;
 };
 
 type LeanConversation = {
@@ -52,7 +53,7 @@ export const memoryRetrievalService = {
       source: "conversation_history" as const,
       conversationId,
       content: doc.content,
-      relevance: 1,
+      relevance: doc.score ?? 1,
       createdAt: doc.createdAt?.toISOString() ?? new Date().toISOString(),
     }));
   },
@@ -99,7 +100,7 @@ export const memoryRetrievalService = {
       source: "cross_conversation" as const,
       conversationId: doc.conversationId?.toString() ?? null,
       content: doc.content,
-      relevance: 1,
+      relevance: doc.score ?? 1,
       createdAt: doc.createdAt?.toISOString() ?? new Date().toISOString(),
     }));
   },

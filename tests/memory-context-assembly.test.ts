@@ -305,9 +305,9 @@ describe("Memory isolation", () => {
 });
 
 describe("Summarization thresholds", () => {
-  it("triggers summarization at 60% of history budget", () => {
+  it("triggers summarization at 70% of history budget", () => {
     const budget = getHistoryBudget("llama-3.1-8b-instant");
-    const charsNeeded = Math.ceil(budget * 0.6 * 4);
+    const charsNeeded = Math.ceil(budget * 0.7 * 4);
     const history = msgs(1, charsNeeded);
     expect(shouldSummarize(history, "llama-3.1-8b-instant")).toBe(true);
   });

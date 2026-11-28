@@ -65,9 +65,10 @@ export function assembleContext(input: ContextAssemblyInput): ContextAssemblyRes
   }
 
   const budget = getHistoryBudget(input.model);
+  const systemTokens = estimateConversationTokens(messages);
   const historyTokens = estimateConversationTokens(input.history);
 
-  if (historyTokens <= budget) {
+  if (historyTokens <= budget - systemTokens) {
     const allMessages = [...messages, ...input.history];
     return {
       messages: allMessages,
@@ -77,7 +78,7 @@ export function assembleContext(input: ContextAssemblyInput): ContextAssemblyRes
     };
   }
 
-  const { recent, toSummarize } = selectRecentWindow(input.history, input.model);
+  const { recent, toSummarize } = selectRecentWindow(input.history, input.model, systemTokens);
   if (input.summary) {
     const allMessages = [...messages, ...recent];
     return {

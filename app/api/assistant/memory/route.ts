@@ -57,6 +57,18 @@ export function POST(request: Request) {
       return jsonData({ memory: result.record, conflict: result.conflict });
     }
 
+    if (action === "supersede" && parsed.data.category && parsed.data.key && parsed.data.value) {
+      const record = await projectMemoryRepository.supersede(
+        actor.userId,
+        projectId,
+        parsed.data.category,
+        parsed.data.key,
+        parsed.data.value,
+        parsed.data.source ?? "correction",
+      );
+      return jsonData({ memory: record });
+    }
+
     return errorResponse(400, "invalid_action", "Invalid action or missing fields");
   });
 }

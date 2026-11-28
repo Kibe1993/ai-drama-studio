@@ -79,9 +79,9 @@ describe("shouldSummarize", () => {
     expect(shouldSummarize(messages, "openai/gpt-oss-120b")).toBe(false);
   });
 
-  it("returns true when conversation exceeds 60% of history budget", () => {
+  it("returns true when conversation exceeds 70% of history budget", () => {
     const budget = getHistoryBudget("llama-3.1-8b-instant");
-    const charsNeeded = budget * 0.6 * 4;
+    const charsNeeded = budget * 0.7 * 4;
     const messages = makeMessages(1, Math.ceil(charsNeeded));
     expect(shouldSummarize(messages, "llama-3.1-8b-instant")).toBe(true);
   });

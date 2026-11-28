@@ -8,6 +8,12 @@ export type ConversationShape = {
   projectId: Schema.Types.ObjectId | null;
   lastMessageAt: Date;
   messageCount: number;
+  summary: {
+    text: string | null;
+    updatedAt: Date | null;
+    messageCountAtSummary: number;
+    tokenEstimate: number;
+  } | null;
 };
 
 const ConversationSchema = new Schema(
@@ -19,6 +25,15 @@ const ConversationSchema = new Schema(
     projectId: { type: Schema.Types.ObjectId, default: null },
     lastMessageAt: { type: Date, default: Date.now },
     messageCount: { type: Number, default: 0, min: 0 },
+    summary: {
+      type: {
+        text: { type: String, default: null },
+        updatedAt: { type: Date, default: null },
+        messageCountAtSummary: { type: Number, default: 0 },
+        tokenEstimate: { type: Number, default: 0 },
+      },
+      default: null,
+    },
   },
   { timestamps: true, collection: "conversations" }
 );

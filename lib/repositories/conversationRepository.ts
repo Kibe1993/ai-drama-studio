@@ -20,6 +20,14 @@ function toRecord(doc: ConversationDoc): ConversationRecord {
     projectId: doc.projectId?.toString() ?? null,
     lastMessageAt: doc.lastMessageAt.toISOString(),
     messageCount: doc.messageCount,
+    summary: doc.summary && doc.summary.text
+      ? {
+          text: doc.summary.text,
+          updatedAt: (doc.summary.updatedAt ?? new Date()).toISOString(),
+          messageCountAtSummary: doc.summary.messageCountAtSummary ?? 0,
+          tokenEstimate: doc.summary.tokenEstimate ?? 0,
+        }
+      : null,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };
@@ -105,5 +113,23 @@ export const conversationRepository = {
   async remove(clerkUserId: string, id: string): Promise<void> {
     const Conversation = await model();
     await Conversation.deleteOne(ownedQuery(clerkUserId, id));
+  },
+
+  async setSummary(
+    clerkUserId: string,
+    id: string,
+    summary: { text: string; messageCountAtSummary: number; tokenEstimate: number }
+  ): Promise<void> {
+    const Conversation = await model();
+    await Conversation.updateOne(ownedQuery(clerkUserId, id), {
+      $set: {
+        summary: {
+          text: summary.text,
+          updatedAt: new Date(),
+          messageCountAtSummary: summary.messageCountAtSummary,
+          tokenEstimate: summary.tokenEstimate,
+        },
+      },
+    });
   },
 };

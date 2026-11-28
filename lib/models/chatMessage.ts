@@ -25,7 +25,7 @@ const ChatMessageSchema = new Schema(
   {
     clerkUserId: { type: String, required: true },
     conversationId: { type: Schema.Types.ObjectId, required: true },
-    role: { type: String, enum: ["user", "assistant", "tool"], required: true },
+    role: { type: String, enum: ["user", "assistant", "tool", "system"], required: true },
     content: { type: String, required: true },
     provider: { type: String, enum: ["openai", "gemini", "deepseek", "groq"], required: true },
     model: { type: String, default: "" },
@@ -37,7 +37,7 @@ const ChatMessageSchema = new Schema(
         result: { type: String, default: "" },
         status: {
           type: String,
-          enum: ["pending", "success", "error", "awaiting_approval"],
+          enum: ["pending", "success", "error", "awaiting_approval", "rejected"],
           default: "pending",
         },
       },

@@ -1,6 +1,6 @@
 export type ChatAgentId = "openai" | "gemini" | "deepseek" | "groq";
 
-export type ChatRole = "user" | "assistant" | "tool";
+export type ChatRole = "user" | "assistant" | "tool" | "system";
 
 export type TokenUsage = {
   promptTokens?: number;
@@ -71,6 +71,13 @@ export interface ChatAgentProvider {
   }): AsyncGenerator<ChatStreamEvent>;
 }
 
+export type ConversationSummary = {
+  text: string;
+  updatedAt: string;
+  messageCountAtSummary: number;
+  tokenEstimate: number;
+};
+
 export type ConversationRecord = {
   id: string;
   title: string;
@@ -79,6 +86,7 @@ export type ConversationRecord = {
   projectId: string | null;
   lastMessageAt: string;
   messageCount: number;
+  summary: ConversationSummary | null;
   createdAt: string;
   updatedAt: string;
 };

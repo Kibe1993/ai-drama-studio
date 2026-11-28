@@ -161,6 +161,13 @@ export function createWorkflowService(ports: WorkflowPorts) {
         planGenerating,
         planNeedsReview: planReview,
         productionActive,
+        charactersApproved: Boolean(run?.stageResults.characters?.approved),
+        scenesApproved: Boolean(run?.stageResults.scenes?.approved),
+        episodesExist: episodes.length > 0,
+        productionMode: project.productionMode,
+        canonCommitted: Boolean(
+          run?.stageResults.story?.approved && run.stageResults.story?.sourceCanonVersion
+        ),
       };
       const stage = deriveWorkflowStage(signals);
 

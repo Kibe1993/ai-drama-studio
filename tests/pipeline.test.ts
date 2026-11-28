@@ -357,6 +357,15 @@ describe("production pipeline", () => {
     expect(jobs[0]?.status).toBe("queued");
     expect(enqueued).toContain(jobs[0]?.id);
   });
+
+  it("ownedRun throws actionable message when no run exists", async () => {
+    const { api } = harness();
+    await expect(api.generateStory(owner, projectId)).rejects.toMatchObject({
+      code: "run_required",
+      status: 409,
+      message: expect.stringMatching(/No production run exists.*Call pipeline\.start/),
+    });
+  });
 });
 
 describe("worker dependency graph", () => {

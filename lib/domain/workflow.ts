@@ -1,4 +1,4 @@
-import type { ProjectStatus } from "@/lib/domain/projectCatalog";
+import type { ProductionMode, ProjectStatus } from "@/lib/domain/projectCatalog";
 import type { StoryRecord, StoryStatus } from "@/lib/validation/story";
 
 /**
@@ -80,7 +80,8 @@ export type WorkflowStepState =
   | "completed"
   | "awaiting_approval"
   | "current"
-  | "upcoming";
+  | "upcoming"
+  | "skipped";
 
 export type WorkflowStep = {
   stage: WorkflowStage;
@@ -130,6 +131,16 @@ export type WorkflowSignals = {
   planNeedsReview?: boolean;
   /** Production has moved beyond the story stage for the current episode. */
   productionActive: boolean;
+  /** Whether the characters stage has been approved in the production run. */
+  charactersApproved: boolean;
+  /** Whether the scenes stage has been approved in the production run. */
+  scenesApproved: boolean;
+  /** Whether at least one episode exists for the project. */
+  episodesExist: boolean;
+  /** The project's production mode (standalone, serialized, anthology). */
+  productionMode: ProductionMode;
+  /** Whether the canon has been committed (story approved with a source canon version). */
+  canonCommitted: boolean;
 };
 
 /**
@@ -192,22 +203,83 @@ export function isAwaitingApproval(stage: WorkflowStage, signals: WorkflowSignal
   return false;
 }
 
+/**
+ * Whether a stage is explicitly skipped by design. In standalone mode the
+ * project has a single episode with no season planning, so the `planning` and
+ * `episodes` stages are skipped rather than completed.
+ */
+export function isStageSkipped(stage: WorkflowStage, signals: WorkflowSignals): boolean {
+  if (signals.productionMode === "standalone") {
+    return stage === "planning" || stage === "episodes";
+  }
+  return false;
+}
+
+/**
+ * Whether a stage's artifacts actually exist (or the stage is trivially
+ * complete). This replaces the previous index-based "everything before the
+ * current stage is completed" heuristic so that step states reflect reality.
+ */
+export function isStageCompleted(stage: WorkflowStage, signals: WorkflowSignals): boolean {
+  switch (stage) {
+    case "project_setup":
+      return true;
+    case "planning":
+      return signals.bibleApproved;
+    case "bible":
+      return signals.bibleApproved;
+    case "episodes":
+      return signals.planApproved && signals.episodesExist;
+    case "characters":
+      return signals.charactersApproved;
+    case "scenes":
+      return signals.scenesApproved;
+    case "story":
+      return storyIsApproved(signals);
+    case "canon":
+      return signals.canonCommitted;
+    case "production_design":
+      return signals.productionActive;
+    case "audio":
+      return signals.productionActive;
+    case "video":
+      return signals.productionActive;
+    case "timeline":
+      return signals.productionActive;
+    case "rendering":
+      return signals.productionActive && signals.projectStatus === "completed";
+    default:
+      return false;
+  }
+}
+
+/**
+ * Derive the state of a single stage. Evaluation order:
+ *   1. skipped (explicit design skip takes precedence)
+ *   2. current / awaiting_approval (the stage the user should work in now)
+ *   3. completed (artifacts exist)
+ *   4. upcoming (not yet started)
+ */
+export function deriveStepState(
+  stage: WorkflowStage,
+  current: WorkflowStage,
+  signals: WorkflowSignals
+): WorkflowStepState {
+  if (isStageSkipped(stage, signals)) return "skipped";
+  if (stage === current) {
+    return isAwaitingApproval(stage, signals) ? "awaiting_approval" : "current";
+  }
+  if (isStageCompleted(stage, signals)) return "completed";
+  return "upcoming";
+}
+
 export function workflowSteps(signals: WorkflowSignals): WorkflowStep[] {
   const current = deriveWorkflowStage(signals);
-  const currentIndex = WORKFLOW_STAGES.indexOf(current);
-  return WORKFLOW_STAGES.map((stage, index) => {
-    let state: WorkflowStepState;
-    if (index < currentIndex) {
-      state = "completed";
-    } else if (index > currentIndex) {
-      state = "upcoming";
-    } else if (isAwaitingApproval(stage, signals)) {
-      state = "awaiting_approval";
-    } else {
-      state = "current";
-    }
-    return { stage, label: WORKFLOW_STAGE_LABELS[stage], state };
-  });
+  return WORKFLOW_STAGES.map((stage) => ({
+    stage,
+    label: WORKFLOW_STAGE_LABELS[stage],
+    state: deriveStepState(stage, current, signals),
+  }));
 }
 
 /**

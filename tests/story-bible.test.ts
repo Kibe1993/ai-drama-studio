@@ -35,6 +35,7 @@ function project(clerkUserId: string): OwnedProject {
 function memory() {
   let row: StoryBibleRecord | null = null;
   let id = 0;
+  let saveDraftCalls = 0;
   const projects = [project(owner.userId)];
   const repo = {
     async findOwned(userId: string, pid: string) {
@@ -43,6 +44,7 @@ function memory() {
     },
     async saveDraft(userId: string, pid: string, draft: StoryBibleDraft) {
       if (pid !== projectId || !projects.some((item) => item.clerkUserId === userId)) return null;
+      saveDraftCalls += 1;
       id += 1;
       row = {
         ...draft,
@@ -80,7 +82,7 @@ function memory() {
       return row;
     },
   };
-  return { repo, projects, get row() { return row; } };
+  return { repo, projects, get row() { return row; }, get saveDraftCalls() { return saveDraftCalls; } };
 }
 
 describe("Story Bible approval", () => {
@@ -89,7 +91,7 @@ describe("Story Bible approval", () => {
     const service = createStoryBibleService(store.repo, {
       async findOwned(userId, pid) { return store.projects.find((item) => item.id === pid && item.clerkUserId === userId) ?? null; },
     });
-    const initial = await service.get(owner, projectId);
+    const initial = await service.ensureExists(owner, projectId);
     const draft = await service.save(owner, projectId, storyBibleDraftSchema.parse({
       premise: "A family protects an old secret.",
       canonFacts: ["The clock stopped at midnight."],
@@ -105,7 +107,7 @@ describe("Story Bible approval", () => {
     const service = createStoryBibleService(store.repo, {
       async findOwned(userId, pid) { return store.projects.find((item) => item.id === pid && item.clerkUserId === userId) ?? null; },
     });
-    const initial = await service.get(owner, projectId);
+    const initial = await service.ensureExists(owner, projectId);
     const oldDraft = await service.save(owner, projectId, { premise: "Version one", worldRules: [], themes: [], boundaries: [], canonFacts: [] });
     await service.save(owner, projectId, { premise: "Version two", worldRules: [], themes: [], boundaries: [], canonFacts: [] });
     await expect(service.approve(owner, projectId, initial.approvedVersion, oldDraft.draftRevision)).rejects.toMatchObject({ code: "stale_bible" });
@@ -117,7 +119,7 @@ describe("Story Bible approval", () => {
     const service = createStoryBibleService(store.repo, {
       async findOwned(userId, pid) { return store.projects.find((item) => item.id === pid && item.clerkUserId === userId) ?? null; },
     });
-    const initial = await service.get(owner, projectId);
+    const initial = await service.ensureExists(owner, projectId);
     const firstDraft = await service.save(owner, projectId, { premise: "First canon", worldRules: [], themes: [], boundaries: [], canonFacts: [] });
     const first = await service.approve(owner, projectId, initial.approvedVersion, firstDraft.draftRevision);
     const secondDraft = await service.save(owner, projectId, { premise: "Updated canon", worldRules: [], themes: [], boundaries: [], canonFacts: [] });
@@ -130,7 +132,7 @@ describe("Story Bible approval", () => {
     const service = createStoryBibleService(store.repo, {
       async findOwned(userId, pid) { return store.projects.find((item) => item.id === pid && item.clerkUserId === userId) ?? null; },
     });
-    await expect(service.get(other, projectId)).rejects.toMatchObject({ code: "not_found" });
+    await expect(service.get(other, projectId)).resolves.toBeNull();
     await expect(service.save(other, projectId, { premise: "No", worldRules: [], themes: [], boundaries: [], canonFacts: [] })).rejects.toMatchObject({ code: "not_found" });
   });
 
@@ -143,5 +145,48 @@ describe("Story Bible approval", () => {
       },
     });
     await expect(service.save(owner, projectId, { premise: "No mid-run edits", worldRules: [], themes: [], boundaries: [], canonFacts: [] })).rejects.toMatchObject({ code: "project_busy" });
+  });
+
+  it("get returns null when no bible exists", async () => {
+    const store = memory();
+    const service = createStoryBibleService(store.repo, {
+      async findOwned(userId, pid) { return store.projects.find((item) => item.id === pid && item.clerkUserId === userId) ?? null; },
+    });
+    const result = await service.get(owner, projectId);
+    expect(result).toBeNull();
+    expect(store.row).toBeNull();
+  });
+
+  it("get does not create a record as a side effect", async () => {
+    const store = memory();
+    const service = createStoryBibleService(store.repo, {
+      async findOwned(userId, pid) { return store.projects.find((item) => item.id === pid && item.clerkUserId === userId) ?? null; },
+    });
+    await service.get(owner, projectId);
+    await service.get(owner, projectId);
+    expect(store.saveDraftCalls).toBe(0);
+  });
+
+  it("ensureExists creates a record when none exists", async () => {
+    const store = memory();
+    const service = createStoryBibleService(store.repo, {
+      async findOwned(userId, pid) { return store.projects.find((item) => item.id === pid && item.clerkUserId === userId) ?? null; },
+    });
+    const result = await service.ensureExists(owner, projectId);
+    expect(result).not.toBeNull();
+    expect(result.draftRevision).toBe(1);
+    expect(store.row).not.toBeNull();
+  });
+
+  it("ensureExists returns existing record without creating a duplicate", async () => {
+    const store = memory();
+    const service = createStoryBibleService(store.repo, {
+      async findOwned(userId, pid) { return store.projects.find((item) => item.id === pid && item.clerkUserId === userId) ?? null; },
+    });
+    await service.save(owner, projectId, { premise: "Existing", worldRules: [], themes: [], boundaries: [], canonFacts: [] });
+    const callsBefore = store.saveDraftCalls;
+    const result = await service.ensureExists(owner, projectId);
+    expect(result.premise).toBe("Existing");
+    expect(store.saveDraftCalls).toBe(callsBefore);
   });
 });

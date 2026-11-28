@@ -9,9 +9,9 @@ const key = (projectId: string) => ["story-bible", projectId] as const;
 export function useStoryBible(projectId: string) {
   return useQuery({
     queryKey: key(projectId),
-    queryFn: () => api<{ bible: StoryBibleRecord }>(`/api/projects/${projectId}/story-bible`),
+    queryFn: () => api<{ bible: StoryBibleRecord | null }>(`/api/projects/${projectId}/story-bible`),
     refetchInterval: (query) => {
-      const status = query.state.data?.bible.generationStatus;
+      const status = query.state.data?.bible?.generationStatus;
       return status === "queued" || status === "processing" ? 2000 : false;
     },
   });

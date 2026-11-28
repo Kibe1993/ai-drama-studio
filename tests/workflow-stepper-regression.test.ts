@@ -52,6 +52,11 @@ function signals(overrides: Partial<WorkflowSignals> = {}): WorkflowSignals {
     planDraftReady: false,
     planGenerating: false,
     productionActive: false,
+    charactersApproved: false,
+    scenesApproved: false,
+    episodesExist: false,
+    productionMode: "serialized",
+    canonCommitted: false,
     ...overrides,
   };
 }
@@ -129,9 +134,9 @@ describe("WorkflowStepper regression: steps must never be undefined", () => {
       currentStage: "done" as const,
       status: "completed" as const,
       stageResults: {
-        story: { title: "T", synopsis: "S", approved: true, storyId: "f".repeat(24) },
-        characters: {},
-        scenes: {},
+        story: { title: "T", synopsis: "S", approved: true, storyId: "f".repeat(24), sourceCanonVersion: 1 },
+        characters: { approved: true },
+        scenes: { approved: true },
         media: {},
         render: {},
       },

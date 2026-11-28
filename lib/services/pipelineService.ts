@@ -25,7 +25,7 @@ function requireProjectId(id: string) {
 
 async function ownedRun(deps: PipelineDeps, actor: RequestAuth, projectId: string): Promise<RunRecord> {
   const run = await deps.runs.findLatest(actor.userId, projectId);
-  if (!run) throw new StudioError("Start a production before this step", 409, "run_required");
+  if (!run) throw new StudioError("No production run exists for this project. Call pipeline.start first to create a production run at the story stage.", 409, "run_required");
   return run;
 }
 

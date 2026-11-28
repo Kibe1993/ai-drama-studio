@@ -40,15 +40,21 @@ export function createStoryBibleService(
   }
 
   return {
-    async get(actor: RequestAuth, projectId: string) {
+    async get(actor: RequestAuth, projectId: string): Promise<StoryBibleRecord | null> {
       requireId(projectId);
-      const bible = await repository.findOwned(actor.userId, projectId) ?? await repository.saveDraft(
+      return repository.findOwned(actor.userId, projectId);
+    },
+    async ensureExists(actor: RequestAuth, projectId: string): Promise<StoryBibleRecord> {
+      requireId(projectId);
+      const existing = await repository.findOwned(actor.userId, projectId);
+      if (existing) return existing;
+      const created = await repository.saveDraft(
         actor.userId,
         projectId,
         { premise: "", worldRules: [], themes: [], boundaries: [], canonFacts: [] }
       );
-      if (!bible) throw new StudioError("Project not found", 404, "not_found");
-      return bible;
+      if (!created) throw new StudioError("Project not found", 404, "not_found");
+      return created;
     },
     async save(actor: RequestAuth, projectId: string, draft: StoryBibleDraft) {
       requireId(projectId);

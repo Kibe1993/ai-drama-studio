@@ -10,9 +10,10 @@ type Props = {
   currentConversationId: string | null;
   providerFilter: ChatAgentId | null;
   onFilterChange: (provider: ChatAgentId | null) => void;
+  onNewChat?: () => void;
 };
 
-export function AssistantSidebar({ currentConversationId, providerFilter, onFilterChange }: Props) {
+export function AssistantSidebar({ currentConversationId, providerFilter, onFilterChange, onNewChat }: Props) {
   const [conversations, setConversations] = useState<ConversationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -36,7 +37,11 @@ export function AssistantSidebar({ currentConversationId, providerFilter, onFilt
   }, [loadConversations]);
 
   async function handleNewChat() {
-    router.push("/assistant");
+    if (onNewChat) {
+      onNewChat();
+    } else {
+      router.push("/assistant");
+    }
   }
 
   async function handleDelete(id: string, e: React.MouseEvent) {

@@ -7,7 +7,7 @@ import { AgentSelector } from "@/components/assistant/AgentSelector";
 import { ChatMessages, type PendingToolCall } from "@/components/assistant/ChatMessages";
 import { ChatInput } from "@/components/assistant/ChatInput";
 import { ProjectContextPanel } from "@/components/assistant/ProjectContextPanel";
-import type { ChatAgentId, ChatAgentProviderInfo, ChatMessage, ToolCall, TokenUsage } from "@/lib/assistant/types";
+import type { ChatAgentId, ChatAgentProviderInfo, ChatMessage, ToolCall } from "@/lib/assistant/types";
 
 type DisplayMessage = ChatMessage & { id: string };
 type ProjectOption = { id: string; title: string };
@@ -16,6 +16,7 @@ export default function AssistantPage() {
   const [providers, setProviders] = useState<ChatAgentProviderInfo[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<ChatAgentId>("groq");
   const [selectedModel, setSelectedModel] = useState("");
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>([]);
   const [streaming, setStreaming] = useState(false);
@@ -76,7 +77,7 @@ export default function AssistantPage() {
           provider: selectedProvider,
           model: selectedModel,
           message,
-          conversationId: null,
+          conversationId,
           projectId: selectedProjectId,
         }),
         signal: controller.signal,
@@ -122,6 +123,7 @@ export default function AssistantPage() {
               } else if (event.type === "usage") {
                 setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, usage: event.usage } : m));
               } else if (event.type === "conversation") {
+                setConversationId(event.conversationId);
                 window.history.replaceState(null, "", `/assistant/${event.conversationId}`);
               } else if (event.type === "error") {
                 setError(event.error);
@@ -137,7 +139,19 @@ export default function AssistantPage() {
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [selectedProvider, selectedModel, selectedProjectId]);
+  }, [selectedProvider, selectedModel, selectedProjectId, conversationId]);
+
+  function handleNewChat() {
+    if (streaming) {
+      abortRef.current?.abort();
+      setStreaming(false);
+    }
+    setConversationId(null);
+    setMessages([]);
+    setPendingToolCalls([]);
+    setError("");
+    window.history.replaceState(null, "", "/assistant");
+  }
 
   function handleCancel() {
     abortRef.current?.abort();
@@ -160,9 +174,10 @@ export default function AssistantPage() {
   return (
     <div className={styles.page}>
       <AssistantSidebar
-        currentConversationId={null}
+        currentConversationId={conversationId}
         providerFilter={providerFilter}
         onFilterChange={setProviderFilter}
+        onNewChat={handleNewChat}
       />
       <div className={styles.main}>
         <div className={styles.mainHeader}>
